@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block page_title %}机器人管理{% endblock %}
+{% block content %}
+<div class="flex mb-12"><div></div><button class="btn btn-primary">+ 注册机器人</button></div>
+<div class="card">
+    <table class="table">
+        <tr><th>ID</th><th>名称</th><th>类型</th><th>状态</th><th>IP</th><th>传感器</th><th>适用场景</th><th>操作</th></tr>
+        {% for r in robots %}
+        <tr>
+            <td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.type }}</td>
+            <td><span class="status-badge {% if r.status == '在线' %}status-online{% else %}status-offline{% endif %}">{{ r.status }}</span></td>
+            <td>{{ r.ip }}</td><td>{{ r.sensors }}</td><td>{{ r.scene }}</td>
+            <td><button class="btn btn-primary btn-sm">查看</button> <button class="btn btn-sm" style="background:#f0f0f0;">编辑</button></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

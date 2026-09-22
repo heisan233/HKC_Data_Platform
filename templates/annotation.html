@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block page_title %}数据标注{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">✏️ 标注任务、状态流转、批量标注、问题标注</span></div>
+    <button class="btn btn-primary">+ 新建标注任务</button>
+</div>
+<div class="card">
+    <table class="table">
+        <tr><th>ID</th><th>数据集</th><th>标注类型</th><th>标注员</th><th>状态</th><th>进度</th><th>操作</th></tr>
+        {% for t in tasks %}
+        <tr>
+            <td>{{ t.id }}</td>
+            <td>{{ t.dataset }}</td>
+            <td>{{ t.type }}</td>
+            <td>{{ t.annotator }}</td>
+            <td><span class="status-badge
+                {% if t.status == '已完成' %}status-done
+                {% elif t.status == '标注中' %}status-running
+                {% elif t.status == '待审核' %}status-paused
+                {% else %}status-offline{% endif %}">{{ t.status }}</span></td>
+            <td>
+                <div style="background:#e9edf4;border-radius:6px;height:8px;width:120px;display:inline-block;vertical-align:middle;">
+                    <div style="background:#2b7de9;height:8px;border-radius:6px;width:{{ t.progress }}%;"></div>
+                </div>
+                <span style="font-size:12px;color:#666;margin-left:6px;">{{ t.progress }}%</span>
+            </td>
+            <td>
+                <button class="btn btn-primary btn-sm">去标注</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;">详情</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block page_title %}数据质检{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">✅ 质检规则、执行、报告、打回重采</span></div>
+    <button class="btn btn-primary">+ 新建质检任务</button>
+</div>
+
+<div class="card">
+    <h3>📋 质检规则</h3>
+    <table class="table">
+        <tr><th>ID</th><th>规则名称</th><th>目标</th><th>状态</th></tr>
+        {% for r in rules %}
+        <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.name }}</td>
+            <td>{{ r.target }}</td>
+            <td><span class="status-badge status-online">{{ r.status }}</span></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<div class="card">
+    <h3>📊 质检报告</h3>
+    <table class="table">
+        <tr><th>ID</th><th>数据集</th><th>通过</th><th>失败</th><th>结果</th><th>时间</th><th>操作</th></tr>
+        {% for r in reports %}
+        <tr>
+            <td>{{ r.id }}</td>
+            <td>{{ r.dataset }}</td>
+            <td>{{ r.passed }}</td>
+            <td>{{ r.failed }}</td>
+            <td><span class="status-badge
+                {% if r.result == '通过' %}status-done
+                {% else %}status-error{% endif %}">{{ r.result }}</span></td>
+            <td style="font-size:13px;color:#666;">{{ r.time }}</td>
+            <td><button class="btn btn-primary btn-sm">查看报告</button></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

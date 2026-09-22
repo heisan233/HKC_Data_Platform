@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block page_title %}数据集导出{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">📤 支持 LeRobot、HDF5、RLDS、MCAP、JSON、CSV 等格式</span></div>
+    <button class="btn btn-primary">+ 新建导出任务</button>
+</div>
+
+<div class="card">
+    <h3>📦 支持格式</h3>
+    <div>{% for f in formats %}<span class="tag" style="font-size:13px;padding:4px 12px;">{{ f }}</span>{% endfor %}</div>
+</div>
+
+<div class="card">
+    <h3>📋 导出历史</h3>
+    <table class="table">
+        <tr><th>ID</th><th>数据集</th><th>目标格式</th><th>大小</th><th>状态</th><th>时间</th><th>操作</th></tr>
+        {% for e in exports %}
+        <tr>
+            <td>{{ e.id }}</td>
+            <td>{{ e.dataset }}</td>
+            <td><span class="tag">{{ e.format }}</span></td>
+            <td>{{ e.size }}</td>
+            <td><span class="status-badge
+                {% if e.status == '已完成' %}status-done
+                {% else %}status-paused{% endif %}">{{ e.status }}</span></td>
+            <td style="font-size:13px;color:#666;">{{ e.time }}</td>
+            <td><button class="btn btn-primary btn-sm">下载</button></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

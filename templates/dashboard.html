@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block page_title %}工作台{% endblock %}
+{% block content %}
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:24px;">
+    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#2b7de9;">{{ stats.datasets }}</div><div class="text-muted">数据集总数</div></div>
+    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#1890ff;">{{ stats.raw_hours }}h</div><div class="text-muted">原始数据时长</div></div>
+    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#722ed1;">{{ stats.annotated }}</div><div class="text-muted">已标注数据集</div></div>
+    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#52c41a;">{{ stats.qc_passed }}</div><div class="text-muted">质检通过</div></div>
+    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#faad14;">{{ stats.training }}</div><div class="text-muted">训练任务</div></div>
+</div>
+<div class="card"><h3>📌 近期任务进度</h3>
+    <table class="table">
+        <tr><th>任务名称</th><th>机器人</th><th>状态</th><th>进度</th></tr>
+        {% for r in recent %}
+        <tr>
+            <td>{{ r.name }}</td>
+            <td>{{ r.robot }}</td>
+            <td><span class="status-badge
+                {% if r.status == '已完成' %}status-done
+                {% elif r.status == '采集中' %}status-running
+                {% elif r.status == '质检中' %}status-paused
+                {% else %}status-running{% endif %}">{{ r.status }}</span></td>
+            <td>
+                <div style="background:#e9edf4;border-radius:6px;height:8px;width:160px;display:inline-block;vertical-align:middle;">
+                    <div style="background:#2b7de9;height:8px;border-radius:6px;width:{{ r.progress }}%;"></div>
+                </div>
+                <span style="font-size:12px;color:#666;margin-left:6px;">{{ r.progress }}%</span>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

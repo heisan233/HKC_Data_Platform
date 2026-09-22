@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block page_title %}数据管理{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">📁 数据集检索、筛选、预览、批量操作</span></div>
+    <button class="btn btn-primary">+ 上传数据</button>
+</div>
+<div class="card">
+    <table class="table">
+        <tr><th>ID</th><th>数据集名称</th><th>机器人</th><th>Episodes</th><th>时长</th><th>格式</th><th>状态</th><th>质检</th><th>操作</th></tr>
+        {% for d in datasets %}
+        <tr>
+            <td>{{ d.id }}</td>
+            <td><strong>{{ d.name }}</strong></td>
+            <td>{{ d.robot }}</td>
+            <td>{{ d.episodes }}</td>
+            <td>{{ d.hours }}h</td>
+            <td><span class="tag">{{ d.format }}</span></td>
+            <td><span class="status-badge
+                {% if d.status == '已入库' %}status-done
+                {% elif d.status == '采集中' %}status-running
+                {% else %}status-paused{% endif %}">{{ d.status }}</span></td>
+            <td><span class="status-badge
+                {% if d.qc == '通过' %}status-done
+                {% elif d.qc == '待检' %}status-paused
+                {% else %}status-offline{% endif %}">{{ d.qc }}</span></td>
+            <td>
+                <button class="btn btn-primary btn-sm">预览</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;">详情</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

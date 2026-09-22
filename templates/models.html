@@ -1,0 +1,258 @@
+{% extends "base.html" %}
+{% block page_title %}模型管理{% endblock %}
+{% block content %}
+<div class="flex mb-12"><div></div><button class="btn btn-primary">+ 导入模型</button></div>
+<div class="card">
+    <table class="table">
+        <tr><th>ID</th><th>模型名称</th><th>版本</th><th>类型</th><th>大小</th><th>FPS</th><th>mAP</th><th>状态</th><th>操作</th></tr>
+        {% for m in models %}
+        <tr>
+            <td>{{ m.id }}</td>
+            <td><strong>{{ m.name }}</strong></td>
+            <td>{{ m.version }}</td>
+            <td>{{ m.type }}</td>
+            <td>{{ m.size }}</td>
+            <td>{{ m.fps }}</td>
+            <td>{{ m.mAP }}</td>
+            <td><span class="status-badge {% if m.status == '已发布' %}status-online{% else %}status-paused{% endif %}">{{ m.status }}</span></td>
+            <td>
+                <button class="btn btn-primary btn-sm btn-test" data-model="{{ m.name }}">推理测试</button>
+                <button class="btn btn-sm" style="background:#f0f0f0;">详情</button>
+            </td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<!-- ===== 推理测试模态框 ===== -->
+<div id="testModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:999;justify-content:center;align-items:center;">
+    <div style="background:#fff;border-radius:12px;width:90%;max-width:900px;max-height:90vh;overflow-y:auto;padding:32px;box-shadow:0 8px 40px rgba(0,0,0,0.3);">
+        <!-- 标题栏 -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h2 style="color:#1a3c5e;font-size:20px;">🧪 模型推理测试</h2>
+            <button id="closeModal" style="background:none;border:none;font-size:24px;cursor:pointer;color:#999;">&times;</button>
+        </div>
+
+        <!-- 选择模型 -->
+        <div style="margin-bottom:16px;">
+            <label style="font-weight:600;font-size:14px;display:block;margin-bottom:4px;">选择模型</label>
+            <select id="modelSelect" style="width:100%;padding:8px 12px;border:1px solid #d9d9d9;border-radius:6px;font-size:14px;">
+                {% for m in models %}
+                <option value="{{ m.name }}">{{ m.name }} (v{{ m.version }}) - {{ m.type }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- 上传图片 -->
+        <div style="margin-bottom:16px;">
+            <label style="font-weight:600;font-size:14px;display:block;margin-bottom:4px;">上传测试图片</label>
+            <div style="border:2px dashed #d9d9d9;border-radius:8px;padding:24px;text-align:center;cursor:pointer;" id="uploadArea">
+                <div style="font-size:32px;color:#ccc;">📤</div>
+                <div style="color:#999;font-size:14px;">点击或拖拽上传图片（支持 JPG / PNG）</div>
+                <input type="file" id="fileInput" accept="image/*" style="display:none;">
+            </div>
+            <div id="fileInfo" style="margin-top:8px;font-size:13px;color:#52c41a;display:none;">✅ 已选择：<span id="fileName"></span></div>
+        </div>
+
+        <!-- 推理按钮 -->
+        <button id="runInference" class="btn btn-primary" style="width:100%;padding:10px;font-size:15px;">🚀 开始推理</button>
+
+        <!-- 推理结果 -->
+        <div id="resultArea" style="margin-top:20px;display:none;">
+            <div style="display:flex;gap:20px;flex-wrap:wrap;">
+                <!-- 原图 -->
+                <div style="flex:1;min-width:200px;">
+                    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">📷 原图</div>
+                    <img id="originalImage" style="width:100%;border-radius:6px;border:1px solid #e9edf4;">
+                </div>
+                <!-- 推理结果图 -->
+                <div style="flex:1;min-width:200px;">
+                    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">🎯 推理结果 <span id="resultInfo" style="font-weight:400;color:#999;font-size:13px;"></span></div>
+                    <img id="resultImage" style="width:100%;border-radius:6px;border:1px solid #e9edf4;">
+                </div>
+            </div>
+            <!-- 检测详情 -->
+            <div style="margin-top:12px;background:#f7f9fc;padding:12px 16px;border-radius:6px;">
+                <div style="font-weight:600;font-size:14px;margin-bottom:6px;">📋 检测详情</div>
+                <div id="detectionDetails" style="font-size:13px;color:#333;"></div>
+            </div>
+        </div>
+
+        <!-- 加载状态 -->
+        <div id="loadingState" style="text-align:center;padding:30px 0;display:none;">
+            <div style="font-size:28px;margin-bottom:8px;">⏳</div>
+            <div style="color:#666;">推理中，请稍候...</div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ===== 模态框控制 =====
+const modal = document.getElementById('testModal');
+const closeBtn = document.getElementById('closeModal');
+const testBtns = document.querySelectorAll('.btn-test');
+
+testBtns.forEach(btn => {
+    btn.addEventListener('click', function() {
+        const modelName = this.dataset.model;
+        document.getElementById('modelSelect').value = modelName;
+        modal.style.display = 'flex';
+        // 重置状态
+        document.getElementById('resultArea').style.display = 'none';
+        document.getElementById('loadingState').style.display = 'none';
+        document.getElementById('fileInfo').style.display = 'none';
+        document.getElementById('fileInput').value = '';
+    });
+});
+
+closeBtn.addEventListener('click', function() {
+    modal.style.display = 'none';
+});
+
+modal.addEventListener('click', function(e) {
+    if (e.target === modal) modal.style.display = 'none';
+});
+
+// ===== 文件上传 =====
+const uploadArea = document.getElementById('uploadArea');
+const fileInput = document.getElementById('fileInput');
+const fileInfo = document.getElementById('fileInfo');
+const fileName = document.getElementById('fileName');
+let uploadedFile = null;
+
+uploadArea.addEventListener('click', function() {
+    fileInput.click();
+});
+
+uploadArea.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    this.style.borderColor = '#2b7de9';
+    this.style.background = '#f0f4ff';
+});
+
+uploadArea.addEventListener('dragleave', function(e) {
+    e.preventDefault();
+    this.style.borderColor = '#d9d9d9';
+    this.style.background = 'transparent';
+});
+
+uploadArea.addEventListener('drop', function(e) {
+    e.preventDefault();
+    this.style.borderColor = '#d9d9d9';
+    this.style.background = 'transparent';
+    if (e.dataTransfer.files.length) {
+        handleFile(e.dataTransfer.files[0]);
+    }
+});
+
+fileInput.addEventListener('change', function() {
+    if (this.files.length) {
+        handleFile(this.files[0]);
+    }
+});
+
+function handleFile(file) {
+    if (!file.type.startsWith('image/')) {
+        alert('请上传图片文件！');
+        return;
+    }
+    uploadedFile = file;
+    fileName.textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+    fileInfo.style.display = 'block';
+}
+
+// ===== 推理执行（模拟） =====
+document.getElementById('runInference').addEventListener('click', function() {
+    if (!uploadedFile) {
+        alert('请先上传一张测试图片！');
+        return;
+    }
+
+    const model = document.getElementById('modelSelect').value;
+    const loading = document.getElementById('loadingState');
+    const resultArea = document.getElementById('resultArea');
+    const resultInfo = document.getElementById('resultInfo');
+    const detectionDetails = document.getElementById('detectionDetails');
+
+    // 显示加载
+    loading.style.display = 'block';
+    resultArea.style.display = 'none';
+
+    // 模拟推理延迟
+    setTimeout(function() {
+        loading.style.display = 'none';
+        resultArea.style.display = 'flex';
+        resultArea.style.flexWrap = 'wrap';
+
+        // 显示原图
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            document.getElementById('originalImage').src = e.target.result;
+            // 模拟推理结果图（带框）
+            drawInferenceResult(e.target.result);
+        };
+        reader.readAsDataURL(uploadedFile);
+
+        // 模拟检测结果
+        const mockResults = generateMockDetections(model);
+        resultInfo.textContent = `⏱ 推理耗时 ${(15 + Math.random() * 35).toFixed(1)}ms | 检测到 ${mockResults.length} 个目标`;
+        detectionDetails.innerHTML = mockResults.map(d => 
+            `<span style="display:inline-block;background:#eef3ff;color:#1a3c5e;padding:2px 12px;border-radius:4px;margin:3px 4px 3px 0;">${d.class} (${d.confidence}%)</span>`
+        ).join('');
+    }, 800 + Math.random() * 600);
+});
+
+// ===== 模拟推理结果图（画框） =====
+function drawInferenceResult(imageDataUrl) {
+    const img = new Image();
+    img.onload = function() {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        // 画随机框
+        const colors = ['#ff4d4f', '#2b7de9', '#52c41a', '#faad14', '#722ed1', '#eb2f96'];
+        const labels = ['咖啡杯', '结构件', '纸箱', '贴片', '托盘', '零件', '盒子', '螺丝'];
+        const numBoxes = 2 + Math.floor(Math.random() * 4);
+        for (let i = 0; i < numBoxes; i++) {
+            const x = 50 + Math.random() * (canvas.width - 200);
+            const y = 50 + Math.random() * (canvas.height - 200);
+            const w = 60 + Math.random() * 180;
+            const h = 40 + Math.random() * 150;
+            const color = colors[i % colors.length];
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, w, h);
+            // 标签背景
+            const label = labels[i % labels.length] + ' ' + (85 + Math.floor(Math.random() * 14)) + '%';
+            ctx.fillStyle = color;
+            ctx.font = 'bold 16px sans-serif';
+            const metrics = ctx.measureText(label);
+            const tw = metrics.width + 12;
+            ctx.fillRect(x, y - 26, tw, 26);
+            ctx.fillStyle = '#fff';
+            ctx.fillText(label, x + 6, y - 6);
+        }
+        document.getElementById('resultImage').src = canvas.toDataURL();
+    };
+    img.src = imageDataUrl;
+}
+
+// ===== 模拟检测结果数据 =====
+function generateMockDetections(model) {
+    const labels = ['咖啡杯', '结构件', '纸箱', '贴片', '托盘', '零件', '盒子', '螺丝', '齿轮', '垫片'];
+    const count = 2 + Math.floor(Math.random() * 4);
+    const results = [];
+    for (let i = 0; i < count; i++) {
+        const conf = 82 + Math.floor(Math.random() * 17);
+        results.push({
+            class: labels[i % labels.length],
+            confidence: conf
+        });
+    }
+    return results;
+}
+</script>
+{% endblock %}

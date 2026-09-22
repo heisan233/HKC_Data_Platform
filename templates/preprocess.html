@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block page_title %}数据预处理{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">🔧 时间对齐、去重、坏帧剔除、格式标准化</span></div>
+    <button class="btn btn-primary">+ 新建预处理任务</button>
+</div>
+<div class="card">
+    <table class="table">
+        <tr><th>ID</th><th>数据集</th><th>预处理规则</th><th>处理前</th><th>处理后</th><th>状态</th><th>时间</th><th>操作</th></tr>
+        {% for t in tasks %}
+        <tr>
+            <td>{{ t.id }}</td>
+            <td>{{ t.dataset }}</td>
+            <td>{{ t.rule }}</td>
+            <td>{{ t.before }}</td>
+            <td>{{ t.after }}</td>
+            <td><span class="status-badge
+                {% if t.status == '已完成' %}status-done
+                {% elif t.status == '运行中' %}status-running
+                {% else %}status-paused{% endif %}">{{ t.status }}</span></td>
+            <td style="font-size:13px;color:#666;">{{ t.time }}</td>
+            <td><button class="btn btn-sm" style="background:#f0f0f0;">日志</button></td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}

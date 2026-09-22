@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block page_title %}系统管理{% endblock %}
+{% block content %}
+<div class="flex mb-12">
+    <div><span class="text-muted">⚙️ 系统日志、权限、审计</span></div>
+</div>
+<div class="card">
+    <h3>📋 系统日志</h3>
+    <table class="table">
+        <tr><th>ID</th><th>时间</th><th>级别</th><th>模块</th><th>内容</th></tr>
+        {% for l in logs %}
+        <tr>
+            <td>{{ l.id }}</td>
+            <td style="font-size:13px;color:#666;">{{ l.time }}</td>
+            <td>
+                <span class="status-badge
+                    {% if l.level == 'ERROR' %}status-error
+                    {% elif l.level == 'WARNING' %}status-paused
+                    {% else %}status-done{% endif %}">{{ l.level }}</span>
+            </td>
+            <td><span class="tag">{{ l.module }}</span></td>
+            <td style="font-size:13px;">{{ l.msg }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+{% endblock %}
