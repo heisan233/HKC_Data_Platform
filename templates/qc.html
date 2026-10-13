@@ -1,43 +1,241 @@
 {% extends "base.html" %}
 {% block page_title %}数据质检{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">✅ 质检规则、执行、报告、打回重采</span></div>
-    <button class="btn btn-primary">+ 新建质检任务</button>
+<style>
+.qc-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+.qc-form { display:flex; gap:10px; align-items:end; flex-wrap:wrap; }
+.qc-form label { display:grid; gap:6px; font-size:13px; color:#555; }
+.qc-form input,.qc-form select { padding:8px; border:1px solid #d9e0e8; border-radius:4px; min-width:220px; }
+.qc-picker-field { display:grid; gap:6px; min-width:320px; font-size:13px; color:#555; }
+.qc-picker { position:relative; }
+.qc-picker-trigger { width:100%; padding:8px 10px; border:1px solid #d9e0e8; border-radius:4px; background:#fff; text-align:left; cursor:pointer; display:flex; justify-content:space-between; gap:12px; color:#263445; }
+.qc-picker-trigger:focus-visible { outline:2px solid #2b7de9; outline-offset:2px; }
+.qc-picker-menu { position:absolute; top:calc(100% + 4px); left:0; width:max(100%,360px); max-width:min(90vw,520px); z-index:20; background:#fff; border:1px solid #d9e0e8; border-radius:8px; box-shadow:0 8px 24px rgba(20,42,65,.15); padding:8px; }
+.qc-picker-menu[hidden] { display:none; }
+.qc-picker-search { box-sizing:border-box; width:100%; min-width:0!important; margin-bottom:6px; }
+.qc-picker-options { max-height:260px; overflow-y:auto; }
+.qc-option-row { display:flex; align-items:center; gap:4px; border-radius:5px; }
+.qc-option-row:hover { background:#f3f7fc; }
+.qc-option-select { flex:1; min-width:0; border:0; background:transparent; padding:9px 7px; text-align:left; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.qc-option-delete { border:0; background:transparent; color:#c43d42; font-size:20px; line-height:1; padding:5px 9px; cursor:pointer; border-radius:4px; }
+.qc-option-delete:hover { background:#fde8e7; }
+.qc-picker-empty { padding:10px; color:#718092; font-size:13px; }
+.qc-actions { display:flex; gap:6px; flex-wrap:wrap; }
+.qc-note { color:#666; font-size:13px; margin:8px 0 14px; }
+.qc-scroll { overflow-x:auto; }
+.qc-dialog { border:0; border-radius:12px; padding:24px; width:min(920px,94vw); max-height:85vh; margin:auto; color:#263445; }
+.qc-dialog::backdrop { background:rgba(18,32,48,.55); }
+.qc-dialog-header { display:flex; justify-content:space-between; align-items:center; padding-bottom:14px; border-bottom:1px solid #e6ebf0; }
+.qc-dialog-header h3 { margin:0; color:#193b5a; }
+.qc-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin:18px 0; }
+.qc-summary-item { padding:14px; border-radius:8px; background:#f5f8fc; }
+.qc-summary-item small { display:block; color:#69798a; margin-bottom:8px; }
+.qc-summary-item strong { font-size:15px; }
+.qc-badge { display:inline-block; border-radius:999px; padding:4px 10px; font-size:12px; font-weight:700; white-space:nowrap; }
+.qc-badge-pass { background:#e4f5eb; color:#166b3c; }
+.qc-badge-review,.qc-badge-warn { background:#fff2cf; color:#8a5b00; }
+.qc-badge-recollect,.qc-badge-fail,.qc-badge-error { background:#fde8e7; color:#b4232d; }
+.qc-badge-skip { background:#eef1f5; color:#536170; }
+.qc-btn-pass { background:#218756; color:#fff; }
+.qc-btn-pass:hover { background:#176d43; }
+.qc-btn-review { background:#e6ac25; color:#302400; }
+.qc-btn-review:hover { background:#d3970d; }
+.qc-btn-recollect { background:#d44747; color:#fff; }
+.qc-btn-recollect:hover { background:#b82e2e; }
+.qc-actions .btn:focus-visible,.qc-dialog .btn:focus-visible { outline:2px solid #245db8; outline-offset:2px; }
+.qc-reason { padding:10px 12px; border-left:3px solid #e6ac25; background:#fff9eb; border-radius:4px; font-size:13px; }
+.qc-rule { border:1px solid #e4eaf0; border-left:4px solid #cbd5df; border-radius:8px; padding:12px 14px; margin:10px 0; }
+.qc-rule-pass { border-left-color:#36a66d; background:#fbfefc; }
+.qc-rule-warn { border-left-color:#e6ac25; background:#fffdf7; }
+.qc-rule-fail,.qc-rule-error { border-left-color:#d44747; background:#fffafa; }
+.qc-rule-head { display:flex; align-items:center; gap:10px; }
+.qc-rule-head h4 { margin:0; flex:1; font-size:14px; }
+.qc-index { display:inline-grid; place-items:center; min-width:28px; height:28px; border-radius:6px; background:#e9eef5; color:#34506b; font-size:12px; font-weight:700; }
+.qc-count { color:#657487; font-size:12px; white-space:nowrap; }
+.qc-empty { margin:8px 0 0 38px; color:#718092; font-size:12px; }
+.qc-issue { display:flex; gap:10px; padding:10px 0 0 38px; font-size:13px; }
+.qc-issue + .qc-issue { border-top:1px solid #e8ecf0; margin-top:10px; }
+.qc-issue-number { color:#8a5b00; font-weight:700; white-space:nowrap; }
+.qc-issue-body { min-width:0; overflow-wrap:anywhere; }
+.qc-issue-meta { color:#718092; font-size:12px; margin-top:4px; }
+@media(max-width:900px){ .qc-grid { grid-template-columns:1fr; } }
+@media(max-width:650px){ .qc-summary { grid-template-columns:1fr; } .qc-dialog { padding:16px; } }
+</style>
+<div class="qc-grid">
+  <div class="card">
+    <h3>📦 上传原始数据集</h3>
+    <p class="qc-note">当前支持含 LeRobot v3 元数据的 ZIP；上传暂存于 /data/upload_tmp，成功后存入 /data/raw 并生成顺序短编号。</p>
+    <form id="upload-form" class="qc-form">
+      <label>数据集名称<input name="name" required maxlength="100" placeholder="例如：智研推块数据"></label>
+      <label>数据集 ZIP<input name="file" type="file" accept=".zip" required></label>
+      <input name="profile" type="hidden" value="zhiyan">
+      <button class="btn btn-primary" type="submit">上传数据集</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>✅ 新建质检任务</h3>
+    <p class="qc-note">仅选择上传完成的数据集；质检只生成报告和判定，原始数据仍留在 /data/raw。格式转换以后在独立页面进行。</p>
+    <form id="job-form" class="qc-form">
+      <div class="qc-picker-field"><span id="dataset-label">原始数据集</span>
+        <div id="dataset-picker" class="qc-picker">
+          <button id="dataset-trigger" class="qc-picker-trigger" type="button" aria-labelledby="dataset-label dataset-trigger-text" aria-expanded="false" aria-controls="dataset-menu"><span id="dataset-trigger-text">请选择数据集</span><span aria-hidden="true">▾</span></button>
+          <div id="dataset-menu" class="qc-picker-menu" hidden>
+            <input id="dataset-search" class="qc-picker-search" type="search" placeholder="搜索名称或编号" aria-label="搜索原始数据集">
+            <div id="dataset-options" class="qc-picker-options"></div>
+          </div>
+        </div>
+      </div>
+      <button class="btn btn-primary" type="submit">开始质检</button>
+    </form>
+  </div>
 </div>
-
-<div class="card">
-    <h3>📋 质检规则</h3>
-    <table class="table">
-        <tr><th>ID</th><th>规则名称</th><th>目标</th><th>状态</th></tr>
-        {% for r in rules %}
-        <tr>
-            <td>{{ r.id }}</td>
-            <td>{{ r.name }}</td>
-            <td>{{ r.target }}</td>
-            <td><span class="status-badge status-online">{{ r.status }}</span></td>
-        </tr>
-        {% endfor %}
-    </table>
+<div id="notice" class="qc-note" role="status"></div>
+<div class="card qc-scroll">
+  <h3>📋 质检规则 <small class="text-muted">单击状态按钮即可启用或停用；停用必需规则后不能自动判定通过。</small></h3>
+  <table class="table"><thead><tr><th>规则</th><th>参数目标</th><th>状态</th></tr></thead><tbody id="rules-body"></tbody></table>
 </div>
-
-<div class="card">
-    <h3>📊 质检报告</h3>
-    <table class="table">
-        <tr><th>ID</th><th>数据集</th><th>通过</th><th>失败</th><th>结果</th><th>时间</th><th>操作</th></tr>
-        {% for r in reports %}
-        <tr>
-            <td>{{ r.id }}</td>
-            <td>{{ r.dataset }}</td>
-            <td>{{ r.passed }}</td>
-            <td>{{ r.failed }}</td>
-            <td><span class="status-badge
-                {% if r.result == '通过' %}status-done
-                {% else %}status-error{% endif %}">{{ r.result }}</span></td>
-            <td style="font-size:13px;color:#666;">{{ r.time }}</td>
-            <td><button class="btn btn-primary btn-sm">查看报告</button></td>
-        </tr>
-        {% endfor %}
-    </table>
+<div class="card qc-scroll">
+  <h3>📊 质检任务与报告</h3>
+  <table class="table"><thead><tr><th>数据集</th><th>任务</th><th>规则结果</th><th>Episode</th><th>判定</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="jobs-body"></tbody></table>
 </div>
+<dialog id="report-dialog" class="qc-dialog">
+  <div class="qc-dialog-header"><h3>质检报告</h3><button class="btn" onclick="document.getElementById('report-dialog').close()">关闭</button></div>
+  <div id="report-content"></div>
+</dialog>
+<script>
+const api='/qc/api';
+const labels={PASS:'通过',REVIEW:'待复核',RECOLLECT:'打回重采',QUEUED:'排队中',RUNNING:'质检中',COMPLETED:'已完成',ERROR:'执行失败'};
+const statusLabels={PASS:'通过',WARN:'警告',FAIL:'失败',ERROR:'错误',SKIP:'未执行'};
+const datasetLabels={READY:'待质检',QC_QUEUED:'排队中',QC_RUNNING:'质检中',QC_PASS:'质检通过·待转换',QC_REVIEW:'待复核',QC_RECOLLECT:'打回重采',QC_ERROR:'执行失败',PUBLISHED:'历史复制记录'};
+let datasetItems=[],selectedDatasetId='';
+const notice=(message, bad=false)=>{const node=document.getElementById('notice');node.textContent=message;node.style.color=bad?'#d4380d':'#326b31';};
+async function call(path,options={}){
+  const response=await fetch(api+path,options);let data;
+  try{data=await response.json();}catch{data={detail:'服务返回无效内容'};}
+  if(!response.ok)throw Error(typeof data.detail==='string'?data.detail:JSON.stringify(data.detail));
+  return data;
+}
+function button(text,fn,klass='btn btn-sm'){
+  const node=document.createElement('button');node.type='button';node.className=klass;node.textContent=text;node.onclick=fn;return node;
+}
+function cell(row,value){const node=document.createElement('td');node.textContent=value??'';row.append(node);return node;}
+function badge(value,label){const node=document.createElement('span');node.className=`qc-badge qc-badge-${String(value||'skip').toLowerCase()}`;node.textContent=label||statusLabels[value]||labels[value]||value||'—';return node;}
+function summaryItem(label,value){const item=document.createElement('div'),title=document.createElement('small'),content=document.createElement('strong');item.className='qc-summary-item';title.textContent=label;content.textContent=value;item.append(title,content);return item;}
+function closeDatasetMenu(){document.getElementById('dataset-menu').hidden=true;document.getElementById('dataset-trigger').setAttribute('aria-expanded','false');document.getElementById('dataset-search').value='';}
+function datasetText(item){return `${item.name} · ${item.code} · ${datasetLabels[item.status]||item.status}`;}
+function renderDatasetOptions(){
+  const box=document.getElementById('dataset-options'),query=document.getElementById('dataset-search').value.trim().toLowerCase();box.replaceChildren();
+  const shown=datasetItems.filter(item=>`${item.name} ${item.code} ${item.id}`.toLowerCase().includes(query));
+  for(const item of shown){
+    const row=document.createElement('div');row.className='qc-option-row';
+    const select=button(datasetText(item),()=>{selectedDatasetId=item.id;closeDatasetMenu();renderDatasetOptions();},'qc-option-select');
+    select.title=datasetText(item);
+    const remove=button('×',()=>deleteDataset(item),'qc-option-delete');remove.setAttribute('aria-label',`删除原始数据集 ${item.name}（${item.code}）`);
+    row.append(select,remove);box.append(row);
+  }
+  if(!shown.length){const empty=document.createElement('div');empty.className='qc-picker-empty';empty.textContent=query?'没有匹配的数据集':'暂无可用原始数据集';box.append(empty);}
+  const chosen=datasetItems.find(item=>item.id===selectedDatasetId);
+  document.getElementById('dataset-trigger-text').textContent=chosen?datasetText(chosen):'请选择数据集';
+}
+async function loadDatasets(){
+  datasetItems=await call('/datasets');
+  if(!datasetItems.some(item=>item.id===selectedDatasetId))selectedDatasetId='';
+  renderDatasetOptions();
+}
+async function deleteDataset(item){
+  if(!confirm(`删除原始数据集“${item.name}”（${item.code}）？原始文件将被删除；已有质检报告和已发布数据保留。`))return;
+  try{await call(`/datasets/${item.id}`,{method:'DELETE'});if(selectedDatasetId===item.id)selectedDatasetId='';closeDatasetMenu();await loadDatasets();notice(`已删除原始数据集 ${item.code}`);}
+  catch(error){notice(error.message,true);}
+}
+document.getElementById('dataset-trigger').onclick=()=>{
+  const menu=document.getElementById('dataset-menu');menu.hidden=!menu.hidden;
+  document.getElementById('dataset-trigger').setAttribute('aria-expanded',String(!menu.hidden));
+  if(!menu.hidden){renderDatasetOptions();document.getElementById('dataset-search').focus();}
+};
+document.getElementById('dataset-search').oninput=renderDatasetOptions;
+document.getElementById('dataset-picker').onkeydown=event=>{if(event.key==='Escape')closeDatasetMenu();};
+document.addEventListener('click',event=>{if(!document.getElementById('dataset-picker').contains(event.target))closeDatasetMenu();});
+async function loadRules(){
+  const data=await call('/rules'),body=document.getElementById('rules-body');body.replaceChildren();
+  data.rules.forEach(rule=>{
+    const row=document.createElement('tr');cell(row,rule.label+(rule.mandatory?'（必需）':''));
+    cell(row,Object.entries(rule.target).map(([k,v])=>`${k}: ${v}`).join('，')||'结构检查');
+    const status=cell(row,'');status.append(button(rule.enabled?'已启用':'未启用',async()=>{
+      try{await call(`/rules/${rule.name}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!rule.enabled})});await loadRules();notice(`${rule.label}已${rule.enabled?'停用':'启用'}`);}
+      catch(error){notice(error.message,true);}
+    },rule.enabled?'btn btn-sm status-online':'btn btn-sm status-offline'));
+    body.append(row);
+  });
+}
+async function viewReport(id){
+  try{
+    const report=await call(`/jobs/${id}/report`),box=document.getElementById('report-content');box.replaceChildren();
+    const summary=document.createElement('div');summary.className='qc-summary';
+    const decision=summaryItem('最终判定','');decision.lastChild.append(badge(report.decision,labels[report.decision]));
+    const ruleStatus=summaryItem('规则结果','');ruleStatus.lastChild.append(badge(report.status));
+    const episodes=Object.entries(report.episode_counts||{}).map(([key,count])=>`${statusLabels[key]||key} ${count}`).join(' / ')||'无 Episode 结果';
+    summary.append(decision,ruleStatus,summaryItem('Episode 统计',episodes));box.append(summary);
+    if(report.review_reason){const reason=document.createElement('p');reason.className='qc-reason';reason.textContent=`判定原因：${report.review_reason}`;box.append(reason);}
+    report.results.forEach((rule,index)=>{
+      const section=document.createElement('section'),head=document.createElement('div'),number=document.createElement('span'),title=document.createElement('h4'),count=document.createElement('span');
+      section.className=`qc-rule qc-rule-${rule.status.toLowerCase()}`;head.className='qc-rule-head';number.className='qc-index';number.textContent=String(index+1).padStart(2,'0');
+      title.textContent=rule.name;count.className='qc-count';count.textContent=`${rule.issue_count} 项问题`;head.append(number,title,badge(rule.status),count);section.append(head);
+      if(!rule.issues.length){const empty=document.createElement('p');empty.className='qc-empty';empty.textContent='未发现问题';section.append(empty);}
+      rule.issues.forEach((issue,issueIndex)=>{
+        const line=document.createElement('div'),issueNumber=document.createElement('span'),body=document.createElement('div'),message=document.createElement('div'),meta=document.createElement('div');
+        line.className='qc-issue';issueNumber.className='qc-issue-number';issueNumber.textContent=`${index+1}.${issueIndex+1}`;
+        body.className='qc-issue-body';message.textContent=issue.message;
+        const details=[statusLabels[issue.severity]||issue.severity];
+        if(issue.episode_index!=null)details.push(`Episode ${issue.episode_index}`);
+        if(issue.frame_index!=null)details.push(`帧 ${issue.frame_index}`);
+        if(issue.stream)details.push(issue.stream);
+        meta.className='qc-issue-meta';meta.textContent=details.join(' · ');body.append(message,meta);line.append(issueNumber,body);section.append(line);
+      });box.append(section);
+    });document.getElementById('report-dialog').showModal();
+  }catch(error){notice(error.message,true);}
+}
+async function decide(id,decision){
+  const reason=decision==='REVIEW'?'':prompt(`请填写“${labels[decision]}”的判定原因：`);
+  if(reason===null)return;
+  try{await call(`/jobs/${id}/decision`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({decision,reason})});await loadJobs();notice('判定已保存');}
+  catch(error){notice(error.message,true);}
+}
+async function deleteReport(id){
+  if(!confirm('删除这份质检报告？原始数据集不会删除。'))return;
+  try{await call(`/jobs/${id}/report`,{method:'DELETE'});await loadJobs();notice('报告已删除');}
+  catch(error){notice(error.message,true);}
+}
+async function loadJobs(){
+  const items=await call('/jobs'),body=document.getElementById('jobs-body');body.replaceChildren();
+  if(!items.length){const row=document.createElement('tr');cell(row,'暂无质检任务').colSpan=7;body.append(row);return;}
+  items.forEach(job=>{
+    const row=document.createElement('tr');cell(row,job.dataset_name);cell(row,`${job.run_id.slice(0,8)} · ${labels[job.status]||job.status}${job.report_state==='MISSING'?' · 报告缺失':''}`);
+    cell(row,Object.entries(job.summary?.rules||{}).map(([k,v])=>`${k} ${v}`).join(' / ')||job.error||'—');
+    cell(row,Object.entries(job.summary?.episodes||{}).map(([k,v])=>`${k} ${v}`).join(' / ')||'—');
+    const verdict=cell(row,'');verdict.append(job.decision?badge(job.decision,labels[job.decision]):'—');cell(row,new Date(job.created_at).toLocaleString('zh-CN'));
+    const actions=cell(row,''),wrap=document.createElement('div');wrap.className='qc-actions';actions.append(wrap);
+    if(job.status==='COMPLETED'&&job.report_state==='PRESENT'){
+      wrap.append(button('查看报告',()=>viewReport(job.run_id),'btn btn-primary btn-sm'));
+      wrap.append(button('通过',()=>decide(job.run_id,'PASS'),'btn btn-sm qc-btn-pass'));
+      wrap.append(button('待复核',()=>decide(job.run_id,'REVIEW'),'btn btn-sm qc-btn-review'));
+      wrap.append(button('打回重采',()=>decide(job.run_id,'RECOLLECT'),'btn btn-sm qc-btn-recollect'));
+      wrap.append(button('删除报告',()=>deleteReport(job.run_id)));
+    }
+    body.append(row);
+  });
+}
+document.getElementById('upload-form').onsubmit=async event=>{
+  event.preventDefault();notice('正在上传并校验压缩包…');
+  try{const data=await call('/datasets/upload',{method:'POST',body:new FormData(event.target)});event.target.reset();selectedDatasetId=data.id;await loadDatasets();notice(`上传完成：${data.name}，编号 ${data.code}`);}
+  catch(error){notice(error.message,true);}
+};
+document.getElementById('job-form').onsubmit=async event=>{
+  event.preventDefault();const dataset_id=selectedDatasetId;
+  if(!dataset_id){notice('请选择数据集',true);return;}
+  try{const result=await call('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataset_id})});await loadJobs();notice(`质检任务已创建：${result.run_id}`);}
+  catch(error){notice(error.message,true);}
+};
+Promise.all([loadRules(),loadJobs().then(loadDatasets)]).catch(error=>notice(error.message,true));
+setInterval(()=>loadJobs().then(loadDatasets).catch(error=>notice(error.message,true)),5000);
+</script>
 {% endblock %}

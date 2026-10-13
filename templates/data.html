@@ -1,35 +1,18 @@
 {% extends "base.html" %}
 {% block page_title %}数据管理{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">📁 数据集检索、筛选、预览、批量操作</span></div>
-    <button class="btn btn-primary">+ 上传数据</button>
-</div>
-<div class="card">
-    <table class="table">
-        <tr><th>ID</th><th>数据集名称</th><th>机器人</th><th>Episodes</th><th>时长</th><th>格式</th><th>状态</th><th>质检</th><th>操作</th></tr>
-        {% for d in datasets %}
-        <tr>
-            <td>{{ d.id }}</td>
-            <td><strong>{{ d.name }}</strong></td>
-            <td>{{ d.robot }}</td>
-            <td>{{ d.episodes }}</td>
-            <td>{{ d.hours }}h</td>
-            <td><span class="tag">{{ d.format }}</span></td>
-            <td><span class="status-badge
-                {% if d.status == '已入库' %}status-done
-                {% elif d.status == '采集中' %}status-running
-                {% else %}status-paused{% endif %}">{{ d.status }}</span></td>
-            <td><span class="status-badge
-                {% if d.qc == '通过' %}status-done
-                {% elif d.qc == '待检' %}status-paused
-                {% else %}status-offline{% endif %}">{{ d.qc }}</span></td>
-            <td>
-                <button class="btn btn-primary btn-sm">预览</button>
-                <button class="btn btn-sm" style="background:#f0f0f0;">详情</button>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
+<div class="flex mb-12"><span class="text-muted">📁 原始数据集登记与质检状态</span><a class="btn btn-primary" href="/qc/" style="text-decoration:none;">+ 上传数据</a></div>
+<div class="card" style="overflow-x:auto;">
+  <table class="table">
+    <tr><th>数据集编号</th><th>名称</th><th>机器人</th><th>原始目录</th><th>质检状态</th><th>文件状态</th><th>操作</th></tr>
+    {% for d in datasets %}
+    <tr><td>{{ d.code }}</td><td><strong>{{ d.name }}</strong></td><td>{{ d.profile }}</td>
+      <td><code>/data/raw/{{ d.raw_relpath }}</code></td><td>{{ {'QC_PASS':'质检通过·待转换','PUBLISHED':'历史复制记录'}.get(d.status, d.status) }}</td>
+      <td>{{ {'PRESENT':'存在','MISSING':'目录缺失','UPLOADING':'上传中','DELETED':'已删除'}.get(d.raw_state, d.raw_state) }}</td>
+      <td><a href="/qc/">质检与报告</a></td></tr>
+    {% else %}
+    <tr><td colspan="7">尚无已登记数据集</td></tr>
+    {% endfor %}
+  </table>
 </div>
 {% endblock %}
