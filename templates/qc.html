@@ -58,8 +58,45 @@
 .qc-issue-number { color:#8a5b00; font-weight:700; white-space:nowrap; }
 .qc-issue-body { min-width:0; overflow-wrap:anywhere; }
 .qc-issue-meta { color:#718092; font-size:12px; margin-top:4px; }
+.qc-profile-dialog { padding:0; width:min(1020px,96vw); max-height:min(90vh,920px); overflow:hidden; }
+.qc-profile-dialog[open] { display:flex; flex-direction:column; }
+.qc-profile-header,.qc-profile-footer { flex:none; display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 24px; background:#fff; }
+.qc-profile-header { border-bottom:1px solid #e4ebf3; }
+.qc-profile-header h3 { margin:0 0 4px; color:#193b5a; }
+.qc-profile-header p,.qc-profile-help,.qc-section-head p { margin:0; color:#718092; font-size:12px; line-height:1.5; }
+.qc-profile-body { overflow-y:auto; padding:20px 24px 26px; background:#f6f8fb; }
+.qc-profile-footer { border-top:1px solid #e4ebf3; box-shadow:0 -4px 14px rgba(29,56,83,.05); }
+.qc-profile-notice { min-height:18px; color:#287050; font-size:13px; }
+.qc-profile-chooser { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin-bottom:16px; }
+.qc-profile-chooser label { display:grid; gap:5px; min-width:250px; flex:1; color:#526579; font-size:13px; }
+.qc-profile-chooser select { width:100%; padding:9px 10px; border:1px solid #d5e0eb; border-radius:6px; background:#fff; }
+.qc-profile-section { margin:0 0 14px; padding:18px; border:1px solid #e0e8f0; border-radius:10px; background:#fff; }
+.qc-section-head { display:flex; align-items:flex-start; gap:10px; margin-bottom:14px; }
+.qc-section-head h4 { margin:0 0 3px; color:#1c4569; font-size:15px; }
+.qc-section-number { display:inline-grid; place-items:center; width:27px; height:27px; flex:none; border-radius:7px; background:#e5f0fb; color:#2465a1; font-size:12px; font-weight:700; }
+.qc-config-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px 16px; }
+.qc-config-grid label { display:grid; gap:5px; min-width:0; font-size:13px; font-weight:600; color:#425c74; }
+.qc-config-grid input,.qc-config-grid textarea { width:100%; box-sizing:border-box; padding:9px 10px; border:1px solid #d5e0eb; border-radius:6px; color:#263445; font:inherit; font-weight:400; }
+.qc-config-grid textarea { min-height:70px; resize:vertical; }
+.qc-config-grid input:focus,.qc-config-grid textarea:focus,.qc-config-params input:focus { outline:2px solid #8dbbec; outline-offset:1px; border-color:#5d9fe4; }
+.qc-config-grid input:disabled { background:#f1f5f9; color:#597087; }
+.qc-config-wide { grid-column:1/-1; }
+.qc-config-rules { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.qc-config-rule { min-width:0; padding:12px 14px; border:1px solid #e0e8f0; border-left:3px solid #6a9ed0; border-radius:7px; background:#fbfdff; }
+.qc-config-rule h5 { display:flex; align-items:center; gap:8px; margin:0 0 9px; color:#234968; font-size:13px; }
+.qc-config-rule h5 span { color:#2f76b7; font-size:11px; }
+.qc-config-params { display:flex; flex-wrap:wrap; align-items:end; gap:9px; min-height:34px; }
+.qc-config-params label { display:grid; gap:4px; min-width:165px; flex:1; font-size:11px; color:#607287; }
+.qc-config-params .qc-bool-param { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.qc-config-params input[type=number] { width:100%; box-sizing:border-box; padding:7px 8px; border:1px solid #d5e0eb; border-radius:5px; color:#263445; }
+.qc-config-params input[type=checkbox] { width:18px; height:18px; accent-color:#2b7de9; }
+.qc-config-empty { color:#8997a5; font-size:12px; }
+.qc-profile-dialog .btn:disabled { background:#eef1f4; color:#97a3b1; cursor:not-allowed; }
+.qc-profile-delete { color:#b7383c; background:#fff1f1; }
+.qc-profile-delete:hover:not(:disabled) { background:#fce3e4; }
+.qc-toolbar { display:flex; justify-content:space-between; align-items:center; gap:12px; }
 @media(max-width:900px){ .qc-grid { grid-template-columns:1fr; } }
-@media(max-width:650px){ .qc-summary { grid-template-columns:1fr; } .qc-dialog { padding:16px; } }
+@media(max-width:650px){ .qc-summary,.qc-config-grid,.qc-config-rules { grid-template-columns:1fr; } .qc-dialog:not(.qc-profile-dialog) { padding:16px; } .qc-profile-header,.qc-profile-footer { padding:14px 16px; } .qc-profile-body { padding:14px 16px; } }
 </style>
 <div class="qc-grid">
   <div class="card">
@@ -68,7 +105,7 @@
     <form id="upload-form" class="qc-form">
       <label>数据集名称<input name="name" required maxlength="100" placeholder="例如：智研推块数据"></label>
       <label>数据集 ZIP<input name="file" type="file" accept=".zip" required></label>
-      <input name="profile" type="hidden" value="zhiyan">
+      <label>机器人配置<select name="profile" id="upload-profile"></select></label>
       <button class="btn btn-primary" type="submit">上传数据集</button>
     </form>
   </div>
@@ -85,13 +122,15 @@
           </div>
         </div>
       </div>
+      <label>质检配置<select id="job-profile" required></select></label>
       <button class="btn btn-primary" type="submit">开始质检</button>
     </form>
   </div>
 </div>
 <div id="notice" class="qc-note" role="status"></div>
 <div class="card qc-scroll">
-  <h3>📋 质检规则 <small class="text-muted">单击状态按钮即可启用或停用；停用必需规则后不能自动判定通过。</small></h3>
+  <div class="qc-toolbar"><h3 id="rules-heading">📋 质检规则</h3><button id="manage-profile" class="btn" type="button">管理质检配置</button></div>
+  <p class="qc-note">单击状态按钮即可启用或停用；判定仅依据本次实际启用的规则。规则固定为十项，参数按机器人配置保存。</p>
   <table class="table"><thead><tr><th>规则</th><th>参数目标</th><th>状态</th></tr></thead><tbody id="rules-body"></tbody></table>
 </div>
 <div class="card qc-scroll">
@@ -102,12 +141,45 @@
   <div class="qc-dialog-header"><h3>质检报告</h3><button class="btn" onclick="document.getElementById('report-dialog').close()">关闭</button></div>
   <div id="report-content"></div>
 </dialog>
+<dialog id="profile-dialog" class="qc-dialog qc-profile-dialog" aria-labelledby="profile-title">
+  <div class="qc-profile-header"><div><h3 id="profile-title">机器人质检配置</h3><p>选择机器人配置并调整数据字段与规则阈值。</p></div><button id="close-profile" class="btn" type="button">关闭</button></div>
+  <div class="qc-profile-body">
+    <div class="qc-profile-chooser"><label>当前配置<select id="edit-profile"></select></label><button id="new-profile" class="btn btn-primary" type="button">＋ 新增配置</button><button id="delete-profile" class="btn qc-profile-delete" type="button">删除当前配置</button></div>
+    <form id="profile-form">
+      <section class="qc-profile-section">
+        <div class="qc-section-head"><span class="qc-section-number">01</span><div><h4>配置标识</h4><p>配置 ID 是固定标识；显示名称可以修改。</p></div></div>
+        <div class="qc-config-grid">
+          <label>配置 ID（唯一标识）<input id="profile-id" pattern="[a-z][a-z0-9_]{1,31}" required></label>
+          <label>显示名称<input id="profile-name" required maxlength="100"></label>
+          <p class="qc-profile-help qc-config-wide">例如 <code>zhiyan</code> 对应 <code>robots/zhiyan.yaml</code>；数据集和质检任务记录也用它定位配置。创建后不能修改 ID。</p>
+        </div>
+      </section>
+      <section class="qc-profile-section">
+        <div class="qc-section-head"><span class="qc-section-number">02</span><div><h4>机器人数据字段</h4><p>字段名须与上传数据集的 LeRobot v3 元数据一致。</p></div></div>
+        <div class="qc-config-grid">
+          <label>robot_type（机器人类型）<input id="profile-robot" required maxlength="100"></label>
+          <label>expected_fps（预期帧率）<input id="profile-fps" type="number" min="0.001" max="1000" step="any" required></label>
+          <label>state_key（状态字段）<input id="profile-state-key" required maxlength="100"></label>
+          <label>state_dim（状态维度）<input id="profile-state-dim" type="number" min="1" max="10000" required></label>
+          <label>action_key（动作字段）<input id="profile-action-key" required maxlength="100"></label>
+          <label>action_dim（动作维度）<input id="profile-action-dim" type="number" min="1" max="10000" required></label>
+          <label class="qc-config-wide">video_keys（视频字段，每行一个）<textarea id="profile-videos" required></textarea></label>
+        </div>
+      </section>
+      <section class="qc-profile-section">
+        <div class="qc-section-head"><span class="qc-section-number">03</span><div><h4>十项规则的参数阈值</h4><p>只调整已有规则的参数；规则是否启用在弹窗外的“质检规则”列表设置。</p></div></div>
+        <div id="profile-rule-params" class="qc-config-rules"></div>
+      </section>
+    </form>
+  </div>
+  <div class="qc-profile-footer"><span id="profile-notice" class="qc-profile-notice" role="status"></span><button class="btn btn-primary" type="submit" form="profile-form">保存配置</button></div>
+</dialog>
 <script>
 const api='/qc/api';
 const labels={PASS:'通过',REVIEW:'待复核',RECOLLECT:'打回重采',QUEUED:'排队中',RUNNING:'质检中',COMPLETED:'已完成',ERROR:'执行失败'};
 const statusLabels={PASS:'通过',WARN:'警告',FAIL:'失败',ERROR:'错误',SKIP:'未执行'};
 const datasetLabels={READY:'待质检',QC_QUEUED:'排队中',QC_RUNNING:'质检中',QC_PASS:'质检通过·待转换',QC_REVIEW:'待复核',QC_RECOLLECT:'打回重采',QC_ERROR:'执行失败',PUBLISHED:'历史复制记录'};
-let datasetItems=[],selectedDatasetId='';
+let datasetItems=[],selectedDatasetId='',profileItems=[],currentProfile='zhiyan',editingNew=false,ruleTemplate={},editingProfile='';
 const notice=(message, bad=false)=>{const node=document.getElementById('notice');node.textContent=message;node.style.color=bad?'#d4380d':'#326b31';};
 async function call(path,options={}){
   const response=await fetch(api+path,options);let data;
@@ -128,7 +200,7 @@ function renderDatasetOptions(){
   const shown=datasetItems.filter(item=>`${item.name} ${item.code} ${item.id}`.toLowerCase().includes(query));
   for(const item of shown){
     const row=document.createElement('div');row.className='qc-option-row';
-    const select=button(datasetText(item),()=>{selectedDatasetId=item.id;closeDatasetMenu();renderDatasetOptions();},'qc-option-select');
+    const select=button(datasetText(item),()=>{selectedDatasetId=item.id;const preferred=profileItems.find(profile=>profile.id===item.profile);if(preferred){currentProfile=preferred.id;document.getElementById('job-profile').value=currentProfile;loadRules().catch(error=>notice(error.message,true));}closeDatasetMenu();renderDatasetOptions();},'qc-option-select');
     select.title=datasetText(item);
     const remove=button('×',()=>deleteDataset(item),'qc-option-delete');remove.setAttribute('aria-label',`删除原始数据集 ${item.name}（${item.code}）`);
     row.append(select,remove);box.append(row);
@@ -156,12 +228,14 @@ document.getElementById('dataset-search').oninput=renderDatasetOptions;
 document.getElementById('dataset-picker').onkeydown=event=>{if(event.key==='Escape')closeDatasetMenu();};
 document.addEventListener('click',event=>{if(!document.getElementById('dataset-picker').contains(event.target))closeDatasetMenu();});
 async function loadRules(){
-  const data=await call('/rules'),body=document.getElementById('rules-body');body.replaceChildren();
+  const profile=currentProfile,data=await call(`/rules?profile=${encodeURIComponent(profile)}`),body=document.getElementById('rules-body');
+  if(profile!==currentProfile)return;
+  body.replaceChildren();document.getElementById('rules-heading').textContent=`📋 质检规则（规则-${data.profile_name}）`;
   data.rules.forEach(rule=>{
-    const row=document.createElement('tr');cell(row,rule.label+(rule.mandatory?'（必需）':''));
+    const row=document.createElement('tr');cell(row,rule.label);
     cell(row,Object.entries(rule.target).map(([k,v])=>`${k}: ${v}`).join('，')||'结构检查');
     const status=cell(row,'');status.append(button(rule.enabled?'已启用':'未启用',async()=>{
-      try{await call(`/rules/${rule.name}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!rule.enabled})});await loadRules();notice(`${rule.label}已${rule.enabled?'停用':'启用'}`);}
+      try{await call(`/rules/${rule.name}?profile=${encodeURIComponent(profile)}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!rule.enabled})});await loadRules();notice(`${rule.label}已${rule.enabled?'停用':'启用'}`);}
       catch(error){notice(error.message,true);}
     },rule.enabled?'btn btn-sm status-online':'btn btn-sm status-offline'));
     body.append(row);
@@ -205,6 +279,11 @@ async function deleteReport(id){
   try{await call(`/jobs/${id}/report`,{method:'DELETE'});await loadJobs();notice('报告已删除');}
   catch(error){notice(error.message,true);}
 }
+async function deleteJob(job){
+  if(!confirm(`删除“${job.dataset_name}”的质检记录 ${job.run_id.slice(0,8)}？关联报告若仍存在也会删除，原始数据集保留。`))return;
+  try{await call(`/jobs/${encodeURIComponent(job.run_id)}`,{method:'DELETE'});await Promise.all([loadJobs(),loadDatasets()]);notice('质检记录已删除');}
+  catch(error){notice(error.message,true);}
+}
 async function loadJobs(){
   const items=await call('/jobs'),body=document.getElementById('jobs-body');body.replaceChildren();
   if(!items.length){const row=document.createElement('tr');cell(row,'暂无质检任务').colSpan=7;body.append(row);return;}
@@ -221,21 +300,108 @@ async function loadJobs(){
       wrap.append(button('打回重采',()=>decide(job.run_id,'RECOLLECT'),'btn btn-sm qc-btn-recollect'));
       wrap.append(button('删除报告',()=>deleteReport(job.run_id)));
     }
+    if(job.status==='COMPLETED')wrap.append(button('处理',()=>{location.href=`/preprocess/?dataset_id=${encodeURIComponent(job.dataset_id)}&run_id=${encodeURIComponent(job.run_id)}`;},'btn btn-sm btn-primary'));
+    if(job.status!=='QUEUED'&&job.status!=='RUNNING')wrap.append(button('删除记录',()=>deleteJob(job),'btn btn-sm qc-btn-recollect'));
     body.append(row);
   });
 }
 document.getElementById('upload-form').onsubmit=async event=>{
   event.preventDefault();notice('正在上传并校验压缩包…');
-  try{const data=await call('/datasets/upload',{method:'POST',body:new FormData(event.target)});event.target.reset();selectedDatasetId=data.id;await loadDatasets();notice(`上传完成：${data.name}，编号 ${data.code}`);}
+  try{const data=await call('/datasets/upload',{method:'POST',body:new FormData(event.target)});event.target.reset();selectedDatasetId=data.id;document.getElementById('job-profile').value=data.profile;currentProfile=data.profile;await Promise.all([loadDatasets(),loadRules()]);notice(`上传完成：${data.name}，编号 ${data.code}`);}
   catch(error){notice(error.message,true);}
 };
 document.getElementById('job-form').onsubmit=async event=>{
   event.preventDefault();const dataset_id=selectedDatasetId;
   if(!dataset_id){notice('请选择数据集',true);return;}
-  try{const result=await call('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataset_id})});await loadJobs();notice(`质检任务已创建：${result.run_id}`);}
+  try{const result=await call('/jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataset_id,profile:currentProfile})});await loadJobs();notice(`质检任务已创建：${result.run_id}`);}
   catch(error){notice(error.message,true);}
 };
-Promise.all([loadRules(),loadJobs().then(loadDatasets)]).catch(error=>notice(error.message,true));
+async function loadProfiles(selectId=currentProfile){
+  profileItems=await call('/profiles');
+  if(!profileItems.length)throw Error('没有可用的机器人质检配置');
+  currentProfile=profileItems.some(item=>item.id===selectId)?selectId:profileItems[0].id;
+  for(const id of ['job-profile','upload-profile','edit-profile']){
+    const select=document.getElementById(id),before=select.value;select.replaceChildren();
+    for(const item of profileItems){const option=document.createElement('option');option.value=item.id;option.textContent=`${item.name}（${item.id}）`;select.append(option);}
+    select.value=id==='job-profile'?currentProfile:(profileItems.some(item=>item.id===before)?before:currentProfile);
+  }
+  await loadRules();
+}
+document.getElementById('job-profile').onchange=async event=>{
+  currentProfile=event.target.value;
+  try{await loadRules();}catch(error){notice(error.message,true);}
+};
+const configIds={name:'profile-name',robot_type:'profile-robot',state_key:'profile-state-key',action_key:'profile-action-key',state_dim:'profile-state-dim',action_dim:'profile-action-dim',expected_fps:'profile-fps'};
+const profileNotice=(message,bad=false)=>{const node=document.getElementById('profile-notice');node.textContent=message;node.style.color=bad?'#b4232d':'#287050';};
+function renderProfileRuleParams(detail){
+  const box=document.getElementById('profile-rule-params');box.replaceChildren();
+  const names={file_check:'文件完整性',schema_check:'数据结构',episode_check:'Episode 完整性',timestamp_check:'时间戳连续性',state_check:'机器人状态',action_check:'机器人动作',frequency_check:'采样频率',topic_check:'视频采集流完整性',statistics_check:'数据统计',duplicate_check:'重复数据'};
+  const meanings={min_parquet_rows:'单个帧数据 Parquet 最少行数',min_video_bytes:'视频文件最小字节数',require_joint_names:'要求完整且不重复的关节名称',min_frames:'最少帧数',max_interval_ms:'最大间隔/毫秒',freeze_seconds:'静止时长/秒',warn_equal_state_ratio:'动作与状态相同占比阈值',min_fps:'最低帧率',max_fps:'最高帧率',decode_video:'解码视频检查',dark_mean:'暗帧亮度阈值',frozen_frames:'连续静止帧数',require_stats_file:'要求存在 stats.json',max_repeat_frames:'状态与动作同时不变的连续帧数阈值'};
+  Object.entries(detail.effective_rules).forEach(([rule,values],index)=>{
+    const row=document.createElement('div'),title=document.createElement('h5'),number=document.createElement('span'),params=document.createElement('div');
+    row.className='qc-config-rule';number.textContent=String(index+1).padStart(2,'0');title.append(number,document.createTextNode(names[rule]||rule));params.className='qc-config-params';
+    for(const [key,value] of Object.entries(values)){
+      if(key==='enable')continue;
+      const label=document.createElement('label'),input=document.createElement('input');label.textContent=`${key}（${meanings[key]||'参数'}）`;
+      input.dataset.rule=rule;input.dataset.param=key;
+      if(typeof value==='boolean'){input.type='checkbox';input.checked=value;label.className='qc-bool-param';}
+      else{input.type='number';input.step=Number.isInteger(value)?'1':'any';input.min=key==='max_repeat_frames'?'2':['min_parquet_rows','min_video_bytes'].includes(key)?'1':'0';input.required=true;input.value=value;}
+      label.append(input);params.append(label);
+    }
+    if(!params.childElementCount){const empty=document.createElement('span');empty.className='qc-config-empty';empty.textContent='结构检查，无可调阈值';params.append(empty);}
+    row.append(title,params);box.append(row);
+  });
+}
+async function editProfile(id){
+  const detail=await call(`/profiles/${encodeURIComponent(id)}`);
+  editingProfile=id;editingNew=false;ruleTemplate=detail.effective_rules;
+  document.getElementById('edit-profile').value=id;
+  document.getElementById('profile-id').value=id;
+  document.getElementById('profile-id').disabled=true;
+  for(const [key,field] of Object.entries(configIds))document.getElementById(field).value=detail.config[key];
+  document.getElementById('profile-videos').value=detail.config.video_keys.join('\n');
+  document.getElementById('delete-profile').disabled=profileItems.find(item=>item.id===id)?.builtin;
+  renderProfileRuleParams(detail);
+  profileNotice('');
+}
+document.getElementById('manage-profile').onclick=async()=>{
+  try{const dialog=document.getElementById('profile-dialog');dialog.showModal();await editProfile(currentProfile);}
+  catch(error){profileNotice(error.message,true);}
+};
+document.getElementById('close-profile').onclick=()=>document.getElementById('profile-dialog').close();
+document.getElementById('edit-profile').onchange=async event=>{try{await editProfile(event.target.value);}catch(error){profileNotice(error.message,true);}};
+document.getElementById('new-profile').onclick=()=>{
+  editingNew=true;editingProfile='';
+  document.getElementById('profile-id').disabled=false;
+  document.getElementById('profile-id').value='';
+  document.getElementById('profile-name').value='';
+  document.getElementById('delete-profile').disabled=true;
+  profileNotice('已复制当前配置的参数；填写新 ID 和显示名称后保存。');
+  document.getElementById('profile-id').focus();
+};
+document.getElementById('delete-profile').onclick=async()=>{
+  const id=editingProfile;if(!id||!confirm(`删除质检配置“${id}”？`))return;
+  try{await call(`/profiles/${encodeURIComponent(id)}`,{method:'DELETE'});await loadProfiles();await editProfile(currentProfile);profileNotice('质检配置已删除');}
+  catch(error){profileNotice(error.message,true);}
+};
+document.getElementById('profile-form').onsubmit=async event=>{
+  event.preventDefault();
+  const id=document.getElementById('profile-id').value.trim();
+  const config={};for(const [key,field] of Object.entries(configIds))config[key]=document.getElementById(field).value.trim();
+  config.state_dim=Number(config.state_dim);config.action_dim=Number(config.action_dim);config.expected_fps=Number(config.expected_fps);
+  config.video_keys=document.getElementById('profile-videos').value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean);
+  config.rules={};
+  for(const input of document.querySelectorAll('#profile-rule-params input')){
+    const rule=input.dataset.rule;config.rules[rule]??={};
+    config.rules[rule][input.dataset.param]=input.type==='checkbox'?input.checked:Number(input.value);
+  }
+  try{
+    const path=editingNew?'/profiles':`/profiles/${encodeURIComponent(id)}`;
+    await call(path,{method:editingNew?'POST':'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(editingNew?{id,config}:{config})});
+    await loadProfiles(id);await editProfile(id);profileNotice('质检配置已保存');
+  }catch(error){profileNotice(error.message,true);}
+};
+Promise.all([loadProfiles(),loadJobs().then(loadDatasets)]).catch(error=>notice(error.message,true));
 setInterval(()=>loadJobs().then(loadDatasets).catch(error=>notice(error.message,true)),5000);
 </script>
 {% endblock %}

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block page_title %}数据集详情 · {{ item.name }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap">
+  <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span><a href="/data/raw/">Raw</a><span>/</span>{{ item.code }}</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">RAW DATASET · {{ item.code }}</span><h2>{{ item.name }}</h2><p>/data/raw/{{ item.raw_relpath }}</p>{% if item.description %}<p>{{ item.description }}</p>{% endif %}{% if item.tags %}<p>标签：{{ item.tags|join(" · ") }}</p>{% endif %}</div><span class="dm-hero-pill">{{ item.status_label }} · {{ item.state_label }}</span></section>
+  {% if detail %}
+  <div class="dm-grid dm-grid-five dm-metrics">
+    <div class="dm-metric"><small>机器人类型</small><strong>{{ detail.info.get('robot_type', item.profile) }}</strong><span>robot_type</span></div>
+    <div class="dm-metric"><small>Episodes</small><strong>{{ item.episodes if item.episodes is not none else '—' }}</strong><span>{{ detail.info.get('total_tasks', '—') }} 个任务</span></div>
+    <div class="dm-metric"><small>总帧数</small><strong>{{ '{:,}'.format(item.frames) if item.frames is not none else '—' }}</strong><span>{{ item.fps or '—' }} FPS</span></div>
+    <div class="dm-metric"><small>估算时长</small><strong>{{ item.duration }}</strong><span>按总帧数与 FPS 计算</span></div>
+    <div class="dm-metric"><small>实际占用</small><strong>{{ item.size }}</strong><span>{{ detail.files|length }} 个文件</span></div>
+  </div>
+  {% if detail.cameras %}<section class="dm-panel"><div class="dm-panel-head"><div><h3>01 · 相机视频预览</h3><p>{{ detail.cameras|length }} 路视频，直接读取本地 MP4</p></div></div><div class="dm-camera-grid">{% for camera in detail.cameras %}<article class="dm-camera"><div class="dm-camera-head"><div><small>CAMERA {{ loop.index }}</small><h4>{{ camera.name|title }}</h4><code>{{ camera.key }}</code></div><span>{{ camera.resolution }} · {{ camera.fps or '—' }} FPS</span></div>{% if camera.files %}<video controls preload="metadata" src="{{ camera.files[0].url }}"></video><label>选择视频文件<select class="dm-video-select" aria-label="选择{{ camera.name }}相机视频">{% for file in camera.files %}<option value="{{ file.url }}">{{ file.name }} · {{ file.size }}</option>{% endfor %}</select></label>{% else %}<div class="dm-video-empty">此相机暂无 MP4 文件</div>{% endif %}</article>{% endfor %}</div></section>{% endif %}
+  {% include "data_metadata.html" %}
+  <section class="dm-panel"><div class="dm-panel-head"><div><h3>03 · 质检报告</h3><p>关联 outputs/qc/{{ item.id }}/ · 报告显示保存时的判定</p></div></div>{% if detail.reports %}<div class="dm-list">{% for report in detail.reports %}<a class="dm-list-row" href="/data/outputs/qc/report/{{ report.url_path }}"><div><strong>{{ report.decision_label }} · {{ report.status }}</strong><small>{{ report.created_at }} · {{ report.name }}</small></div><span class="dm-arrow">→</span></a>{% endfor %}</div>{% else %}<div class="dm-empty">暂无本地质检报告。</div>{% endif %}</section>
+  <section class="dm-panel"><div class="dm-panel-head"><div><h3>04 · 文件结构</h3><p>数据集目录下的实际文件</p></div><span class="dm-count">{{ detail.files|length }} 个</span></div><div class="dm-file-list">{% for file in detail.files %}<div><code>{{ file.path }}</code><span>{{ file.size }}</span></div>{% else %}<div class="dm-empty">目录中暂无文件。</div>{% endfor %}</div></section>
+  {% else %}<section class="dm-panel dm-empty">数据目录不可用。可在 Raw 的“其他状态”列表中查看登记状态。</section>{% endif %}
+</div>
+<script>document.querySelectorAll('.dm-video-select').forEach(select=>select.addEventListener('change',()=>{const video=select.closest('.dm-camera').querySelector('video');video.pause();video.src=select.value;video.load();}));</script>
+<script src="/static/js/data_metadata.js"></script>
+{% endblock %}

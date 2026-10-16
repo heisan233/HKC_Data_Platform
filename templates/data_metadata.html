@@ -1,0 +1,20 @@
+<section class="dm-panel" id="dm-metadata-browser" data-id="{{ item.id }}">
+  <div class="dm-panel-head"><div><h3>02 · 元数据浏览</h3><p>逐维名称、任务与 Episode 来自数据集文件；帧样本按需读取。</p></div><span class="dm-count">LeRobot {{ detail.info.get('codebase_version', '—') }}</span></div>
+  <div class="dm-meta-tabs" role="tablist" aria-label="元数据浏览">
+    <button type="button" class="active" data-meta-tab="fields">字段与维度</button>
+    <button type="button" data-meta-tab="episodes">Tasks / Episodes</button>
+    <button type="button" data-meta-tab="stats">统计与质检</button>
+    <button type="button" data-meta-tab="source">原始元数据</button>
+  </div>
+  <div class="dm-meta-content" data-meta-panel="fields"><p class="dm-subtle">正在读取字段定义…</p></div>
+  <div class="dm-meta-content" data-meta-panel="episodes" hidden>
+    <div id="dm-task-catalog"></div>
+    <div class="dm-meta-toolbar"><label>按任务筛选 <select id="dm-task-filter"><option value="">全部任务</option></select></label><span id="dm-episode-count" class="dm-subtle"></span></div>
+    <div id="dm-episode-table" class="dm-table-scroll"></div>
+    <div class="dm-meta-pagination"><button type="button" class="dm-button dm-button-secondary" id="dm-prev-page">上一页</button><span id="dm-page-label"></span><button type="button" class="dm-button dm-button-secondary" id="dm-next-page">下一页</button></div>
+    <div id="dm-episode-detail" class="dm-episode-detail" hidden></div>
+  </div>
+  <div class="dm-meta-content" data-meta-panel="stats" hidden></div>
+  <div class="dm-meta-content" data-meta-panel="source" hidden></div>
+  <script type="application/json" id="dm-episode-qc">{{ detail.episodes|tojson }}</script>
+</section>

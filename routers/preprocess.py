@@ -11,9 +11,9 @@ TASKS = [
 ]
 
 @router.get("/")
-async def preprocess_page(request: Request):
+async def preprocess_page(request: Request, dataset_id: str | None = None, run_id: str | None = None):
     return templates.TemplateResponse(
         request=request,
         name="preprocess.html",
-        context={"tasks": TASKS},
+        context={"tasks": TASKS, "dataset_id": dataset_id, "run_id": run_id},
     )

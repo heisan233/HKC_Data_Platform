@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block page_title %}数据集管理{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap" id="dm-manage-list"><nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>数据集管理</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">DATASET MANAGEMENT</span><h2>数据集管理</h2><p>维护数据集展示信息、扫描目录、更新文件与查看质检关系。</p></div><a class="dm-hero-link" href="/data/records/">记录管理 →</a></section>
+  <div id="dm-message" class="dm-feedback" role="status" {% if not deleted_message %}hidden{% endif %}>{{ deleted_message or '' }}</div>
+  <section class="dm-panel"><div class="dm-toolbar"><div class="dm-tabs"><a class="{% if section == 'raw' %}active{% endif %}" href="/data/manage/">Raw</a><a class="{% if section == 'datasets' %}active{% endif %}" href="/data/manage/?section=datasets">Datasets <small>预留</small></a></div>{% if section == 'raw' %}<form class="dm-search" method="get"><input type="search" name="q" value="{{ query }}" placeholder="搜索编号、名称或状态"><button type="submit">搜索</button></form>{% endif %}</div>
+    {% if section == 'datasets' %}<div class="dm-empty dm-empty-large"><strong>Datasets 管理功能预留</strong><p>模型适配和 LeRobot 3.0 转换接入后，在此管理转换产物、来源与版本。</p></div>
+    {% else %}<div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>数据集</th><th>机器人</th><th>质检状态</th><th>目录</th><th>Episodes</th><th>关联质检</th><th>报告</th><th>最近更新</th><th></th></tr></thead><tbody>{% for item in items %}<tr><td><strong>{{ item.name }}</strong><small>{{ item.code }} · {{ item.raw_relpath }}</small></td><td>{{ item.profile }}</td><td>{{ item.status_label }}</td><td><span class="dm-badge {% if item.raw_state == 'PRESENT' %}dm-ok{% else %}dm-warn{% endif %}">{{ item.state_label }}</span></td><td>{{ item.episodes if item.episodes is not none else '—' }}</td><td>{{ item.job_count }}</td><td>{{ item.report_count }}</td><td>{{ item.updated_at[:16]|replace('T',' ') if item.updated_at else '—' }}</td><td><a class="dm-row-link" href="/data/manage/raw/{{ item.id|urlencode }}">管理 →</a></td></tr>{% else %}<tr><td colspan="9" class="dm-empty">{% if query %}没有匹配的数据集。{% else %}暂无数据集登记。{% endif %}</td></tr>{% endfor %}</tbody></table></div>{% endif %}
+  </section>
+</div>
+<script src="/static/js/data_manage.js?v=20261014-2"></script>
+{% endblock %}

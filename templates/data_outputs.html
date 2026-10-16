@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block page_title %}数据管理 · Outputs{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap"><nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>Outputs</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">OUTPUTS</span><h2>报告分类</h2><p>按 outputs 内的一级文件夹分别管理报告，新增文件夹会自动成为新分类。</p></div><span class="dm-hero-pill">{{ categories|length }} 个分类</span></section>
+  {% if categories %}<div class="dm-grid dm-grid-three">{% for category in categories %}<a class="dm-tile" href="/data/outputs/{{ category.key|urlencode }}/"><div class="dm-tile-icon">{% if category.key == 'qc' %}✅{% else %}📄{% endif %}</div><div class="dm-tile-title">{{ category.label }}</div><strong>{{ category.count }}</strong><p>{{ category.key }}/ · {{ category.size }}</p><span class="dm-tile-link">查看报告 →</span></a>{% endfor %}</div>
+  {% else %}<div class="dm-panel dm-empty">outputs 目录中尚无报告分类。</div>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block page_title %}数据管理 · Outputs · {{ category }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap"><nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span><a href="/data/outputs/">Outputs</a><span>/</span>{{ category }}</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">OUTPUTS / {{ category|upper }}</span><h2>{% if category == 'qc' %}质检报告{% else %}{{ category }} 报告{% endif %}</h2><p>来自 /data/outputs/{{ category }}/ 的实际文件。</p></div><span class="dm-hero-pill">{{ total }} 份文件</span></section>
+  <section class="dm-panel"><div class="dm-toolbar"><div><h3>报告列表</h3><p class="dm-subtle">按文件修改时间排序</p></div><form method="get" class="dm-search"><input type="search" name="q" value="{{ query }}" placeholder="搜索文件或数据集编号"><button type="submit">搜索</button></form></div>
+    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>报告文件</th><th>{% if category == 'qc' %}关联数据集{% else %}所属目录{% endif %}</th><th>结论</th><th>生成时间</th><th>大小</th><th></th></tr></thead><tbody>
+      {% for report in reports %}<tr><td><strong>{{ report.name }}</strong><small>{{ report.relative_path }}</small></td><td>{% if category == 'qc' and report.dataset_id and report.source_exists %}<a href="/data/raw/{{ report.dataset_id|urlencode }}">{{ report.dataset_id }}</a>{% elif category == 'qc' and report.dataset_id %}{{ report.dataset_id }} <small>源记录已清理</small>{% else %}{{ report.group or '—' }}{% endif %}</td><td><span class="dm-badge {% if report.decision == 'PASS' %}dm-ok{% elif report.decision in ['REVIEW', 'WARN'] %}dm-warn{% else %}dm-muted{% endif %}">{{ report.decision_label }}</span></td><td>{{ report.created_at }}</td><td>{{ report.size }}</td><td><a class="dm-row-link" href="/data/outputs/{{ category|urlencode }}/report/{{ report.url_path }}">查看详情 →</a></td></tr>
+      {% else %}<tr><td colspan="6" class="dm-empty">{% if query %}没有匹配的报告。{% else %}此分类中尚无报告文件。{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+{% endblock %}

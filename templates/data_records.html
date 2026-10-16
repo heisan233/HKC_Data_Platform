@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block page_title %}记录管理{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap" id="dm-records"><nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>记录管理</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">RECORD MANAGEMENT</span><h2>记录管理</h2><p>查看数据集登记和关联质检任务；仅清理目录已不存在的缺失或已删除记录。</p></div><span class="dm-hero-pill">{{ items|length }} 条当前筛选记录</span></section>
+  <div id="dm-message" class="dm-feedback" role="status" hidden></div>
+  <section class="dm-panel"><div class="dm-toolbar"><div class="dm-tabs"><a class="{% if state == 'all' %}active{% endif %}" href="/data/records/">全部</a><a class="{% if state == 'missing' %}active{% endif %}" href="/data/records/?state=missing">目录缺失</a><a class="{% if state == 'deleted' %}active{% endif %}" href="/data/records/?state=deleted">已删除</a></div><form class="dm-search" method="get"><input type="hidden" name="state" value="{{ state }}"><input type="search" name="q" value="{{ query }}" placeholder="搜索编号或名称"><button type="submit">搜索</button></form></div>
+    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>登记记录</th><th>登记状态</th><th>目录状态</th><th>质检任务</th><th>报告文件</th><th>更新历史</th><th>创建时间</th><th>操作</th></tr></thead><tbody>{% for item in items %}<tr><td><strong>{{ item.name }}</strong><small>{{ item.code }} · {{ item.raw_relpath }}</small></td><td>{{ item.status_label }}</td><td><span class="dm-badge {% if item.raw_state == 'PRESENT' %}dm-ok{% else %}dm-warn{% endif %}">{{ item.state_label }}</span></td><td>{{ item.job_count }}</td><td>{{ item.report_count }}</td><td>{{ item.update_count }}</td><td>{{ item.created_at[:16]|replace('T',' ') }}</td><td>{% if item.purge_allowed %}<button class="dm-text-button dm-danger-text" data-purge="{{ item.id }}" data-code="{{ item.code }}" data-jobs="{{ item.job_count }}" data-reports="{{ item.report_count }}">清理记录</button>{% else %}<span class="dm-disabled">不可清理</span>{% endif %}</td></tr>{% else %}<tr><td colspan="8" class="dm-empty">没有匹配的登记记录。</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+  <dialog id="dm-purge-dialog" class="dm-dialog"><form method="dialog"><h3>确认清理登记记录</h3><p id="dm-purge-description"></p><p>确定移除这条数据集登记及关联质检任务记录吗？编号不会重新使用。</p><label class="dm-check"><input type="checkbox" id="dm-purge-reports">同时清理关联质检报告文件</label><p id="dm-purge-error" class="dm-dialog-error" role="alert" hidden></p><div class="dm-dialog-actions"><button type="submit" class="dm-button dm-button-secondary" value="cancel">取消</button><button type="submit" class="dm-button dm-button-danger" id="dm-purge-submit" value="confirm">确认清理</button></div></form></dialog>
+</div>
+<script src="/static/js/data_manage.js?v=20261014-2"></script>
+{% endblock %}

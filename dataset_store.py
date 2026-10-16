@@ -62,6 +62,21 @@ def init_store():
             con.execute('ALTER TABLE datasets ADD COLUMN seq INTEGER')
         if 'raw_state' not in columns:
             con.execute("ALTER TABLE datasets ADD COLUMN raw_state TEXT NOT NULL DEFAULT 'MISSING'")
+        for column, statement in {
+            'description': "ALTER TABLE datasets ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+            'tags_json': "ALTER TABLE datasets ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]'",
+            'updated_at': 'ALTER TABLE datasets ADD COLUMN updated_at TEXT',
+            'uploaded_at': 'ALTER TABLE datasets ADD COLUMN uploaded_at TEXT',
+            'last_scanned_at': 'ALTER TABLE datasets ADD COLUMN last_scanned_at TEXT',
+            'scan_error': "ALTER TABLE datasets ADD COLUMN scan_error TEXT NOT NULL DEFAULT ''",
+        }.items():
+            if column not in columns:
+                con.execute(statement)
+        con.execute('UPDATE datasets SET updated_at=created_at WHERE updated_at IS NULL')
+        con.execute('CREATE TABLE IF NOT EXISTS dataset_updates ('
+                    'id TEXT PRIMARY KEY, target_id TEXT NOT NULL, worker_dataset_id TEXT NOT NULL UNIQUE, '
+                    'stage_relpath TEXT NOT NULL UNIQUE, run_id TEXT, status TEXT NOT NULL, '
+                    'created_at TEXT NOT NULL, applied_at TEXT)')
         con.execute('CREATE TABLE IF NOT EXISTS dataset_numbers (seq INTEGER PRIMARY KEY AUTOINCREMENT)')
         con.execute('INSERT OR IGNORE INTO dataset_numbers(seq) '
                     'SELECT seq FROM datasets WHERE seq IS NOT NULL')
@@ -71,6 +86,8 @@ def init_store():
     for info_path in RAW.rglob('meta/info.json'):
         directory = info_path.parent.parent
         relative = str(directory.relative_to(RAW))
+        if Path(relative).parts[0].startswith('.'):
+            continue
         try:
             profile = json.loads(info_path.read_text(encoding='utf-8')).get('robot_type', 'zhiyan')
         except (OSError, ValueError):
@@ -97,13 +114,18 @@ def reconcile_datasets(dataset_id=None):
                 except ValueError:
                     state = 'MISSING'
             if state != row['raw_state']:
-                con.execute('UPDATE datasets SET raw_state=? WHERE id=?', (state, row['id']))
+                con.execute('UPDATE datasets SET raw_state=?,updated_at=? WHERE id=?',
+                            (state, now(), row['id']))
 
 
 def decorate(row):
     item = dict(row)
     item['code'] = f"DS{item['seq']:06d}"
     item['available'] = item['raw_state'] == 'PRESENT'
+    try:
+        item['tags'] = json.loads(item.get('tags_json') or '[]')
+    except ValueError:
+        item['tags'] = []
     return item
 
 
@@ -133,6 +155,10 @@ def create_dataset(name, profile):
 
 def set_status(dataset_id, status, published_path=None):
     with db() as con:
-        con.execute('UPDATE datasets SET status=?, published_path=COALESCE(?,published_path) WHERE id=?',
-                    (status, published_path, dataset_id))
+        timestamp = now()
+        con.execute('UPDATE datasets SET status=?, published_path=COALESCE(?,published_path),'
+                    'updated_at=?,uploaded_at=CASE WHEN ?=\'READY\' AND status=\'UPLOADING\' '
+                    'AND uploaded_at IS NULL '
+                    'THEN ? ELSE uploaded_at END WHERE id=?',
+                    (status, published_path, timestamp, status, timestamp, dataset_id))
     reconcile_datasets(dataset_id)

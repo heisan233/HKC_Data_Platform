@@ -1,18 +1,32 @@
 {% extends "base.html" %}
 {% block page_title %}数据管理{% endblock %}
 {% block content %}
-<div class="flex mb-12"><span class="text-muted">📁 原始数据集登记与质检状态</span><a class="btn btn-primary" href="/qc/" style="text-decoration:none;">+ 上传数据</a></div>
-<div class="card" style="overflow-x:auto;">
-  <table class="table">
-    <tr><th>数据集编号</th><th>名称</th><th>机器人</th><th>原始目录</th><th>质检状态</th><th>文件状态</th><th>操作</th></tr>
-    {% for d in datasets %}
-    <tr><td>{{ d.code }}</td><td><strong>{{ d.name }}</strong></td><td>{{ d.profile }}</td>
-      <td><code>/data/raw/{{ d.raw_relpath }}</code></td><td>{{ {'QC_PASS':'质检通过·待转换','PUBLISHED':'历史复制记录'}.get(d.status, d.status) }}</td>
-      <td>{{ {'PRESENT':'存在','MISSING':'目录缺失','UPLOADING':'上传中','DELETED':'已删除'}.get(d.raw_state, d.raw_state) }}</td>
-      <td><a href="/qc/">质检与报告</a></td></tr>
-    {% else %}
-    <tr><td colspan="7">尚无已登记数据集</td></tr>
-    {% endfor %}
-  </table>
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap">
+  <section class="dm-hero">
+    <div><span class="dm-eyebrow">DATA ASSETS</span><h2>数据资产总览</h2><p>按实际目录分类查看数据集与报告。</p></div>
+    <span class="dm-hero-pill">本地数据目录 · /data</span>
+  </section>
+  <div class="dm-grid dm-grid-four">
+    <a class="dm-tile" href="/data/raw/"><div class="dm-tile-icon">📁</div><div class="dm-tile-title">Raw <span>已质检数据</span></div><strong>{{ raw_count }}</strong><p>可用数据集{% if other_count %} · 另有 {{ other_count }} 项其他状态{% endif %}</p><span class="dm-tile-link">查看数据集 →</span></a>
+    <a class="dm-tile dm-tile-reserved" href="/data/datasets/"><div class="dm-tile-icon">🧩</div><div class="dm-tile-title">Datasets <span class="dm-badge dm-muted">预留</span></div><strong>—</strong><p>按模型需求转换为 LeRobot 3.0</p><span class="dm-tile-link">了解规划 →</span></a>
+    <a class="dm-tile dm-tile-reserved" href="/data/models/"><div class="dm-tile-icon">🤖</div><div class="dm-tile-title">Models <span class="dm-badge dm-muted">预留</span></div><strong>—</strong><p>模型文件管理</p><span class="dm-tile-link">了解规划 →</span></a>
+    <a class="dm-tile" href="/data/outputs/"><div class="dm-tile-icon">📊</div><div class="dm-tile-title">Outputs <span>报告产出</span></div><strong>{{ report_count }}</strong><p>{{ categories|length }} 类报告目录</p><span class="dm-tile-link">查看分类 →</span></a>
+  </div>
+  <div class="dm-columns">
+    <section class="dm-panel"><div class="dm-panel-head"><div><h3>最近可用的 Raw 数据</h3><p>从登记信息与本地目录读取</p></div><a href="/data/raw/">查看全部 →</a></div>
+      {% if recent_raw %}<div class="dm-list">{% for item in recent_raw %}<a class="dm-list-row" href="/data/raw/{{ item.id|urlencode }}"><div><strong>{{ item.name }}</strong><small>{{ item.code }} · {{ item.profile }}</small></div><span>{{ item.episodes if item.episodes is not none else '—' }} Episodes</span><span class="dm-arrow">→</span></a>{% endfor %}</div>
+      {% else %}<div class="dm-empty">暂无质检通过且目录可用的数据集。</div>{% endif %}
+    </section>
+    <section class="dm-panel"><div class="dm-panel-head"><div><h3>Outputs 分类</h3><p>自动识别 outputs 下的一级文件夹</p></div><a href="/data/outputs/">查看全部 →</a></div>
+      {% if categories %}<div class="dm-list">{% for category in categories %}<a class="dm-list-row" href="/data/outputs/{{ category.key|urlencode }}/"><div><strong>{{ category.label }}</strong><small>{{ category.key }}/</small></div><span>{{ category.count }} 份文件</span><span class="dm-arrow">→</span></a>{% endfor %}</div>
+      {% else %}<div class="dm-empty">尚无报告分类目录。</div>{% endif %}
+    </section>
+  </div>
+  <div class="dm-section-title"><h3>管理工具</h3><p>维护数据集与清理历史登记</p></div>
+  <div class="dm-grid dm-grid-two">
+    <a class="dm-tool" href="/data/manage/"><span class="dm-tool-icon">🗂️</span><div><strong>数据集管理</strong><p>编辑展示信息、重扫目录、更新数据文件与删除数据集</p></div><span class="dm-arrow">→</span></a>
+    <a class="dm-tool" href="/data/records/"><span class="dm-tool-icon">🧾</span><div><strong>记录管理</strong><p>{{ record_count }} 条登记 · {{ purge_count }} 条可清理；查看缺失与已删除记录</p></div><span class="dm-arrow">→</span></a>
+  </div>
 </div>
 {% endblock %}

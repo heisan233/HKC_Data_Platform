@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block page_title %}数据管理 · Raw{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap"><nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>Raw</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">RAW DATA</span><h2>已质检数据集</h2><p>查看真实目录中的源数据、相机视频、特征与质检结果。</p></div><a class="dm-hero-link" href="/qc/">前往数据质检 →</a></section>
+  <section class="dm-panel"><div class="dm-toolbar"><div class="dm-tabs"><a class="{% if view == 'ready' %}active{% endif %}" href="/data/raw/">可用数据 <b>{{ ready_count }}</b></a><a class="{% if view == 'other' %}active{% endif %}" href="/data/raw/?view=other">其他状态 <b>{{ other_count }}</b></a></div>
+    <form method="get" class="dm-search"><input type="hidden" name="view" value="{{ view }}"><input type="search" name="q" value="{{ query }}" placeholder="搜索编号、名称或机器人"><button type="submit">搜索</button></form></div>
+    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>数据集</th><th>机器人</th><th>Episodes / 帧</th><th>相机 / FPS</th><th>时长</th><th>占用</th><th>上传时间</th><th>状态</th><th></th></tr></thead><tbody>
+      {% for item in items %}<tr><td><strong>{{ item.name }}</strong><small>{{ item.code }} · {{ item.raw_relpath }}</small></td><td>{{ item.profile }}</td><td>{{ item.episodes if item.episodes is not none else '—' }} / {{ '{:,}'.format(item.frames) if item.frames is not none else '—' }}</td><td>{{ item.cameras or '—' }} / {{ item.fps or '—' }}</td><td>{{ item.duration }}</td><td>{{ item.size }}</td><td>{% if item.uploaded_at_display %}{{ item.uploaded_at_display }}{% elif item.created_at_display %}{{ item.created_at_display }}<small title="旧记录未单独保存上传完成时间">历史登记时间</small>{% else %}—{% endif %}</td><td><span class="dm-badge {% if item.raw_state != 'PRESENT' %}dm-warn{% elif item.status == 'QC_PASS' %}dm-ok{% else %}dm-muted{% endif %}">{{ item.status_label }}</span><small>{{ item.state_label }}</small></td><td><a class="dm-row-link" href="/data/raw/{{ item.id|urlencode }}">查看详情 →</a></td></tr>
+      {% else %}<tr><td colspan="9" class="dm-empty">{% if query %}没有匹配的数据集。{% elif view == 'ready' %}暂无质检通过且目录可用的数据集。{% else %}暂无其他状态的数据集。{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+{% endblock %}
