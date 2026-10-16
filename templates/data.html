@@ -1,35 +1,105 @@
 {% extends "base.html" %}
 {% block page_title %}数据管理{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ request.url_for('static', path='/css/data.css') }}">
+{% endblock %}
+
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">📁 数据集检索、筛选、预览、批量操作</span></div>
-    <button class="btn btn-primary">+ 上传数据</button>
-</div>
-<div class="card">
-    <table class="table">
-        <tr><th>ID</th><th>数据集名称</th><th>机器人</th><th>Episodes</th><th>时长</th><th>格式</th><th>状态</th><th>质检</th><th>操作</th></tr>
+<section class="data-hero">
+    <div>
+        <div class="data-eyebrow">VLA DATA CATALOG</div>
+        <h2>真实数据资产</h2>
+        <p>页面内容来自本机 <code>datas/</code> 目录，刷新页面即可重新扫描元数据和文件。</p>
+    </div>
+    <div class="scan-state">
+        <span class="scan-dot"></span>
+        {% if data_root_exists %}数据目录已连接{% else %}数据目录不存在{% endif %}
+    </div>
+</section>
+
+<section class="metric-grid">
+    <article class="metric-card">
+        <span>数据集</span>
+        <strong>{{ summary.datasets }}</strong>
+        <small>个本地目录</small>
+    </article>
+    <article class="metric-card">
+        <span>Episodes</span>
+        <strong>{{ summary.episodes }}</strong>
+        <small>条采集序列</small>
+    </article>
+    <article class="metric-card">
+        <span>总帧数</span>
+        <strong>{{ "{:,}".format(summary.frames) }}</strong>
+        <small>多模态时间步</small>
+    </article>
+    <article class="metric-card">
+        <span>估算时长</span>
+        <strong class="metric-text">{{ summary.duration }}</strong>
+        <small>按总帧数 ÷ FPS</small>
+    </article>
+    <article class="metric-card">
+        <span>本地占用</span>
+        <strong class="metric-text">{{ summary.size }}</strong>
+        <small>目录实际文件大小</small>
+    </article>
+</section>
+
+<section class="catalog-panel">
+    <div class="catalog-toolbar">
+        <div>
+            <h3>数据集目录</h3>
+            <p>读取 <code>meta/info.json</code>，并核对 Parquet 与 MP4 文件。</p>
+        </div>
+        <label class="dataset-search">
+            <span>⌕</span>
+            <input id="datasetSearch" type="search" placeholder="搜索数据集或机器人类型">
+        </label>
+    </div>
+
+    {% if datasets %}
+    <div class="dataset-list" id="datasetList">
         {% for d in datasets %}
-        <tr>
-            <td>{{ d.id }}</td>
-            <td><strong>{{ d.name }}</strong></td>
-            <td>{{ d.robot }}</td>
-            <td>{{ d.episodes }}</td>
-            <td>{{ d.hours }}h</td>
-            <td><span class="tag">{{ d.format }}</span></td>
-            <td><span class="status-badge
-                {% if d.status == '已入库' %}status-done
-                {% elif d.status == '采集中' %}status-running
-                {% else %}status-paused{% endif %}">{{ d.status }}</span></td>
-            <td><span class="status-badge
-                {% if d.qc == '通过' %}status-done
-                {% elif d.qc == '待检' %}status-paused
-                {% else %}status-offline{% endif %}">{{ d.qc }}</span></td>
-            <td>
-                <button class="btn btn-primary btn-sm">预览</button>
-                <button class="btn btn-sm" style="background:#f0f0f0;">详情</button>
-            </td>
-        </tr>
+        <article class="dataset-row" data-search="{{ d.name }} {{ d.path_name }} {{ d.robot_type }}">
+            <div class="dataset-identity">
+                <div class="dataset-icon">VLA</div>
+                <div>
+                    <h4>{{ d.name }}</h4>
+                    <code>{{ d.path_name }}</code>
+                    {% if d.load_error %}<p class="dataset-error">{{ d.load_error }}</p>{% endif %}
+                </div>
+            </div>
+            <div class="dataset-facts">
+                <div><span>机器人</span><strong>{{ d.robot_type }}</strong></div>
+                <div><span>Episodes</span><strong>{{ d.episodes }}</strong></div>
+                <div><span>帧数</span><strong>{{ "{:,}".format(d.frames) }}</strong></div>
+                <div><span>FPS</span><strong>{{ d.fps|int if d.fps == d.fps|int else d.fps }}</strong></div>
+                <div><span>相机</span><strong>{{ d.camera_count }}</strong></div>
+                <div><span>时长</span><strong>{{ d.duration }}</strong></div>
+                <div><span>文件</span><strong>{{ d.data_file_count }} Parquet · {{ d.video_file_count }} MP4</strong></div>
+                <div><span>大小</span><strong>{{ d.total_size }}</strong></div>
+            </div>
+            <div class="dataset-actions">
+                <span class="status-badge {{ d.status_class }}">{{ d.status }}</span>
+                {% if not d.load_error %}
+                <a class="btn btn-primary" href="{{ request.url_for('dataset_detail', dataset_name=d.path_name) }}">查看详情 →</a>
+                {% endif %}
+            </div>
+        </article>
         {% endfor %}
-    </table>
-</div>
+    </div>
+    <div class="empty-search" id="emptySearch" hidden>没有找到匹配的数据集。</div>
+    {% else %}
+    <div class="empty-state">
+        <div>📂</div>
+        <h3>还没有发现数据集</h3>
+        <p>请将包含 <code>meta/info.json</code> 的数据集目录放入 <code>datas/</code> 后刷新页面。</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ request.url_for('static', path='/js/data.js') }}"></script>
 {% endblock %}

@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block page_title %}数据集详情{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ request.url_for('static', path='/css/data.css') }}">
+{% endblock %}
+
+{% block content %}
+<nav class="data-breadcrumb">
+    <a href="{{ request.url_for('data_page') }}">数据管理</a>
+    <span>/</span>
+    <span>{{ dataset.path_name }}</span>
+</nav>
+
+<section class="detail-hero">
+    <div>
+        <div class="data-eyebrow">VLA DATASET · {{ dataset.version }}</div>
+        <h2>{{ dataset.name }}</h2>
+        <p><code>{{ dataset.path_name }}</code></p>
+    </div>
+    <span class="status-badge {{ dataset.status_class }}">{{ dataset.status }}</span>
+</section>
+
+<section class="metric-grid detail-metrics">
+    <article class="metric-card"><span>机器人类型</span><strong class="metric-text">{{ dataset.robot_type }}</strong><small>robot_type</small></article>
+    <article class="metric-card"><span>Episodes</span><strong>{{ dataset.episodes }}</strong><small>{{ dataset.tasks }} 个任务</small></article>
+    <article class="metric-card"><span>总帧数</span><strong>{{ "{:,}".format(dataset.frames) }}</strong><small>{{ dataset.fps|int }} FPS</small></article>
+    <article class="metric-card"><span>估算时长</span><strong class="metric-text">{{ dataset.duration }}</strong><small>基于帧数计算</small></article>
+    <article class="metric-card"><span>存储占用</span><strong class="metric-text">{{ dataset.total_size }}</strong><small>{{ dataset.data_file_count + dataset.video_file_count }} 个核心文件</small></article>
+</section>
+
+<section class="detail-section">
+    <div class="section-heading">
+        <div>
+            <span class="section-index">01</span>
+            <h3>相机视频预览</h3>
+        </div>
+        <p>{{ dataset.camera_count }} 路视觉观测 · 页面直接读取本地 MP4</p>
+    </div>
+
+    <div class="camera-grid">
+        {% for camera in dataset.cameras %}
+        <article class="camera-card">
+            <div class="camera-header">
+                <div>
+                    <span class="camera-kicker">CAMERA {{ loop.index|string }}</span>
+                    <h4>{{ camera.label }}</h4>
+                    <code>{{ camera.key }}</code>
+                </div>
+                <div class="camera-specs">
+                    <span>{{ camera.resolution }}</span>
+                    <span>{{ camera.fps }} FPS</span>
+                    <span>{{ camera.codec }}</span>
+                </div>
+            </div>
+            {% if camera.files %}
+            <div class="video-shell">
+                <video class="dataset-video" controls preload="metadata"
+                       src="{{ request.url_for('dataset_video', dataset_name=dataset.path_name, camera_key=camera.key, video_path=camera.files[0].camera_path) }}"></video>
+            </div>
+            <label class="episode-picker">
+                <span>选择视频片段</span>
+                <select class="video-select">
+                    {% for video in camera.files %}
+                    <option value="{{ request.url_for('dataset_video', dataset_name=dataset.path_name, camera_key=camera.key, video_path=video.camera_path) }}">
+                        {{ video.name }} · {{ video.size }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </label>
+            {% else %}
+            <div class="video-empty">该相机暂未发现 MP4 文件</div>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+</section>
+
+<section class="detail-section">
+    <div class="section-heading">
+        <div>
+            <span class="section-index">02</span>
+            <h3>特征与统计</h3>
+        </div>
+        <p>字段定义来自 <code>info.json</code>，数值统计来自 <code>stats.json</code></p>
+    </div>
+    <div class="table-wrap">
+        <table class="data-table">
+            <thead>
+                <tr><th>特征</th><th>类型</th><th>形状</th><th>样本数</th><th>均值</th><th>标准差</th><th>最小值</th><th>最大值</th></tr>
+            </thead>
+            <tbody>
+                {% for feature in dataset.numeric_features %}
+                <tr>
+                    <td><code>{{ feature.name }}</code></td>
+                    <td>{{ feature.dtype }}</td>
+                    <td>{{ feature.shape }}</td>
+                    <td>{{ feature.count }}</td>
+                    <td>{{ "%.4f"|format(feature.mean) if feature.mean is number else "-" }}</td>
+                    <td>{{ "%.4f"|format(feature.std) if feature.std is number else "-" }}</td>
+                    <td>{{ "%.4f"|format(feature.min) if feature.min is number else "-" }}</td>
+                    <td>{{ "%.4f"|format(feature.max) if feature.max is number else "-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="file-grid">
+    <article class="detail-section compact-section">
+        <div class="section-heading">
+            <div><span class="section-index">03</span><h3>Parquet 数据</h3></div>
+            <p>{{ dataset.parquet_files|length }} 个文件</p>
+        </div>
+        <div class="file-list">
+            {% for file in dataset.parquet_files %}
+            <div><code>{{ file.path }}</code><span>{{ file.size }}</span></div>
+            {% endfor %}
+        </div>
+    </article>
+
+    <article class="detail-section compact-section">
+        <div class="section-heading">
+            <div><span class="section-index">04</span><h3>元数据文件</h3></div>
+            <p>{{ dataset.metadata_files|length }} 个文件</p>
+        </div>
+        <div class="file-list">
+            {% for file in dataset.metadata_files %}
+            <div><code>{{ file.path }}</code><span>{{ file.size }}</span></div>
+            {% endfor %}
+        </div>
+    </article>
+</section>
+
+<aside class="implementation-note">
+    <strong>当前读取范围</strong>
+    <span>已经真实读取 JSON 元数据、目录中的 Parquet/MP4 文件数量、文件大小和视频内容；尚未解析 Parquet 内部的逐帧数据。</span>
+</aside>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ request.url_for('static', path='/js/data.js') }}"></script>
+{% endblock %}
