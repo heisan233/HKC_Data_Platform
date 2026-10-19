@@ -300,7 +300,8 @@ async function loadJobs(){
       wrap.append(button('打回重采',()=>decide(job.run_id,'RECOLLECT'),'btn btn-sm qc-btn-recollect'));
       wrap.append(button('删除报告',()=>deleteReport(job.run_id)));
     }
-    if(job.status==='COMPLETED')wrap.append(button('处理',()=>{location.href=`/preprocess/?dataset_id=${encodeURIComponent(job.dataset_id)}&run_id=${encodeURIComponent(job.run_id)}`;},'btn btn-sm btn-primary'));
+    if(job.annotation_dataset_id)wrap.append(button('去标注',()=>{location.href=`/annotation/?dataset_id=${encodeURIComponent(job.annotation_dataset_id)}`;},'btn btn-sm btn-primary'));
+    else if(job.status==='COMPLETED'&&job.decision&&job.decision!=='PASS')wrap.append(button('数据处理',()=>{location.href=`/preprocess/?dataset_id=${encodeURIComponent(job.dataset_id)}&run_id=${encodeURIComponent(job.run_id)}`;},'btn btn-sm btn-primary'));
     if(job.status!=='QUEUED'&&job.status!=='RUNNING')wrap.append(button('删除记录',()=>deleteJob(job),'btn btn-sm qc-btn-recollect'));
     body.append(row);
   });

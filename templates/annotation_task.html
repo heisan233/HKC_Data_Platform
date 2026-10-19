@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block page_title %}Episode 标注{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/annotation.css">
+<main class="an-wrap an-task-wrap" id="an-workspace" data-task-id="{{ task.id }}" data-dataset-id="{{ task.dataset_id }}" data-writable="{{ 'true' if task.writable else 'false' }}">
+  <nav class="an-crumb"><a href="/annotation/">数据标注</a><span>›</span><span>{{ task.dataset_name }}</span></nav>
+  <section class="an-task-head">
+    <div><span class="an-kicker">EPISODE WORKSPACE</span><h2>{{ task.dataset_name }}</h2>
+      <p>{{ task.dataset_id }} · {{ task.total_episodes }} 个 Episode · 质检任务 {{ task.qc_run_id[:8] if task.qc_run_id else '已通过' }}</p></div>
+    <div class="an-task-summary"><strong id="an-approved-count">{{ task.counts.approved }} / {{ task.total_episodes }}</strong><small>审核通过</small></div>
+  </section>
+  {% if not task.writable %}<p class="an-alert" role="alert">原始数据当前不可用或质检状态已变化。标注内容保留，但暂不能修改。</p>{% endif %}
+  <p id="an-notice" class="an-alert" role="status" hidden></p>
+  <div class="an-work-grid">
+    <aside class="an-episode-panel">
+      <div class="an-side-head"><h3>Episode 列表</h3><small id="an-page-label">加载中…</small></div>
+      <div id="an-episode-list" class="an-episode-list"></div>
+      <div class="an-pager"><button id="an-prev" type="button">上一页</button><button id="an-next" type="button">下一页</button></div>
+    </aside>
+    <section class="an-editor">
+      <div class="an-editor-head"><div><span class="an-kicker">CURRENT EPISODE</span><h3 id="an-episode-title">请选择 Episode</h3><p id="an-episode-meta">从左侧列表打开一条数据。</p></div><span id="an-item-status" class="an-badge an-active">待标注</span></div>
+      <div id="an-camera-tabs" class="an-camera-tabs"></div>
+      <div class="an-video-frame"><video id="an-video" controls preload="metadata" playsinline hidden></video><div id="an-video-empty">选择 Episode 后可预览视频</div></div>
+      <p class="an-video-help">视频按采集视角切换；阶段起止使用 Episode 内的帧号，结束帧不包含在片段内。</p>
+      <form id="an-form">
+        <div class="an-field"><label for="an-instruction">任务描述 <em>*</em></label><textarea id="an-instruction" maxlength="500" rows="2" placeholder="例如：将红色连接器插入左侧插槽"></textarea></div>
+        <div class="an-field"><label for="an-outcome">执行结果 <em>*</em></label><select id="an-outcome"><option value="">请选择结果</option><option value="SUCCESS">成功</option><option value="FAILURE">失败</option><option value="UNCERTAIN">待确认</option></select></div>
+        <div class="an-phase-head"><div><h4>动作阶段</h4><p>可选。用起止帧标记关键片段；片段之间不能重叠。</p></div><button id="an-add-phase" type="button" class="an-secondary">＋ 添加阶段</button></div>
+        <div id="an-phase-list" class="an-phase-list"></div>
+        <div class="an-field"><label for="an-notes">标注备注</label><textarea id="an-notes" maxlength="2000" rows="2" placeholder="可记录失败原因或不确定内容"></textarea></div>
+        <div id="an-review-reason" class="an-review-reason" hidden></div>
+        <div class="an-form-actions"><button id="an-save" type="button" class="an-secondary">保存草稿</button><button id="an-submit" type="submit" class="an-button">提交审核</button></div>
+      </form>
+      <div id="an-review-actions" class="an-review-actions" hidden><div><strong>开发者模式审核</strong><p>本阶段暂未区分标注员与审核员。</p></div><button id="an-reject" type="button" class="an-secondary">驳回返工</button><button id="an-approve" type="button" class="an-button">审核通过</button></div>
+    </section>
+  </div>
+  <p class="an-footnote">当前标签保存在平台数据库；导出训练数据集将在后续版本接入。原始数据集不会被修改。</p>
+</main>
+<script id="an-phase-data" type="application/json">{{ phase_labels|tojson }}</script>
+<script src="/static/js/annotation_task.js"></script>
+{% endblock %}

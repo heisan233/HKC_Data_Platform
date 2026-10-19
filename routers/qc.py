@@ -147,6 +147,9 @@ def delete_dataset(dataset_id: str):
         dataset = get_dataset(dataset_id)
         if not dataset or dataset['status'] == 'DELETED':
             raise HTTPException(404, '数据集不存在')
+        from annotation_store import has_tasks
+        if has_tasks(dataset_id):
+            raise HTTPException(409, '数据集已有标注任务，不能删除原始数据')
         if any(item['status'] not in {'APPLIED', 'CANCELLED'} for item in list_updates(dataset_id)):
             raise HTTPException(409, '存在待处理的数据更新，请先应用或取消')
         jobs = worker('GET', '/jobs')
@@ -242,6 +245,19 @@ def jobs():
             if dataset['status'] != status:
                 set_status(item['dataset_id'], status)
             synced.add(item['dataset_id'])
+    annotation_targets = set()
+    for item in items:
+        update = update_target_for_worker(item['dataset_id'])
+        target_id = item['dataset_id'] if item['dataset_id'] in datasets else (
+            update['target_id'] if update and update['status'] == 'APPLIED' else None)
+        item['annotation_dataset_id'] = None
+        if not target_id or target_id in annotation_targets:
+            continue
+        annotation_targets.add(target_id)
+        current = get_dataset(target_id)
+        if (current and current['available'] and current['status'] == 'QC_PASS'
+                and item['status'] == 'COMPLETED' and item['decision'] == 'PASS'):
+            item['annotation_dataset_id'] = target_id
     return items
 
 

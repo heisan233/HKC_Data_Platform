@@ -80,6 +80,9 @@ def record_exists(dataset_id):
 
 
 def stage_update(target_id, update_id):
+    from annotation_store import has_tasks
+    if has_tasks(target_id):
+        raise ValueError('数据集已有标注任务，暂不能替换原始数据')
     item = get_dataset(target_id)
     if not item or item['status'] not in {'QC_PASS', 'PUBLISHED'} or not item['available']:
         raise ValueError('仅可更新质检通过且目录存在的 Raw 数据集')
@@ -225,6 +228,9 @@ def purge_record(dataset_id, purge_reports=False):
         item = get_dataset(dataset_id)
         if not item:
             raise LookupError('登记记录不存在')
+        from annotation_store import has_tasks
+        if has_tasks(dataset_id):
+            raise ValueError('数据集已有标注任务，不能清理登记记录')
         if not purge_allowed(item):
             raise ValueError('仅可清理实际目录不存在的缺失或已删除记录')
         updates = list_updates(dataset_id)
