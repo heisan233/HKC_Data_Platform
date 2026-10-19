@@ -1,5 +1,9 @@
 # HKC 数采平台：环境配置与修改记录
 
+> 双人协作开发前，请先阅读根目录 `AGENTS.md` 和
+> `docs/COLLABORATION.md`。其中记录了分支分工、目录边界、当前任务、验收标准
+> 和 Codex 交接方式。
+
 ## Platform v2 开发基线
 
 本目录是通过 Git worktree 从 `origin/main` 创建的独立开发工作区，对应分支为
