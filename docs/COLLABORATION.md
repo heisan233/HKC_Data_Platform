@@ -21,13 +21,13 @@
 | 分支 | 负责人 | 当前工作 | 不应修改的主要范围 |
 | --- | --- | --- | --- |
 | `main` | 双方共同维护 | 稳定结构与已验收功能 | 不作为日常开发分支 |
-| `hs_docker` | Heisan | 局域网访问、Docker/Compose 和部署说明 | 数据管理页面与业务实现 |
-| `lxp_docker` | LXP | 数据管理界面、原有有效功能迁移、数据导出 | 网络开放与部署策略 |
+| `hs_docker` | Heisan | 局域网访问、部署说明、原始数据集上传 | 数据集列表/详情与导出业务 |
+| `lxp_docker` | LXP | 数据管理界面、原有有效功能迁移、数据导出 | 网络开放、上传校验与入库 |
 
 双方开始新任务前先获取最新 `main`。功能完成后先在自己的分支提交并验证，再由
 双方检查差异后合并到 `main`。不要让两个 Codex 同时直接修改 `main`。
 
-## 三、Heisan 当前任务：可信局域网访问
+## 三、Heisan 当前任务：可信局域网访问与原始数据集上传
 
 ### 目标
 
@@ -42,7 +42,8 @@
 - Uvicorn 在容器内继续监听 `0.0.0.0:8000`；真正控制外部可访问范围的是 Docker
   发布端口与宿主机防火墙。
 - 文档说明启动方式、本机内网 IP、另一台机器的验证方法和停止方式。
-- 不修改数据管理页面或数据存储业务。
+- 局域网配置本身不改数据管理业务；上传模块只负责接收入库，不接管 LXP 负责的
+  数据集列表、详情和导出。
 
 ### 验收条件
 
@@ -51,6 +52,16 @@
 3. `docker compose config` 能正确解析组合后的配置。
 4. 文档说明当前无鉴权、禁止映射到公网，并建议用防火墙限制可信网段。
 5. 停止局域网模式后，不残留额外监听服务。
+
+### 原始数据集上传边界
+
+- 第一版只接收一个完整的 LeRobot v3.0 `.zip` 压缩包。
+- 页面与 API 归 `hs_docker` 维护，路由前缀为 `/ingestion/`。
+- 上传时分块写入 `storage/staging/`，不得把整个大型文件一次性载入内存。
+- 入库前检查 ZIP 路径穿越、符号链接、加密文件、异常压缩率和最低 v3.0 结构。
+- 通过检查后安全解压到 `storage/raw/<dataset_id>/`；失败内容不得进入原始区。
+- 文件式上传记录放在 `storage/system/upload-records/`，不引入数据库。
+- 该结构检查不等于数据质检；Parquet 内容、时间戳和图像质量仍由质检模块处理。
 
 ## 四、LXP 当前任务：数据管理与导出
 
@@ -72,7 +83,6 @@
 
 ```text
 app/modules/datasets/       数据集扫描、列表、详情和管理服务
-app/modules/ingestion/      上传相关功能（如果本轮保留）
 app/modules/export/         导出任务和下载接口
 app/templates/data*.html    数据管理页面
 app/static/css/data*.css    数据管理样式
@@ -145,6 +155,33 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-19
+
+开发者/分支：Heisan / `hs_docker`
+
+完成内容：实现 `/ingestion/` 原始数据集上传页面和真实 API；上传内容分块进入临时
+区，经 ZIP 安全检查和 LeRobot v3.0 最低结构检查后，安全解压到原始区；增加文件
+式上传记录、页面进度反馈和失败原因展示。
+
+主要修改文件：`app/modules/ingestion/`、`app/templates/ingestion.html`、
+`app/static/css/ingestion.css`、`app/static/js/ingestion.js`、`app/main.py`、
+`app/templates/base.html`、`app/templates/data.html`、`tests/integration/`。
+
+执行的验证：Python 语法检查和 `git diff --check` 通过；上传页面、CSS、JavaScript
+实际返回 HTTP 200；自动化测试 16 项通过，覆盖有效 v3 入库、错误版本拒绝和 ZIP
+路径穿越拒绝。
+
+未完成或已知问题：当前只做最低结构验证，不解析 Parquet 语义，也不执行
+LeRobot Doctor；上传在单应用容器内处理，后续超大数据和并发任务需要再评估独立
+Worker；数据管理列表尚需由 `lxp_docker` 读取新入库目录。
+
+是否修改共享文件：是，注册了上传路由、增加公共导航入口，并把数据管理页原有
+无行为的“上传数据”按钮链接到 `/ingestion/`。LXP 合并数据管理页面时应保留该
+链接，不要复制上传业务代码。
+
+下一步建议：先用一个真实但可备份的小型 LeRobot v3.0 ZIP 做人工验收；随后由
+`lxp_docker` 在数据管理列表中扫描 `storage/raw/` 并关联文件式上传记录。
 
 日期：2026-10-19
 

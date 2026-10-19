@@ -150,9 +150,37 @@ docker compose -f compose.yaml -f compose.dev.yaml up --build
 Uvicorn `--reload` 会重新加载应用。正式部署时只使用 `compose.yaml`，代码来自
 镜像而不是宿主机源码挂载。
 
+### 原始数据集上传（第一版）
+
+启动平台后访问：
+
+```text
+http://127.0.0.1:8000/ingestion/
+```
+
+局域网模式则把 `127.0.0.1` 换成开发机的可信内网 IPv4 地址。页面接受一个完整
+的 LeRobot v3.0 `.zip`，需要填写平台显示名称；备注可选。服务端不会把完整 ZIP
+载入内存，而是分块写入 `storage/staging/`。只有同时通过以下检查才会移动到
+`storage/raw/<dataset_id>/`：
+
+- 有效且未加密的 ZIP，不包含绝对路径、`../` 路径穿越或符号链接；
+- 一个压缩包中只有一个数据集（允许外层有一个同名总目录）；
+- `meta/info.json` 中 `codebase_version` 为 `v3.0`；
+- 存在 `meta/stats.json`、`meta/tasks.parquet`、`meta/episodes/**/*.parquet`；
+- 存在 `data/**/*.parquet`；`videos/` 为可选目录；
+- 文件数量、压缩大小、解压大小、压缩率和服务器剩余空间均在安全范围内。
+
+默认单个 ZIP 上限为 10 GiB，解压总量上限为 50 GiB，文件数上限为 200,000。
+部署时可通过 `HKC_MAX_UPLOAD_BYTES`、`HKC_MAX_EXPANDED_BYTES` 和
+`HKC_MAX_ARCHIVE_FILES` 环境变量覆盖（大小单位均为字节）。上传记录保存在
+`storage/system/upload-records/`，失败的临时文件会清理，不会进入原始区。
+
+这一步只检查安全性和 LeRobot v3.0 的最低结构，并不解析 Parquet 的实际字段，
+也不等于数据质检。内容级检查仍由后续数据质检模块完成。
+
 ### 当前尚未完成
 
-- `ingestion`、`conversion` 现在只有边界定义，业务代码尚未实现。
+- `conversion` 现在只有边界定义，业务代码尚未实现。
 - `app/db/` 与 `migrations/` 是未来数据库预留，当前不参与程序运行。
 - 页面仍以 v1 静态演示数据为主；目录迁移不代表按钮功能已经完成。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。

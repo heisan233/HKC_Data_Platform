@@ -29,8 +29,9 @@
 - `reports/`：结构检查、自定义规则、VLM 等质检报告。
 - `models/`：模型定义、权重或发布包；首期暂不使用。
 - `training-runs/`：训练日志、指标和 checkpoint；首期暂不使用。
-- `system/`：平台自身的文件式状态，例如目录清单或任务状态 JSON；当前为空。
-  如果未来采用 SQLite，数据库文件也可以放在这里，但现在尚未启用。
+- `system/`：平台自身的文件式状态。当前上传记录位于
+  `system/upload-records/<upload_id>.json`；如果未来采用 SQLite，数据库文件也
+  可以放在这里，但现在尚未启用。
 
 不要把 Python、HTML、配置文件或 Dockerfile 放在此目录。测试用小样本应放在
 `tests/fixtures/`，并确认其许可和体积适合进入 Git。

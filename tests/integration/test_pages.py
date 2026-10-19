@@ -22,6 +22,7 @@ def test_root_redirects_to_dashboard() -> None:
         "/robots/",
         "/scenes/",
         "/data/",
+        "/ingestion/",
         "/preprocess/",
         "/qc/",
         "/annotation/",

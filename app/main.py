@@ -14,6 +14,7 @@ from app.modules.annotation import router as annotation_router
 from app.modules.dashboard import router as dashboard_router
 from app.modules.datasets import router as datasets_router
 from app.modules.export import router as export_router
+from app.modules.ingestion import router as ingestion_router
 from app.modules.processing import router as processing_router
 from app.modules.quality import router as quality_router
 from app.modules.robots import router as robots_router
@@ -60,6 +61,11 @@ def create_app() -> FastAPI:
         datasets_router.router,
         prefix="/data",
         tags=["数据管理"],
+    )
+    application.include_router(
+        ingestion_router.router,
+        prefix="/ingestion",
+        tags=["原始数据集上传"],
     )
     application.include_router(
         processing_router.router,

@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block page_title %}原始数据集上传{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="/static/css/ingestion.css">
+{% endblock %}
+
+{% block content %}
+<section class="ingestion-intro">
+    <div>
+        <p class="eyebrow">DATASET INGESTION</p>
+        <h2>上传完整的 LeRobot v3 数据集</h2>
+        <p>
+            文件先进入临时区，通过 ZIP 安全检查和 v3.0 目录结构检查后，
+            才会保存到只读原始区 <code>storage/raw/</code>。
+        </p>
+    </div>
+    <div class="version-pill">当前支持 <strong>LeRobot v3.0 · ZIP</strong></div>
+</section>
+
+<div class="ingestion-grid">
+    <section class="upload-card">
+        <div class="section-heading">
+            <div>
+                <span class="step-number">01</span>
+                <h3>选择数据集</h3>
+            </div>
+            <span class="limit-label">单包上限 {{ max_upload_size }}</span>
+        </div>
+
+        <form id="upload-form" action="/ingestion/api/uploads" method="post" enctype="multipart/form-data">
+            <label class="field-label" for="dataset-name">数据集名称 <span>*</span></label>
+            <input
+                id="dataset-name"
+                name="dataset_name"
+                class="text-input"
+                type="text"
+                minlength="2"
+                maxlength="100"
+                placeholder="例如：双臂抓取苹果_2026-10-19"
+                required
+            >
+
+            <label class="field-label" for="description">备注</label>
+            <textarea
+                id="description"
+                name="description"
+                class="text-input textarea-input"
+                maxlength="1000"
+                placeholder="可选：采集场景、机器人编号、负责人等"
+            ></textarea>
+
+            <label id="drop-zone" class="drop-zone" for="archive">
+                <input id="archive" name="archive" type="file" accept=".zip,application/zip" required>
+                <span class="upload-icon">⇧</span>
+                <strong>拖放 ZIP 到这里，或点击选择文件</strong>
+                <span>一个压缩包只能包含一个完整数据集</span>
+                <small id="file-summary">尚未选择文件</small>
+            </label>
+
+            <div id="progress-panel" class="progress-panel" hidden>
+                <div class="progress-copy">
+                    <span id="progress-label">正在上传</span>
+                    <strong id="progress-percent">0%</strong>
+                </div>
+                <div class="progress-track"><span id="progress-bar"></span></div>
+            </div>
+
+            <div id="upload-result" class="upload-result" role="status" aria-live="polite" hidden></div>
+
+            <button id="submit-upload" class="submit-upload" type="submit">
+                上传并校验数据集
+            </button>
+        </form>
+    </section>
+
+    <aside class="requirements-card">
+        <div class="section-heading compact">
+            <div>
+                <span class="step-number">02</span>
+                <h3>入库前检查</h3>
+            </div>
+        </div>
+        <ul class="check-list">
+            <li><span>✓</span><div><strong>版本</strong><small><code>meta/info.json</code> 中必须为 v3.0</small></div></li>
+            <li><span>✓</span><div><strong>元数据</strong><small>包含 info、stats、tasks 和 episodes 元数据</small></div></li>
+            <li><span>✓</span><div><strong>帧数据</strong><small><code>data/</code> 中至少包含一个 Parquet 文件</small></div></li>
+            <li><span>✓</span><div><strong>视频可选</strong><small><code>videos/</code> 可以不存在</small></div></li>
+            <li><span>✓</span><div><strong>安全解压</strong><small>拒绝路径穿越、符号链接、加密包和异常压缩包</small></div></li>
+        </ul>
+        <div class="scope-note">
+            <strong>这一页不是数据质检</strong>
+            <p>这里只判断压缩包是否安全、结构是否满足 LeRobot v3.0 的最低要求；帧内容、时间戳和图像质量由后续“数据质检”处理。</p>
+        </div>
+    </aside>
+</div>
+
+<section class="history-card">
+    <div class="history-heading">
+        <div>
+            <p class="eyebrow">RECENT ACTIVITY</p>
+            <h3>最近上传记录</h3>
+        </div>
+        <a href="/ingestion/" class="refresh-link">刷新记录</a>
+    </div>
+
+    {% if records %}
+    <div class="history-table-wrap">
+        <table class="history-table">
+            <thead>
+                <tr>
+                    <th>数据集</th>
+                    <th>源文件</th>
+                    <th>大小</th>
+                    <th>状态</th>
+                    <th>Episodes</th>
+                    <th>上传时间（UTC）</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in records %}
+                <tr>
+                    <td>
+                        <strong>{{ record.dataset_name or '未命名' }}</strong>
+                        <small>{{ record.dataset_id or record.upload_id }}</small>
+                    </td>
+                    <td>{{ record.original_filename or '-' }}</td>
+                    <td>{{ record.received_size }}</td>
+                    <td>
+                        <span class="record-status status-{{ record.status }}">
+                            {% if record.status == 'accepted' %}已入库
+                            {% elif record.status == 'rejected' %}已拒绝
+                            {% elif record.status == 'failed' %}失败
+                            {% elif record.status == 'validating' %}校验中
+                            {% else %}接收中{% endif %}
+                        </span>
+                        {% if record.status != 'accepted' %}<small>{{ record.message }}</small>{% endif %}
+                    </td>
+                    <td>
+                        {% if record.summary %}{{ record.summary.total_episodes }}{% else %}-{% endif %}
+                    </td>
+                    <td>{{ record.created_at or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty-history">
+        <span>⌁</span>
+        <p>还没有上传记录。第一个通过校验的数据集会出现在这里。</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/ingestion.js" defer></script>
+{% endblock %}
