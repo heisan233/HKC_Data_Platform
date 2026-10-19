@@ -10,7 +10,8 @@
 
 - 当前共同基线来自 `main` 的 Platform v2 目录结构。
 - Web 技术栈为 FastAPI、Uvicorn 和 Jinja2。
-- 当前页面大多仍使用 Python 常量中的演示数据，尚未全面读取真实数据集。
+- 当前页面大多仍使用 Python 常量中的演示数据；原始数据上传与 Episode/task
+  标注已经读取和写入真实 LeRobot v3 文件。
 - 数据集与运行结果采用文件夹存储，宿主机目录为 `storage/`，容器内为 `/data`。
 - 当前不使用数据库；`app/db/` 和 `migrations/` 只保留未来扩展位置。
 - 当前为单应用容器，没有 PostgreSQL、Redis 或独立 Worker 容器。
@@ -21,13 +22,13 @@
 | 分支 | 负责人 | 当前工作 | 不应修改的主要范围 |
 | --- | --- | --- | --- |
 | `main` | 双方共同维护 | 稳定结构与已验收功能 | 不作为日常开发分支 |
-| `hs_docker` | Heisan | 局域网访问、部署说明、原始数据集上传 | 数据集列表/详情与导出业务 |
+| `hs_docker` | Heisan | 局域网访问、部署说明、原始数据集上传、Episode/task 标注 | 数据集列表/详情与导出业务 |
 | `lxp_docker` | LXP | 数据管理界面、原有有效功能迁移、数据导出 | 网络开放、上传校验与入库 |
 
 双方开始新任务前先获取最新 `main`。功能完成后先在自己的分支提交并验证，再由
 双方检查差异后合并到 `main`。不要让两个 Codex 同时直接修改 `main`。
 
-## 三、Heisan 当前任务：可信局域网访问与原始数据集上传
+## 三、Heisan 当前任务：局域网访问、上传与 Episode/task 标注
 
 ### 目标
 
@@ -62,6 +63,19 @@
 - 通过检查后安全解压到 `storage/raw/<dataset_id>/`；失败内容不得进入原始区。
 - 文件式上传记录放在 `storage/system/upload-records/`，不引入数据库。
 - 该结构检查不等于数据质检；Parquet 内容、时间戳和图像质量仍由质检模块处理。
+
+### Episode/task 标注边界
+
+- 页面与 API 归 `hs_docker` 维护，路由前缀为 `/annotation/`。
+- 当前只支持 LeRobot v3.0，从 `tasks.parquet`、Episode 元数据和 frame 数据读取
+  真实 task，并根据 Episode 视频索引播放真实相机视频。
+- 浏览器中的修改在正式发布前只是内存草稿，不会写入数据集。
+- 每次正式发布都把源数据集完整复制到 `storage/staging/annotation/`，在临时
+  副本中同步任务表、Episode task 和 frame `task_index`；校验成功后原子移动到
+  `storage/derived/<dataset_id>/`。
+- `storage/raw/` 和既有 `storage/derived/` 均不可原地修改；当前没有覆盖发布和
+  永久删除。
+- 派生版本旁路记录写入 `storage/system/dataset-versions/`，不引入数据库。
 
 ## 四、LXP 当前任务：数据管理与导出
 
@@ -133,6 +147,8 @@ data_root = settings.data_root
 ```
 
 - 目录含义以 `storage/README.md` 为准；容器内统一为 `/data`。
+- 质检通过后的完整数据集写入 `storage/detected/`，质检报告写入
+  `storage/reports/`；质检不得覆盖 `raw/` 或其他输入数据集。
 - 页面路由继续位于 `/data/` 等现有前缀下。
 - 路由负责参数和响应，文件操作放入 service。
 - 上传文件名、压缩包内部路径和浏览器传来的路径都不可信。
@@ -155,6 +171,56 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-19
+
+开发者/分支：Heisan / `hs_docker`
+
+完成内容：新增 `storage/detected/`，明确用于保存真实质检完成并通过验收后的完整
+数据集；质检报告继续单独保存在 `storage/reports/`。
+
+主要修改文件：`storage/detected/.gitkeep`、`storage/README.md`、`AGENTS.md`、
+`readme.md`、`docs/COLLABORATION.md`。
+
+执行的验证：确认目录骨架可被 Git 跟踪，且真实运行内容仍受 `.gitignore` 保护；
+`git diff --check` 通过。
+
+未完成或已知问题：当前只建立目录与使用规则，真实质检业务尚未实现，因此不会
+自动向 `detected/` 写入数据集。
+
+是否修改共享文件：是，只补充存储目录约定，没有修改 LXP 的数据管理代码。
+
+下一步建议：实现质检服务时采用“临时区处理—校验—原子写入 detected”的流程，
+并让数据管理页面识别 `detected` 类型。
+
+日期：2026-10-19
+
+开发者/分支：Heisan / `hs_docker`
+
+完成内容：实现 `/annotation/` 第一版真实 LeRobot v3 Episode/task 标注工作台；
+读取真实任务表和 Episode 元数据，按元数据定位并播放多相机视频；支持单选、批量
+选择和 task 草稿修改；每次正式发布创建完整派生数据集，并同步更新任务表、
+Episode 元数据、frame `task_index` 和 `info.json.total_tasks`。
+
+主要修改文件：`app/modules/annotation/`、`app/templates/annotation.html`、
+`app/static/css/annotation.css`、`app/static/js/annotation.js`、`pyproject.toml`、
+`tests/integration/test_annotation.py`、存储与协作文档。
+
+执行的验证：Ruff 对本次标注模块检查通过；全部自动化测试 18 项通过；真实上传
+数据成功读取 7 个 Episodes、1 个 task 和 2 路视频索引；真实 MP4 Range 请求返回
+206；浏览器实测两路视频均进入 readyState 4，并同步播放到相同时间点，无控制台
+错误。发布写入测试只使用临时合成数据，确认完整复制且原始数据不变。
+
+未完成或已知问题：当前只修改每个 Episode 的单一 task 提示词；尚未支持帧级
+分段标注、多人审核/锁定、发布任务后台队列和发布进度恢复。完整副本会占用与源
+数据集近似的额外空间，发布期间 HTTP 请求需要保持连接。
+
+是否修改共享文件：是，在 `pyproject.toml` 增加 `pyarrow==26.0.0`，用于直接
+读取和写入 LeRobot v3 Parquet；没有加入 PyTorch、CUDA 或训练框架。LXP 更新
+依赖或镜像时应保留该运行依赖。
+
+下一步建议：由使用者人工修改一个可备份的小数据集并正式发布，确认业务 task
+文案；后续再决定是否增加帧级时间段标注、审核流与后台任务。
 
 日期：2026-10-19
 

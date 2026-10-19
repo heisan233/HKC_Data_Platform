@@ -40,9 +40,15 @@ HTML/JavaScript 按钮
 ## 当前实际状态
 
 目前多数模块只有从旧原型迁移来的 `router.py`。其中的数据列表主要是写在
-Python 文件里的演示常量，只用于显示现有页面，并不表示扫描、质检、处理、标注、
-转换或训练功能已经完成。
+Python 文件里的演示常量，只用于显示现有页面，并不表示扫描、质检、处理、转换
+或训练功能已经完成。
 
 `ingestion` 已实现第一版：接收一个完整的 LeRobot v3.0 ZIP，分块保存，执行
 压缩包安全检查和最低目录结构检查，然后写入 `storage/raw/`。这只是“上传入库”
 而不是完整数据质检。`conversion` 等其他目录仍是边界占位。
+
+`annotation` 已实现第一版真实 Episode/task 标注：从 LeRobot v3 Parquet 读取
+任务表、Episode 和视频索引，网页播放真实相机视频并暂存 task 修改；正式发布时
+复制完整源数据集，同步修改 `meta/tasks.parquet`、Episode 元数据以及
+`data/**/*.parquet` 中的 `task_index`，校验后写入 `storage/derived/`。它不会
+原地修改 `storage/raw/` 或既有派生版本。

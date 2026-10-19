@@ -1,36 +1,104 @@
 {% extends "base.html" %}
 {% block page_title %}数据标注{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', path='/css/annotation.css') }}?v=20261019-1">
+{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">✏️ 标注任务、状态流转、批量标注、问题标注</span></div>
-    <button class="btn btn-primary">+ 新建标注任务</button>
-</div>
-<div class="card">
-    <table class="table">
-        <tr><th>ID</th><th>数据集</th><th>标注类型</th><th>标注员</th><th>状态</th><th>进度</th><th>操作</th></tr>
-        {% for t in tasks %}
-        <tr>
-            <td>{{ t.id }}</td>
-            <td>{{ t.dataset }}</td>
-            <td>{{ t.type }}</td>
-            <td>{{ t.annotator }}</td>
-            <td><span class="status-badge
-                {% if t.status == '已完成' %}status-done
-                {% elif t.status == '标注中' %}status-running
-                {% elif t.status == '待审核' %}status-paused
-                {% else %}status-offline{% endif %}">{{ t.status }}</span></td>
-            <td>
-                <div style="background:#e9edf4;border-radius:6px;height:8px;width:120px;display:inline-block;vertical-align:middle;">
-                    <div style="background:#2b7de9;height:8px;border-radius:6px;width:{{ t.progress }}%;"></div>
+<section class="annotation-heading">
+    <div>
+        <p class="annotation-eyebrow">LEROBOT V3 · EPISODE / TASK</p>
+        <h2>数据标注工作台</h2>
+        <p>播放真实 Episode 视频，修改 task；正式发布会生成新的完整派生数据集，源数据保持不变。</p>
+    </div>
+    <div class="dataset-picker">
+        <label for="dataset-select">当前数据集</label>
+        <select id="dataset-select" aria-label="选择标注数据集">
+            <option value="">正在读取数据集…</option>
+        </select>
+    </div>
+</section>
+
+<div id="annotation-message" class="annotation-message" hidden></div>
+
+<section id="annotation-empty" class="annotation-empty" hidden>
+    <span>📭</span>
+    <h3>还没有可标注的数据集</h3>
+    <p>请先在“原始数据集上传”页面上传一个完整的 LeRobot v3 ZIP。</p>
+</section>
+
+<section id="annotation-workspace" hidden>
+    <div class="dataset-stats" id="dataset-stats"></div>
+
+    <div class="annotation-grid">
+        <aside class="episode-panel panel-surface">
+            <div class="panel-title">
+                <div>
+                    <span class="panel-kicker">01 / Episodes</span>
+                    <h3>选择片段</h3>
                 </div>
-                <span style="font-size:12px;color:#666;margin-left:6px;">{{ t.progress }}%</span>
-            </td>
-            <td>
-                <button class="btn btn-primary btn-sm">去标注</button>
-                <button class="btn btn-sm" style="background:#f0f0f0;">详情</button>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
+                <button type="button" id="select-all" class="quiet-button">全选</button>
+            </div>
+            <input id="episode-search" class="annotation-input" type="search" placeholder="搜索 Episode 或 task">
+            <div id="episode-list" class="episode-list"></div>
+        </aside>
+
+        <main class="viewer-panel panel-surface">
+            <div class="panel-title viewer-heading">
+                <div>
+                    <span class="panel-kicker">02 / Preview</span>
+                    <h3 id="episode-title">选择一个 Episode</h3>
+                    <p id="episode-meta">视频将显示在这里</p>
+                </div>
+                <button type="button" id="sync-play" class="quiet-button" disabled>同步播放</button>
+            </div>
+            <div id="video-grid" class="video-grid">
+                <div class="video-placeholder">从左侧选择 Episode 以加载真实视频</div>
+            </div>
+            <div class="current-task-card">
+                <span>当前 task</span>
+                <strong id="current-task">—</strong>
+            </div>
+        </main>
+
+        <aside class="editor-panel panel-surface">
+            <div class="panel-title">
+                <div>
+                    <span class="panel-kicker">03 / Edit</span>
+                    <h3>修改 task</h3>
+                </div>
+                <span id="selected-count" class="selection-count">0 项</span>
+            </div>
+            <label class="annotation-label" for="task-input">新 task 提示词</label>
+            <textarea id="task-input" class="annotation-input task-input" rows="4" maxlength="500" placeholder="例如：pick up the red block and place it in the tray"></textarea>
+            <button type="button" id="apply-task" class="primary-action">应用到选中的 Episode</button>
+
+            <div class="pending-block">
+                <div class="pending-title">
+                    <h4>待发布修改</h4>
+                    <button type="button" id="clear-changes" class="text-button">全部撤销</button>
+                </div>
+                <div id="pending-list" class="pending-list">
+                    <p class="muted-copy">尚未修改 task。</p>
+                </div>
+            </div>
+
+            <div class="publish-block">
+                <h4>发布新派生版本</h4>
+                <label class="annotation-label" for="version-name">版本名称</label>
+                <input id="version-name" class="annotation-input" maxlength="100" placeholder="例如：抓取任务标注 v1">
+                <label class="annotation-label" for="version-description">版本说明（可选）</label>
+                <textarea id="version-description" class="annotation-input" rows="2" maxlength="1000" placeholder="记录本次修改目的"></textarea>
+                <div class="copy-warning">
+                    <strong>完整副本发布</strong>
+                    <span>会占用约一个完整数据集的额外空间，不会修改或删除源数据。</span>
+                </div>
+                <button type="button" id="publish-version" class="publish-action" disabled>发布派生数据集</button>
+            </div>
+        </aside>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', path='/js/annotation.js') }}?v=20261019-1" defer></script>
 {% endblock %}

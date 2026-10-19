@@ -64,9 +64,9 @@ HKC_Data_Platform_v2/
 3. `app/db/` 未来保存“如何访问数据库”的 Python 代码；当前为空且不使用。
 4. `migrations/` 未来保存“如何升级数据库表结构”的脚本；它不是旧数据存档。
 
-当前打开网页时看到的数据集、质检报告等内容，主要仍是各 `router.py` 中的静态
-演示常量，并不是从 `storage/` 读取的真实数据。完成目录重构不等于业务功能已经
-完成；接下来需要逐项实现文件夹扫描、上传、质检等能力。
+当前除“原始数据集上传”和“数据标注”外，网页中看到的数据集、质检报告等内容
+主要仍是各 `router.py` 中的静态演示常量。完成目录重构不等于全部业务功能已经
+完成；接下来仍需逐项实现数据管理、质检、处理、转换等能力。
 
 ### `modules` 与页面、按钮的关系
 
@@ -94,6 +94,8 @@ qc.html 中的按钮
 - 大型 VLA 数据集直接保存在 `storage/raw/`，不放入数据库。
 - 正在上传、解压或校验的内容放在 `storage/staging/`。
 - 处理生成的新版本放在 `storage/derived/`，不原地修改原始数据。
+- 真实质检完成并通过验收后的完整数据集放在 `storage/detected/`；质检报告仍放在
+  `storage/reports/`，两者不能混放。
 - 质检报告和导出包分别放在 `storage/reports/` 与 `storage/exports/`。
 - 当前通过目录结构、LeRobot 自身元数据以及必要的 JSON 文件管理状态。
 - 如果以后文件式管理无法满足并发查询和状态一致性，再启用数据库；届时数据集
@@ -178,11 +180,46 @@ http://127.0.0.1:8000/ingestion/
 这一步只检查安全性和 LeRobot v3.0 的最低结构，并不解析 Parquet 的实际字段，
 也不等于数据质检。内容级检查仍由后续数据质检模块完成。
 
+### Episode/task 数据标注（第一版）
+
+先通过“原始数据集上传”入库 LeRobot v3.0 数据，然后访问：
+
+```text
+http://127.0.0.1:8000/annotation/
+```
+
+第一版工作流程如下：
+
+1. 页面从 `storage/raw/` 和 `storage/derived/` 读取真实数据集，而不是演示常量。
+2. 选择数据集后，平台读取 `meta/tasks.parquet`、Episode 元数据和视频索引。
+3. 左侧选择一个或多个 Episode，中间播放该 Episode 的真实多相机视频。
+4. 右侧修改 task 并应用到选择项；此时只是浏览器草稿，刷新页面会丢弃，源文件
+   不会改变。
+5. 填写派生版本名称并正式发布。平台将源数据集完整复制到临时区，在副本中同步
+   更新任务表、Episode task、frame `task_index` 和 `info.json.total_tasks`。
+6. 校验通过后，新数据集进入 `storage/derived/<dataset_id>/`，版本记录进入
+   `storage/system/dataset-versions/`；原始数据集和既有派生版本始终保持不变。
+
+因此一次正式发布需要近似一个完整源数据集的额外磁盘空间。平台使用
+`pyarrow==26.0.0` 直接处理 Parquet，没有把 PyTorch、CUDA 或 VLA 训练依赖加入
+Web 容器。当前只支持 Episode 级单一 task 提示词，不包含帧级时间段、多用户
+审核或后台发布队列。
+
+标注模块提供以下真实 API：
+
+```text
+GET  /annotation/api/datasets
+GET  /annotation/api/datasets/{dataset_id}
+GET  /annotation/api/datasets/{dataset_id}/episodes/{episode_index}/video?camera=...
+POST /annotation/api/publish
+```
+
 ### 当前尚未完成
 
 - `conversion` 现在只有边界定义，业务代码尚未实现。
 - `app/db/` 与 `migrations/` 是未来数据库预留，当前不参与程序运行。
-- 页面仍以 v1 静态演示数据为主；目录迁移不代表按钮功能已经完成。
+- 除上传和 Episode/task 标注外，页面仍以 v1 静态演示数据为主；目录迁移不代表
+  其他按钮功能已经完成。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
 - `semantics` 和独立 `export` 路由为迁移兼容而保留，后续按产品方案调整导航。
 
