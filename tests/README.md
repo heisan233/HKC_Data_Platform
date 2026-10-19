@@ -4,5 +4,5 @@
 文件存储集成测试放在 `tests/integration/`，可安全提交的小型 LeRobot 样本放在
 `tests/fixtures/`。真实业务数据集不能放进测试目录。
 
-当前没有数据库测试；未来启用数据库后，再把相应集成测试加入
-`tests/integration/`。
+`tests/integration/test_data_management.py` 使用临时 `storage/` 和 SQLite 文件测试
+目录扫描、编号登记、路径安全及报告关联，不访问真实业务数据。
