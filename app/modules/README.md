@@ -39,7 +39,7 @@ HTML/JavaScript 按钮
 
 ## 当前实际状态
 
-目前多数模块只有从旧原型迁移来的 `router.py`。其中的数据列表主要是写在
-Python 文件里的演示常量，只用于显示现有页面，并不表示上传、扫描、质检、处理、
-标注、转换或训练功能已经完成。`ingestion` 和 `conversion` 等目录目前只有边界
-占位，后续实现功能时再增加 `router.py`、`service.py` 等文件。
+数据管理的 `datasets` 模块已扫描 `storage/raw/` 并通过 `app/db/datasets.py`
+保存登记编号。hs 上传解压独立进行，数据管理不处理上传。其他多数模块仍只有
+从旧原型迁移来的演示路由，不表示质检、处理、标注、转换或训练功能已经完成。
+`ingestion` 和 `conversion` 等目录目前只有边界占位。
