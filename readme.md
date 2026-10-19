@@ -141,6 +141,10 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
 
+默认端口只绑定 `127.0.0.1`。需要让可信局域网中的其他机器临时访问时，不要直接
+修改 `compose.yaml`，请按 `deploy/README.md` 使用
+`deploy/compose.lan.yaml` 覆盖配置。当前没有登录鉴权，禁止开放到公网。
+
 容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`；开发机上的
 `./storage` 会挂载到 `/data`。修改 Python 或模板后，开发覆盖配置中的
 Uvicorn `--reload` 会重新加载应用。正式部署时只使用 `compose.yaml`，代码来自
