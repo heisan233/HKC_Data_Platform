@@ -4,6 +4,10 @@ __pycache__/
 
 # Local IDE configuration
 .idea/
+.marscode/
+
+# Local desktop/tool temporary state
+/tmp/
 
 # Local virtual environments
 .venv/
@@ -24,6 +28,15 @@ htmlcov/
 
 # Runtime logs
 *.log
+
+# Platform storage. Keep only the documented directory skeleton in Git.
+/storage/**
+!/storage/**/
+!/storage/README.md
+!/storage/**/.gitkeep
+
+# Legacy local dataset directory used by the previous prototype
+/datas/
 
 # Operating system metadata
 Thumbs.db

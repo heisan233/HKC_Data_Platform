@@ -1,0 +1,16 @@
+services:
+  platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: hkc-data-platform:v2
+    init: true
+    environment:
+      HKC_DATA_ROOT: /data
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - type: bind
+        source: ./storage
+        target: /data
+    restart: unless-stopped

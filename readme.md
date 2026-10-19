@@ -1,5 +1,161 @@
 # HKC 数采平台：环境配置与修改记录
 
+## Platform v2 开发基线
+
+本目录是通过 Git worktree 从 `origin/main` 创建的独立开发工作区，对应分支为
+`feat/platform-v2`。Git worktree 不是项目内部的代码目录结构，而是同一个 Git
+仓库的另一个检出目录：旧的 `HKC_Data_Platform` 可以继续保留在
+`hs_docker`，本目录则用于 Platform v2 的重构开发。两个目录共享 Git 历史，
+但工作区文件和当前分支相互独立。
+
+Platform v2 已完成第一轮目录迁移。现有演示页面被保留，但入口、路由、模板和
+静态资源已经移入 `app/`。后续功能应继续遵守下面的实际目录结构，避免重新在
+项目根目录堆放业务文件：
+
+当前阶段采用**纯文件夹存储**：数据集和运行结果保存在 `storage/`，尚未启用
+SQLite、PostgreSQL 或其他数据库。`app/db/` 和 `migrations/` 只是为以后接入
+数据库预留，当前程序不依赖它们。
+
+```text
+HKC_Data_Platform_v2/
+├── app/
+│   ├── main.py                 # FastAPI 应用入口，只负责组装应用和注册路由
+│   ├── web.py                  # 多个页面共享的 Jinja2 模板对象
+│   ├── core/                   # 路径、环境配置等全项目共用的基础代码
+│   ├── db/                     # 未来数据库访问代码预留；当前不参与运行
+│   ├── modules/                # 按业务能力组织代码，不与 HTML 严格一一对应
+│   │   ├── dashboard/          # 工作台
+│   │   ├── datasets/           # 数据集目录、详情、版本和导出
+│   │   ├── ingestion/          # 网页上传和机器人 HTTP 上传
+│   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
+│   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
+│   │   ├── annotation/         # task 提示词等标注信息修改
+│   │   ├── conversion/         # 数据集格式转换
+│   │   ├── training/           # 模型训练与评估接口，首期只保留框架
+│   │   ├── robots/             # 机器人管理
+│   │   ├── scenes/             # 情景管理
+│   │   ├── system/             # 系统管理
+│   │   ├── semantics/          # v1 数据定义兼容模块，后续从导航移除
+│   │   ├── export/             # v1 导出兼容模块，后续并入 datasets
+│   │   ├── models/             # v1 未注册页面，等待归并
+│   │   └── logs/               # v1 未注册页面，等待归并
+│   ├── templates/              # Jinja2 HTML 模板
+│   └── static/                 # 浏览器直接加载的 CSS、JavaScript、图片
+├── tests/                      # 单元、接口和集成测试
+├── migrations/                 # 未来数据库表结构升级脚本预留；当前不参与运行
+├── deploy/                     # 本地与服务器部署配置
+├── storage/                    # 数据集、处理结果和平台运行数据，实际内容不提交 Git
+├── Dockerfile                  # 应用镜像构建说明
+├── compose.yaml                # 通用、单应用容器定义
+├── compose.dev.yaml            # 本地热重载覆盖配置
+├── pyproject.toml              # Python 项目和直接依赖声明
+├── .env.example                # 可公开的配置示例，不包含真实密钥
+└── readme.md                   # 开发、运行、部署和目录规范
+```
+
+### 先区分四类内容
+
+1. `app/modules/` 保存“平台能够做什么”的 Python 代码，例如上传、质检和转换。
+2. `storage/` 保存真正的数据集、处理结果、报告和平台产生的普通文件。
+3. `app/db/` 未来保存“如何访问数据库”的 Python 代码；当前为空且不使用。
+4. `migrations/` 未来保存“如何升级数据库表结构”的脚本；它不是旧数据存档。
+
+当前打开网页时看到的数据集、质检报告等内容，主要仍是各 `router.py` 中的静态
+演示常量，并不是从 `storage/` 读取的真实数据。完成目录重构不等于业务功能已经
+完成；接下来需要逐项实现文件夹扫描、上传、质检等能力。
+
+### `modules` 与页面、按钮的关系
+
+`templates/` 决定页面长什么样，`modules/` 负责平台能做什么。两者不是一一对应：
+一个页面可以调用多个业务模块，一个业务模块也可以同时提供网页接口和机器人
+HTTP API。
+
+每个模块中的 `router.py` 只应接收 HTTP 请求和返回结果；实际业务以后写在同一
+模块的 `service.py` 或更具体的子目录中。例如质检按钮的调用链应为：
+
+```text
+qc.html 中的按钮
+  -> quality/router.py 接收请求
+  -> quality/service.py 组织流程
+  -> quality/checkers/ 执行具体检查
+  -> storage/reports/ 保存报告
+```
+
+所以“网页按钮代码和数据检查代码分开”是正确做法；它们可以归属同一个
+`quality` 业务模块，但不应该堆在同一个路由函数中。更详细的说明见
+`app/modules/README.md`。
+
+### 当前文件存储方案
+
+- 大型 VLA 数据集直接保存在 `storage/raw/`，不放入数据库。
+- 正在上传、解压或校验的内容放在 `storage/staging/`。
+- 处理生成的新版本放在 `storage/derived/`，不原地修改原始数据。
+- 质检报告和导出包分别放在 `storage/reports/` 与 `storage/exports/`。
+- 当前通过目录结构、LeRobot 自身元数据以及必要的 JSON 文件管理状态。
+- 如果以后文件式管理无法满足并发查询和状态一致性，再启用数据库；届时数据集
+  仍保存在文件系统，数据库只保存名称、路径、状态等管理信息。
+
+### 文件放置规则
+
+- 新业务代码必须放进 `app/modules/<业务领域>/`，不要为每个按钮在项目根目录
+  新建一个 Python 文件。
+- 路由只处理 HTTP 输入输出；具体业务放在同领域的服务代码中，文件读写与业务
+  判断分开。未来启用数据库后，数据库访问也应保持独立。
+- 页面模板放进 `app/templates/`，公共布局和组件集中维护；CSS、JavaScript、
+  图标和图片放进 `app/static/`。
+- 测试代码统一放进 `tests/`，目录尽量与 `app/` 的业务结构对应。
+- Docker、Compose 和依赖声明属于项目源代码，必须提交 Git。
+- 原始数据集、处理结果、模型权重、运行状态文件、日志、缓存和 `.env` 不提交
+  Git，应通过宿主机目录或 Docker volume 挂载。
+- 程序内部统一使用容器路径 `/data`。开发机和服务器只通过 Compose 配置决定
+  `/data` 实际对应哪个宿主机目录，业务代码不得写死个人目录。
+- 密码、Token、API Key 只允许通过环境变量或密钥管理方式提供，仓库中只保存
+  `.env.example`。
+
+### 首期容器边界
+
+Platform v2 首期暂时把网页/API 和数据集基础自检放在同一个应用镜像、同一个
+应用容器中，以降低本地开发复杂度。代码仍需保持模块边界，耗时操作通过统一
+任务接口调用，避免直接写进页面路由。后续如果 LeRobot Doctor、视频扫描、VLM
+质检或数据处理影响网页稳定性，再将任务执行模块拆为独立 Worker 容器，而不必
+重写业务逻辑。
+
+所有 `storage/` 内容必须持久化到容器外部；删除或重建应用容器不应导致数据集、
+任务记录或质检报告丢失。当前没有数据库服务或数据库容器。
+
+### 当前启动方式
+
+直接使用本机 Python 时，从项目根目录运行：
+
+```bash
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+使用首期单应用容器运行：
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml up --build
+```
+
+容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`；开发机上的
+`./storage` 会挂载到 `/data`。修改 Python 或模板后，开发覆盖配置中的
+Uvicorn `--reload` 会重新加载应用。正式部署时只使用 `compose.yaml`，代码来自
+镜像而不是宿主机源码挂载。
+
+### 当前尚未完成
+
+- `ingestion`、`conversion` 现在只有边界定义，业务代码尚未实现。
+- `app/db/` 与 `migrations/` 是未来数据库预留，当前不参与程序运行。
+- 页面仍以 v1 静态演示数据为主；目录迁移不代表按钮功能已经完成。
+- PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
+- `semantics` 和独立 `export` 路由为迁移兼容而保留，后续按产品方案调整导航。
+
+## 附录：v1 原型历史记录
+
+> 以下内容记录 2026-09-22 的 v1 Windows/Conda 原型，仅供追溯。其中
+> `main:app`、根目录 `routers/`、`templates/` 等路径已经失效；Platform v2
+> 请以上面的目录规范和 `app.main:app` 启动方式为准。
+
 记录日期：2026-09-22
 
 ## 1. 项目概况
