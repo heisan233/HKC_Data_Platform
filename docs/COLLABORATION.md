@@ -10,7 +10,7 @@
 
 - 当前共同基线来自 `main` 的 Platform v2 目录结构。
 - Web 技术栈为 FastAPI、Uvicorn 和 Jinja2。
-- 当前页面大多仍使用 Python 常量中的演示数据；原始数据上传与 Episode/task
+- 当前页面大多仍使用 Python 常量中的演示数据；原始数据上传与 Episode/task/Subtask
   标注已经读取和写入真实 LeRobot v3 文件。
 - 数据集与运行结果采用文件夹存储，宿主机目录为 `storage/`，容器内为 `/data`。
 - 当前不使用数据库；`app/db/` 和 `migrations/` 只保留未来扩展位置。
@@ -22,13 +22,13 @@
 | 分支 | 负责人 | 当前工作 | 不应修改的主要范围 |
 | --- | --- | --- | --- |
 | `main` | 双方共同维护 | 稳定结构与已验收功能 | 不作为日常开发分支 |
-| `hs_docker` | Heisan | 局域网访问、部署说明、原始数据集上传、Episode/task 标注 | 数据集列表/详情与导出业务 |
+| `hs_docker` | Heisan | 局域网访问、部署说明、原始数据集上传、Episode/task/Subtask 标注 | 数据集列表/详情与导出业务 |
 | `lxp_docker` | LXP | 数据管理界面、原有有效功能迁移、数据导出 | 网络开放、上传校验与入库 |
 
 双方开始新任务前先获取最新 `main`。功能完成后先在自己的分支提交并验证，再由
 双方检查差异后合并到 `main`。不要让两个 Codex 同时直接修改 `main`。
 
-## 三、Heisan 当前任务：局域网访问、上传与 Episode/task 标注
+## 三、Heisan 当前任务：局域网访问、上传与 Episode/task/Subtask 标注
 
 ### 目标
 
@@ -64,15 +64,23 @@
 - 文件式上传记录放在 `storage/system/upload-records/`，不引入数据库。
 - 该结构检查不等于数据质检；Parquet 内容、时间戳和图像质量仍由质检模块处理。
 
-### Episode/task 标注边界
+### Episode/task/Subtask 标注边界
 
 - 页面与 API 归 `hs_docker` 维护，路由前缀为 `/annotation/`。
 - 当前只支持 LeRobot v3.0，从 `tasks.parquet`、Episode 元数据和 frame 数据读取
   真实 task，并根据 Episode 视频索引播放真实相机视频。
+- `tasks.parquet` 按 LeRobot 官方 Pandas 索引语义读取和写回：自然语言 task 是
+  名为 `task` 的 DataFrame 索引，`task_index` 是普通列；Episode 帧数使用官方
+  `length` 字段。读取端保留对平台早期普通 `task` 列和 `num_frames` 的兼容。
 - 浏览器中的修改在正式发布前只是内存草稿，不会写入数据集。
 - 每次正式发布都把源数据集完整复制到 `storage/staging/annotation/`，在临时
   副本中同步任务表、Episode task 和 frame `task_index`；校验成功后原子移动到
   `storage/derived/<dataset_id>/`。
+- Episode 执行结果为 `success`、`partial` 或 `failure`；部分成功和失败必须记录
+  原因。Subtask 使用 Episode 相对秒数标注开始/结束，发布时同时换算为帧区间。
+- 扩展标注写入派生副本的 `meta/annotations/episodes.parquet`、
+  `subtasks.parquet` 与 `schema.json`，不加入 LeRobot v3 核心 feature，也不修改
+  原始数据集的核心格式。
 - `storage/raw/` 和既有 `storage/derived/` 均不可原地修改；当前没有覆盖发布和
   永久删除。
 - 派生版本旁路记录写入 `storage/system/dataset-versions/`，不引入数据库。
@@ -171,6 +179,59 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-19
+
+开发者/分支：Heisan / `hs_docker`
+
+完成内容：按 LeRobot 官方 v3 实现修正标注模块兼容性。`tasks.parquet` 不再强制
+要求物理 `task` 列，而是使用 Pandas DataFrame 的 task 索引；写回派生版本也采用
+官方索引语义。Episode 帧数改读官方 `length` 字段，并兼容平台早期格式。
+
+主要修改文件：`app/modules/annotation/service.py`、
+`tests/integration/test_annotation.py`、`pyproject.toml` 及标注相关说明。
+
+执行的验证：标注模块 Ruff、5 项标注回归测试以及全平台 21 项自动化测试通过；
+真实 SmolVLA v3 数据成功读取 50 个 Episodes、19,631 帧、1 个 task 和 2 路视频。
+浏览器中 Episode 0000 显示
+454 帧、15.133 秒，两路视频均加载到 readyState 4，控制台无错误。未向真实数据
+发布派生版本。
+
+未完成或已知问题：只适配当前使用到的 LeRobot v3 元数据；尚未运行完整 Doctor
+级别的一致性检查。平台扩展标注仍使用 `meta/annotations/` 旁路文件。
+
+是否修改共享文件：是，在 `pyproject.toml` 增加 `pandas==2.3.3`；LXP 重建镜像
+或调整依赖时应保留 pandas 与 pyarrow。
+
+下一步建议：由使用者在可备份数据集上人工发布一个派生标注版本；随后实现数据
+质检流程并接入 LeRobot Doctor。
+
+日期：2026-10-19
+
+开发者/分支：Heisan / `hs_docker`
+
+完成内容：扩展 `/annotation/`，新增 Episode 执行结果（成功、部分成功、失败及
+原因）和真实 Subtask 时间段标注；支持从视频播放位置取开始/结束时间，记录描述、
+动作类型、对象及该段结果，并在时间轴中查看、定位、编辑和删除。正式发布仍创建
+完整派生数据集；新增标注写入 `meta/annotations/` 旁路 Parquet，同时保存秒数和
+换算后的帧区间，不修改 LeRobot v3 核心 feature。
+
+主要修改文件：`app/modules/annotation/`、`app/templates/annotation.html`、
+`app/static/css/annotation.css`、`app/static/js/annotation.js`、
+`tests/integration/test_annotation.py`、项目和存储说明。
+
+执行的验证：Ruff 通过；全部自动化测试 20 项通过；浏览器使用真实 7 个 Episodes
+和两路视频完成执行结果、失败原因、Subtask 添加、时间轴和暂存流程验证，控制台
+无错误。发布写入测试只使用临时合成数据，没有向真实数据集发布测试版本。
+
+未完成或已知问题：当前是单人浏览器草稿，没有多人审核/锁定、自动保存、后台
+发布队列和断点恢复；Subtask 动作类型为自由输入加常用建议，尚未建立团队统一词表。
+
+是否修改共享文件：是，只更新文档中的标注能力和存储约定；未修改 LXP 的数据
+管理或导出业务。
+
+下一步建议：由使用者用一个可备份数据集人工发布首个标注版本，确认团队希望采用
+的动作类型词表；随后再实现质检或标注审核流程。
 
 日期：2026-10-19
 

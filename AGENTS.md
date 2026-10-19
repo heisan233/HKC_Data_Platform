@@ -7,7 +7,7 @@
 
 - `main` 是双方共同的结构基线和最终集成分支。
 - `hs_docker` 由 Heisan 使用，当前负责局域网访问、部署配置、原始数据集上传和
-  Episode/task 数据标注。
+  Episode/task/Subtask 数据标注。
 - `lxp_docker` 由 LXP 使用，当前负责数据管理页面与数据导出。
 - 两个开发分支开始任务前都必须基于最新 `main`；不要把旧分支目录整体复制回
   新结构。
@@ -35,7 +35,7 @@
 - 数据集管理业务：`app/modules/datasets/`
 - 上传业务：`app/modules/ingestion/`
 - 数据导出业务：`app/modules/export/`
-- Episode/task 标注业务：`app/modules/annotation/`
+- Episode/task/Subtask 标注业务：`app/modules/annotation/`
 - 质检业务：`app/modules/quality/`
 - HTML：`app/templates/`
 - CSS、JavaScript、图片：`app/static/`
@@ -58,9 +58,10 @@
 - 负责相应 Docker、Compose、端口、防火墙和部署说明。
 - 上传临时内容放入 `storage/staging/`；通过校验后才能进入 `storage/raw/`，
   不得修改已经入库的原始数据。
-- 维护 `/annotation/` 的 LeRobot v3 Episode/task 标注功能。正式发布必须创建
+- 维护 `/annotation/` 的 LeRobot v3 Episode/task/Subtask 标注功能。正式发布必须创建
   `storage/derived/` 下的完整派生副本，并同步任务表、Episode 元数据和 frame
-  数据中的 task 索引；不得原地修改 `raw/` 或既有派生版本。
+  数据中的 task 索引；Episode 执行结果和 Subtask 时间段保存在
+  `meta/annotations/` 平台旁路文件中，不得原地修改 `raw/` 或既有派生版本。
 
 ### LXP / `lxp_docker`
 

@@ -33,7 +33,7 @@ HKC_Data_Platform_v2/
 │   │   ├── ingestion/          # 网页上传和机器人 HTTP 上传
 │   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
 │   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
-│   │   ├── annotation/         # task 提示词等标注信息修改
+│   │   ├── annotation/         # Episode/task/Subtask 标注与派生发布
 │   │   ├── conversion/         # 数据集格式转换
 │   │   ├── training/           # 模型训练与评估接口，首期只保留框架
 │   │   ├── robots/             # 机器人管理
@@ -180,7 +180,7 @@ http://127.0.0.1:8000/ingestion/
 这一步只检查安全性和 LeRobot v3.0 的最低结构，并不解析 Parquet 的实际字段，
 也不等于数据质检。内容级检查仍由后续数据质检模块完成。
 
-### Episode/task 数据标注（第一版）
+### Episode/task/Subtask 数据标注
 
 先通过“原始数据集上传”入库 LeRobot v3.0 数据，然后访问：
 
@@ -188,22 +188,31 @@ http://127.0.0.1:8000/ingestion/
 http://127.0.0.1:8000/annotation/
 ```
 
-第一版工作流程如下：
+工作流程如下：
 
 1. 页面从 `storage/raw/` 和 `storage/derived/` 读取真实数据集，而不是演示常量。
 2. 选择数据集后，平台读取 `meta/tasks.parquet`、Episode 元数据和视频索引。
+   其中 task 按 LeRobot 官方结构作为 Pandas DataFrame 索引读取，Episode 帧数
+   使用官方 `length` 字段；同时兼容本平台早期的普通 `task` 列和 `num_frames`。
 3. 左侧选择一个或多个 Episode，中间播放该 Episode 的真实多相机视频。
-4. 右侧修改 task 并应用到选择项；此时只是浏览器草稿，刷新页面会丢弃，源文件
-   不会改变。
-5. 填写派生版本名称并正式发布。平台将源数据集完整复制到临时区，在副本中同步
-   更新任务表、Episode task、frame `task_index` 和 `info.json.total_tasks`。
-6. 校验通过后，新数据集进入 `storage/derived/<dataset_id>/`，版本记录进入
+4. 右侧可修改总体 task，选择 Episode 执行结果（成功、部分成功、失败），并记录
+   失败或未完全成功的原因。
+5. 通过视频播放头获取相对 Episode 的开始/结束时间，添加 Subtask 描述、动作
+   类型、对象和该段执行结果；时间段允许留空档但不能重叠。
+6. 点击“暂存当前 Episode”后仍只是浏览器草稿，刷新页面会丢弃，源文件不会改变。
+7. 填写派生版本名称并正式发布。平台将源数据集完整复制到临时区，在副本中同步
+   更新任务表、Episode task、frame `task_index` 和 `info.json.total_tasks`；扩展
+   标注写入 `meta/annotations/`。
+8. 校验通过后，新数据集进入 `storage/derived/<dataset_id>/`，版本记录进入
    `storage/system/dataset-versions/`；原始数据集和既有派生版本始终保持不变。
 
 因此一次正式发布需要近似一个完整源数据集的额外磁盘空间。平台使用
-`pyarrow==26.0.0` 直接处理 Parquet，没有把 PyTorch、CUDA 或 VLA 训练依赖加入
-Web 容器。当前只支持 Episode 级单一 task 提示词，不包含帧级时间段、多用户
-审核或后台发布队列。
+`pandas==2.3.3` 与 `pyarrow==26.0.0` 按 LeRobot 官方索引语义处理 Parquet，
+没有把 PyTorch、CUDA 或 VLA 训练依赖加入 Web 容器。Subtask 的秒数相对 Episode
+开始位置，并自动保存对应的
+`start_frame` 与排他结束帧 `end_frame_exclusive`。Episode 结果和 Subtask 使用
+平台旁路 Parquet 保存，不加入 LeRobot v3 核心 feature，因此不会破坏标准训练
+字段。当前不包含多人审核或后台发布队列。
 
 标注模块提供以下真实 API：
 

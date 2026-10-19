@@ -26,7 +26,7 @@ def _error_response(error: AnnotationError) -> JSONResponse:
 
 @router.get("/", response_class=HTMLResponse)
 async def annotation_page(request: Request) -> HTMLResponse:
-    """展示 Episode/task 标注工作台。"""
+    """展示 Episode、task 与 Subtask 标注工作台。"""
 
     return templates.TemplateResponse(
         request=request,
@@ -80,7 +80,7 @@ async def episode_video(
 
 @router.post("/api/publish", response_class=JSONResponse)
 async def publish_annotation_version(payload: PublishAnnotationRequest) -> JSONResponse:
-    """把本次 task 修改发布为一个新的完整派生数据集。"""
+    """把本次 task、执行结果和 Subtask 发布为完整派生数据集。"""
 
     try:
         result = await run_in_threadpool(
@@ -90,6 +90,7 @@ async def publish_annotation_version(payload: PublishAnnotationRequest) -> JSONR
             version_name=payload.version_name,
             description=payload.description,
             changes=payload.changes,
+            annotations=payload.annotations,
         )
         return JSONResponse(status_code=201, content=result)
     except AnnotationError as error:

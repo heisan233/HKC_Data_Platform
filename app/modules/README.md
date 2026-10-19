@@ -47,8 +47,11 @@ Python 文件里的演示常量，只用于显示现有页面，并不表示扫�
 压缩包安全检查和最低目录结构检查，然后写入 `storage/raw/`。这只是“上传入库”
 而不是完整数据质检。`conversion` 等其他目录仍是边界占位。
 
-`annotation` 已实现第一版真实 Episode/task 标注：从 LeRobot v3 Parquet 读取
-任务表、Episode 和视频索引，网页播放真实相机视频并暂存 task 修改；正式发布时
-复制完整源数据集，同步修改 `meta/tasks.parquet`、Episode 元数据以及
-`data/**/*.parquet` 中的 `task_index`，校验后写入 `storage/derived/`。它不会
-原地修改 `storage/raw/` 或既有派生版本。
+`annotation` 已实现真实 Episode/task/Subtask 标注：从 LeRobot v3 Parquet 读取
+任务表、Episode 和视频索引，网页播放真实相机视频，可修改总体 task、Episode
+执行结果以及 Subtask 时间段、描述、动作类型、对象和结果。正式发布时复制完整
+源数据集；task 修改同步到 LeRobot 核心文件，扩展标注写入副本的
+`meta/annotations/` 旁路 Parquet，校验后进入 `storage/derived/`。它不会原地修改
+`storage/raw/` 或既有派生版本。任务表遵循 LeRobot 官方约定：自然语言 task 是
+Pandas DataFrame 的 `task` 索引，`task_index` 是普通列；Episode 帧数读取官方
+`length` 字段。读取端同时兼容平台早期使用的普通 `task` 列和 `num_frames`。

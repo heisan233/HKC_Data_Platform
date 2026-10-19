@@ -24,8 +24,10 @@
 - `raw/`：上传成功并登记后的原始数据，只读、不可原地修改。
 - `staging/`：上传、校验、安全解压或派生版本发布期间的临时内容。标注发布临时
   副本位于 `staging/annotation/`，成功或失败后都会清理。
-- `derived/`：裁剪、合并、拆分、去重或修改 task 后生成的新版本。一次正式
-  task 标注发布会在这里创建一个完整且独立的 LeRobot v3 数据集副本。
+- `derived/`：裁剪、合并、拆分、去重或标注后生成的新版本。一次正式标注发布会
+  在这里创建一个完整且独立的 LeRobot v3 数据集副本。总体 task 按 LeRobot
+  标准字段更新；Episode 结果和 Subtask 时间段存放在副本的
+  `meta/annotations/episodes.parquet` 与 `subtasks.parquet`，不污染核心 feature。
 - `detected/`：完成真实数据质检并通过验收后的完整数据集。质检功能不得覆盖
   输入数据；需要产生质检后版本时，应先在临时区处理并将结果写入这里。
 - `converted/`：格式转换输出。
