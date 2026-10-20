@@ -108,7 +108,6 @@ def folder_size(folder: Path) -> int:
 def summary(root: Path, name: str, registered: dict | None = None) -> dict:
     folder = directory(root, "raw", name)
     info, error = dataset_info(folder) if folder else (None, "原始数据目录缺失")
-    detected = directory(root, "detected", registered["id"]) if registered else None
     report_count = len(reports_for(root, registered["id"])) if registered else 0
     try:
         changed = bool(registered and folder and not error
@@ -127,7 +126,6 @@ def summary(root: Path, name: str, registered: dict | None = None) -> dict:
         "version": (info or {}).get("codebase_version", "—"),
         "state": state,
         "error": error,
-        "detected": bool(detected),
         "report_count": report_count,
         "registered_at": registered["registered_at"] if registered else None,
         "description": registered["description"] if registered else "",
