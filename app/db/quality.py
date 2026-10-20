@@ -200,7 +200,7 @@ class QualityRepository(DatasetRepository):
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.connection() as db:
             rows = db.execute(
-                "SELECT id FROM qc_tasks" + where + " ORDER BY created_at DESC,id DESC", values
+                "SELECT id FROM qc_tasks" + where + " ORDER BY created_at DESC,rowid DESC", values
             ).fetchall()
         return [self.get_task(row["id"]) for row in rows]
 
