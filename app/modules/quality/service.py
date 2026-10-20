@@ -383,6 +383,8 @@ def review_task(root: Path, task_id: str, decision: str, reason: str) -> dict:
     existing = repo.get_task(task_id)
     if existing is None or existing["status"] != "COMPLETED":
         raise HTTPException(409, "只能复核已完成的任务")
+    if read_report(root, existing) is None:
+        raise HTTPException(409, "报告文件不存在，不能复核；请重新质检")
     if decision == "PASS" and existing["outcome"] != "PASS" and not reason:
         raise HTTPException(400, "覆盖系统结果为通过时必须填写复核理由")
     task = repo.review(task_id, decision, reason)
