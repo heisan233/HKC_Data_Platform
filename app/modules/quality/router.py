@@ -75,6 +75,7 @@ def qc_page(request: Request):
     by_id = {item["id"]: item for item in managed}
     for task in tasks:
         task["dataset"] = by_id.get(task["dataset_id"])
+        task["has_report"] = service.report_path(root(), task).is_file()
     return templates.TemplateResponse(request=request, name="qc.html", context={
         "datasets": managed, "plans": plans, "tasks": tasks,
         "show_hidden": show_hidden, "hidden_count": repo.hidden_task_count(),
