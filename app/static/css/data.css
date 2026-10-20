@@ -49,6 +49,7 @@
 .dm-tabs a{color:#6e8498;font-size:13px;padding:7px 12px;border-radius:8px}
 .dm-tabs a.active{color:#166f9e;background:#e7f4fa;font-weight:700}
 .dm-tabs b{font-size:11px;margin-left:3px}
+.dm-status-tabs{flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid #edf2f6}
 .dm-search{display:flex;gap:6px}
 .dm-search input{width:245px;border:1px solid #dce5ea;border-radius:7px;padding:8px 10px;outline:none;font:inherit;font-size:12px}
 .dm-search input:focus{border-color:#2794c6}
@@ -63,6 +64,12 @@
 .dm-table td code,.dm-camera code,.dm-file-list code,.dm-rule code{font-size:11px;color:#637e94;overflow-wrap:anywhere}
 .dm-table td a,.dm-row-link{color:#2780bd}
 .dm-row-link{white-space:nowrap;font-weight:700}
+.dm-report-actions{display:flex;align-items:center;gap:12px;white-space:nowrap}
+.dm-report-actions a{font-weight:600}
+.dm-report-actions .dm-delete-report{appearance:none;border:1px solid #efc8c3;border-radius:6px;background:#fff6f4;color:#b8473f;font-family:inherit;font-size:11px;font-weight:600;line-height:1.4;cursor:pointer;padding:4px 10px;transition:background .15s,border-color .15s,color .15s}
+.dm-report-actions .dm-delete-report:hover{background:#fbe7e3;border-color:#d98d84;color:#9d352e}
+.dm-report-actions .dm-delete-report:focus-visible{outline:2px solid #b8473f;outline-offset:2px}
+.dm-report-actions .dm-delete-report:disabled{opacity:.5;cursor:wait}
 .dm-metrics .dm-metric{border-left:3px solid #2ea4c2}
 .dm-metric small,.dm-metric strong,.dm-metric span,.dm-metric a{display:block}
 .dm-metric small{font-size:11px;color:#8a9dac}
