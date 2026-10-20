@@ -5,6 +5,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from app.modules.datasets.service import register_dataset
 from app.modules.processing.schemas import ProcessingJobRequest
 from app.modules.processing.service import create_job, get_job, run_job, scan_duplicates
 
@@ -92,6 +93,7 @@ def make_processing_dataset(
         pa.Table.from_pylist(frame_rows),
         dataset / "data" / "chunk-000" / "file-000.parquet",
     )
+    register_dataset(data_root, "raw", dataset_id, dataset_id)
     return dataset
 
 
@@ -113,7 +115,7 @@ def test_filter_creates_derived_dataset_without_changing_source(tmp_path: Path) 
         tmp_path,
         ProcessingJobRequest(
             operation="filter",
-            source_dataset_ids=["source"],
+            source_dataset_ids=["DS000001"],
             version_name="筛除中间 Episode",
             episode_indices=[1],
         ),
@@ -137,7 +139,7 @@ def test_split_by_ratio_creates_multiple_derived_datasets(tmp_path: Path) -> Non
         tmp_path,
         ProcessingJobRequest(
             operation="split",
-            source_dataset_ids=["source"],
+            source_dataset_ids=["DS000001"],
             version_name="训练验证拆分",
             splits={"train": 0.75, "val": 0.25},
         ),
@@ -155,7 +157,7 @@ def test_merge_and_reorder_compatible_datasets(tmp_path: Path) -> None:
         tmp_path,
         ProcessingJobRequest(
             operation="merge",
-            source_dataset_ids=["first", "second"],
+            source_dataset_ids=["DS000001", "DS000002"],
             version_name="合并版本",
         ),
     )
@@ -165,7 +167,7 @@ def test_merge_and_reorder_compatible_datasets(tmp_path: Path) -> None:
         tmp_path,
         ProcessingJobRequest(
             operation="reorder",
-            source_dataset_ids=["first"],
+            source_dataset_ids=["DS000001"],
             version_name="反向重排",
             episode_indices=[1, 0],
         ),
@@ -179,7 +181,7 @@ def test_merge_and_reorder_compatible_datasets(tmp_path: Path) -> None:
 
 def test_duplicate_scan_and_deduplicate_keep_first_episode(tmp_path: Path) -> None:
     make_processing_dataset(tmp_path, "source", [[1, 2], [3, 4], [1, 2]])
-    report = scan_duplicates(tmp_path, "source")
+    report = scan_duplicates(tmp_path, "DS000001")
     assert report["duplicate_episode_count"] == 1
     assert report["duplicate_groups"][0]["episodes"] == [0, 2]
 
@@ -187,7 +189,7 @@ def test_duplicate_scan_and_deduplicate_keep_first_episode(tmp_path: Path) -> No
         tmp_path,
         ProcessingJobRequest(
             operation="deduplicate",
-            source_dataset_ids=["source"],
+            source_dataset_ids=["DS000001"],
             version_name="精确去重版本",
         ),
     )
@@ -214,7 +216,7 @@ def test_legacy_episode_metadata_is_discovered_and_normalized(tmp_path: Path) ->
         tmp_path,
         ProcessingJobRequest(
             operation="filter",
-            source_dataset_ids=["legacy-source"],
+            source_dataset_ids=["DS000001"],
             version_name="旧格式兼容版本",
             episode_indices=[1],
         ),

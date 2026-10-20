@@ -27,11 +27,13 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from pyarrow import ipc
 
+from app.db.datasets import DatasetRepository
+from app.modules.datasets import service as datasets_service
 from app.modules.processing.schemas import ProcessingJobRequest
 
 DATASET_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SPLIT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
-DATASET_KINDS = ("raw", "derived", "detected")
+DATASET_KINDS = ("raw", "derived")
 DEFAULT_DATA_PATH = "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet"
 DEFAULT_VIDEO_PATH = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
 
@@ -101,14 +103,14 @@ def _validate_dataset_id(dataset_id: str) -> None:
 
 
 def resolve_dataset(data_root: Path, dataset_id: str) -> DatasetRef:
-    """只允许通过存储区直接子目录编号访问数据集。"""
+    """通过统一 DS 编号解析真实存储目录。"""
 
     _validate_dataset_id(dataset_id)
-    for kind in DATASET_KINDS:
-        candidate = data_root / kind / dataset_id
-        if candidate.is_dir() and (candidate / "meta" / "info.json").is_file():
-            return DatasetRef(dataset_id=dataset_id, path=candidate, kind=kind)
-    raise DatasetNotFoundError(f"未找到数据集 {dataset_id}。")
+    try:
+        record, candidate = datasets_service.resolve_registered_dataset(data_root, dataset_id)
+    except ValueError as exc:
+        raise DatasetNotFoundError(f"未找到数据集 {dataset_id}。") from exc
+    return DatasetRef(dataset_id=dataset_id, path=candidate, kind=record["storage_area"])
 
 
 def _parquet_files(root: Path) -> list[Path]:
@@ -424,33 +426,26 @@ def _episode_task(row: dict[str, Any], state: DatasetState) -> str:
 
 
 def list_datasets(data_root: Path) -> list[dict[str, Any]]:
-    names = _record_names(data_root)
     result: list[dict[str, Any]] = []
-    for kind in DATASET_KINDS:
-        directory = data_root / kind
-        if not directory.exists():
+    for record in DatasetRepository(data_root).list():
+        try:
+            dataset = resolve_dataset(data_root, record["id"])
+            info = _read_json(dataset.path / "meta" / "info.json")
+        except ProcessingError:
             continue
-        for path in sorted(item for item in directory.iterdir() if item.is_dir()):
-            info_path = path / "meta" / "info.json"
-            if not info_path.is_file():
-                continue
-            try:
-                info = _read_json(info_path)
-            except ProcessingError:
-                continue
-            if info.get("codebase_version") != "v3.0":
-                continue
-            result.append(
-                {
-                    "dataset_id": path.name,
-                    "dataset_name": names.get(path.name, path.name),
-                    "kind": kind,
-                    "total_episodes": int(info.get("total_episodes") or 0),
-                    "total_frames": int(info.get("total_frames") or 0),
-                    "fps": info.get("fps"),
-                    "robot_type": info.get("robot_type") or "未声明",
-                }
-            )
+        if info.get("codebase_version") != "v3.0":
+            continue
+        result.append(
+            {
+                "dataset_id": record["id"],
+                "dataset_name": record["name"],
+                "kind": record["storage_area"],
+                "total_episodes": int(info.get("total_episodes") or 0),
+                "total_frames": int(info.get("total_frames") or 0),
+                "fps": info.get("fps"),
+                "robot_type": info.get("robot_type") or "未声明",
+            }
+        )
     result.sort(key=lambda item: (item["kind"], item["dataset_name"]))
     return result
 
@@ -1203,6 +1198,7 @@ def run_job(data_root: Path, job_id: str) -> None:
     record = _read_job(data_root, job_id)
     staging_root = data_root / "staging" / "processing" / job_id
     moved_paths: list[Path] = []
+    registered_ids: list[str] = []
     try:
         _update_job(data_root, record, status="running", progress=5, message="正在读取源数据集。")
         request = ProcessingJobRequest.model_validate(record["request"])
@@ -1225,8 +1221,8 @@ def run_job(data_root: Path, job_id: str) -> None:
         staging_root.mkdir(parents=True, exist_ok=False)
         staged: list[tuple[str, Path, dict[str, Any]]] = []
         for position, (label, selections) in enumerate(outputs, start=1):
-            dataset_id = _new_dataset_id(label)
-            destination = staging_root / dataset_id
+            storage_name = _new_dataset_id(label)
+            destination = staging_root / storage_name
             progress = 10 + int((position - 1) / len(outputs) * 75)
             _update_job(
                 data_root,
@@ -1237,8 +1233,9 @@ def run_job(data_root: Path, job_id: str) -> None:
             result = _build_dataset(
                 destination=destination,
                 selections=selections,
-                dataset_id=dataset_id,
+                dataset_id=storage_name,
             )
+            result["storage_name"] = storage_name
             result["label"] = label
             result["size_bytes"] = _directory_size(destination)
             staged.append((label, destination, result))
@@ -1246,12 +1243,25 @@ def run_job(data_root: Path, job_id: str) -> None:
         derived_root = data_root / "derived"
         derived_root.mkdir(parents=True, exist_ok=True)
         for label, source, result in staged:
-            final = derived_root / str(result["dataset_id"])
+            storage_name = str(result["storage_name"])
+            final = derived_root / storage_name
             if final.exists():
                 raise ProcessingError("派生数据集编号冲突，请重新执行。")
             source.replace(final)
             moved_paths.append(final)
-            result["relative_path"] = f"derived/{result['dataset_id']}"
+            display_name = str(record["version_name"])
+            if label not in {"filtered", "merged", "reordered", "deduplicated"}:
+                display_name = f"{display_name} / {label}"
+            registered = datasets_service.register_dataset(
+                data_root,
+                "derived",
+                storage_name,
+                display_name,
+                list(record["source_dataset_ids"]),
+            )
+            registered_ids.append(registered["id"])
+            result["dataset_id"] = registered["id"]
+            result["relative_path"] = f"derived/{storage_name}"
             _write_version_record(data_root, job=record, output=result, label=label)
 
         _update_job(
@@ -1264,6 +1274,11 @@ def run_job(data_root: Path, job_id: str) -> None:
         )
     # 任务边界必须把所有意外转换为 failed 状态，否则 JSON 会永久停留在 running。
     except Exception as exc:  # noqa: BLE001
+        for dataset_id in registered_ids:
+            DatasetRepository(data_root).unregister(dataset_id)
+            (data_root / "system" / "dataset-versions" / f"{dataset_id}.json").unlink(
+                missing_ok=True
+            )
         for path in moved_paths:
             shutil.rmtree(path, ignore_errors=True)
         message = str(exc) if isinstance(exc, ProcessingError) else "处理过程中发生内部错误。"

@@ -22,7 +22,9 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from app.db.datasets import DatasetRepository
 from app.modules.annotation.schemas import EpisodeAnnotationChange, EpisodeTaskChange
+from app.modules.datasets import service as datasets_service
 
 DATASET_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 ANNOTATION_OUTCOMES = {"success", "partial", "failure"}
@@ -74,14 +76,14 @@ def _validate_dataset_id(dataset_id: str) -> None:
 
 
 def resolve_dataset(data_root: Path, dataset_id: str) -> DatasetRef:
-    """只允许通过直接子目录编号访问 raw/derived 中的数据集。"""
+    """通过统一 DS 编号解析 raw/derived 中的真实目录。"""
 
     _validate_dataset_id(dataset_id)
-    for kind in ("raw", "derived"):
-        candidate = data_root / kind / dataset_id
-        if candidate.is_dir() and (candidate / "meta" / "info.json").is_file():
-            return DatasetRef(dataset_id=dataset_id, path=candidate, kind=kind)
-    raise DatasetNotFoundError(f"未找到数据集 {dataset_id}。")
+    try:
+        record, candidate = datasets_service.resolve_registered_dataset(data_root, dataset_id)
+    except ValueError as exc:
+        raise DatasetNotFoundError(f"未找到数据集 {dataset_id}。") from exc
+    return DatasetRef(dataset_id=dataset_id, path=candidate, kind=record["storage_area"])
 
 
 def _record_names(data_root: Path) -> dict[str, str]:
@@ -379,32 +381,26 @@ def load_episodes(dataset: DatasetRef) -> list[dict[str, Any]]:
 
 
 def list_datasets(data_root: Path) -> list[dict[str, Any]]:
-    names = _record_names(data_root)
     datasets: list[dict[str, Any]] = []
-    for kind in ("raw", "derived"):
-        root = data_root / kind
-        if not root.exists():
+    for record in DatasetRepository(data_root).list():
+        try:
+            dataset = resolve_dataset(data_root, record["id"])
+            info = _load_info(dataset)
+        except AnnotationError:
             continue
-        for path in sorted(root.iterdir(), reverse=True):
-            if not path.is_dir() or not (path / "meta" / "info.json").is_file():
-                continue
-            dataset = DatasetRef(path.name, path, kind)
-            try:
-                info = _load_info(dataset)
-            except AnnotationError:
-                continue
-            datasets.append(
-                {
-                    "dataset_id": path.name,
-                    "dataset_name": names.get(path.name, path.name),
-                    "kind": kind,
-                    "kind_label": "原始数据集" if kind == "raw" else "派生数据集",
-                    "total_episodes": int(info.get("total_episodes") or 0),
-                    "total_frames": int(info.get("total_frames") or 0),
-                    "fps": info.get("fps"),
-                    "robot_type": info.get("robot_type") or "未声明",
-                }
-            )
+        kind = record["storage_area"]
+        datasets.append(
+            {
+                "dataset_id": record["id"],
+                "dataset_name": record["name"],
+                "kind": kind,
+                "kind_label": "原始数据集" if kind == "raw" else "派生数据集",
+                "total_episodes": int(info.get("total_episodes") or 0),
+                "total_frames": int(info.get("total_frames") or 0),
+                "fps": info.get("fps"),
+                "robot_type": info.get("robot_type") or "未声明",
+            }
+        )
     return datasets
 
 
@@ -781,31 +777,18 @@ def publish_annotation(
     if shutil.disk_usage(data_root).free < source_bytes + 64 * 1024 * 1024:
         raise AnnotationError("磁盘剩余空间不足，无法创建完整派生数据集。")
 
-    version_id = f"ann-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid4().hex[:8]}"
-    staging = data_root / "staging" / "annotation" / version_id
-    destination = data_root / "derived" / version_id
-    record = {
-        "dataset_id": version_id,
-        "version_name": clean_name,
-        "description": clean_description,
-        "source_dataset_id": source.dataset_id,
-        "source_kind": source.kind,
-        "created_at": _utc_now(),
-        "changed_episode_count": len(set(episode_changes) | set(annotation_changes)),
-        "changed_task_count": len(episode_changes),
-        "annotated_episode_count": len(annotation_changes),
-        "subtask_segment_count": sum(
-            len(annotation["subtasks"]) for annotation in annotation_changes.values()
-        ),
-        "derived_relative_path": f"derived/{version_id}",
-    }
+    storage_name = f"ann-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid4().hex[:8]}"
+    staging = data_root / "staging" / "annotation" / storage_name
+    destination = data_root / "derived" / storage_name
+    registered_id: str | None = None
+    moved = False
 
     try:
         staging.parent.mkdir(parents=True, exist_ok=True)
         destination.parent.mkdir(parents=True, exist_ok=True)
         _copy_source(source.path, staging)
         if episode_changes:
-            current_tasks, _ = _load_tasks(DatasetRef(version_id, staging, "staging"))
+            current_tasks, _ = _load_tasks(DatasetRef(storage_name, staging, "staging"))
             task_frame, task_indexes = _updated_task_catalog(current_tasks, episode_changes)
             _write_tasks_atomic(task_frame, staging / "meta" / "tasks.parquet")
             _update_episode_files(staging, episode_changes)
@@ -822,14 +805,49 @@ def publish_annotation(
         if destination.exists():
             raise AnnotationError("生成的派生版本编号发生冲突，请重试。")
         staging.replace(destination)
+        moved = True
+        registered = datasets_service.register_dataset(
+            data_root, "derived", storage_name, clean_name, [source.dataset_id]
+        )
+        registered_id = registered["id"]
+        record = {
+            "dataset_id": registered_id,
+            "storage_name": storage_name,
+            "version_name": clean_name,
+            "description": clean_description,
+            "source_dataset_id": source.dataset_id,
+            "source_kind": source.kind,
+            "created_at": _utc_now(),
+            "changed_episode_count": len(set(episode_changes) | set(annotation_changes)),
+            "changed_task_count": len(episode_changes),
+            "annotated_episode_count": len(annotation_changes),
+            "subtask_segment_count": sum(
+                len(annotation["subtasks"]) for annotation in annotation_changes.values()
+            ),
+            "derived_relative_path": f"derived/{storage_name}",
+        }
         _write_json_atomic(
-            data_root / "system" / "dataset-versions" / f"{version_id}.json",
+            data_root / "system" / "dataset-versions" / f"{registered_id}.json",
             record,
         )
         return {"ok": True, **record}
     except AnnotationError:
+        if registered_id:
+            DatasetRepository(data_root).unregister(registered_id)
+            (data_root / "system" / "dataset-versions" / f"{registered_id}.json").unlink(
+                missing_ok=True
+            )
+        if moved:
+            shutil.rmtree(destination, ignore_errors=True)
         raise
     except (OSError, ValueError, pa.ArrowException) as exc:
+        if registered_id:
+            DatasetRepository(data_root).unregister(registered_id)
+            (data_root / "system" / "dataset-versions" / f"{registered_id}.json").unlink(
+                missing_ok=True
+            )
+        if moved:
+            shutil.rmtree(destination, ignore_errors=True)
         raise AnnotationError("派生数据集写入失败，请检查存储空间和文件权限。") from exc
     finally:
         shutil.rmtree(staging, ignore_errors=True)

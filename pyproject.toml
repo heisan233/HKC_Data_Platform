@@ -16,11 +16,13 @@ dependencies = [
     "python-multipart==0.0.32",
     "starlette==1.6.0",
     "uvicorn[standard]==0.53.0",
+    "lerobot-doctor==0.2.0",
+    "httpx==0.28.1",
+    "numpy==2.2.6",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "httpx==0.28.1",
     "pytest==9.1.1",
     "ruff==0.16.8",
 ]

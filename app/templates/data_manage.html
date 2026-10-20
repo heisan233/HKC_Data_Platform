@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block page_title %}数据管理 · 登记{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap" id="dm-register-page">
+  <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>目录登记</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">DATASET REGISTRY</span><h2>目录登记</h2><p>扫描 raw/ 已解压的数据集。选择目录后才分配 DS 编号；不会移动或修改原始文件。</p></div><span class="dm-hero-pill">{{ pending_count }} 个待登记</span></section>
+  <div id="dm-feedback" class="dm-feedback" role="status" hidden></div>
+  <section class="dm-panel">
+    <div class="dm-toolbar"><div class="dm-tabs"><a class="{% if view == 'pending' %}active{% endif %}" href="/data/manage/">待登记 <b>{{ pending_count }}</b></a><a class="{% if view == 'registered' %}active{% endif %}" href="/data/manage/?view=registered">已登记 <b>{{ registered_count }}</b></a></div><form class="dm-search" method="get"><input type="hidden" name="view" value="{{ view }}"><input type="search" name="q" value="{{ query }}" placeholder="搜索目录、编号或机器人"><button type="submit">搜索</button></form></div>
+    {% if view == 'pending' %}
+    <div class="dm-register-actions"><label><input type="checkbox" id="dm-select-all"> 全选可登记目录</label><span id="dm-selection-count">已选 0 项</span><button type="button" class="dm-button" id="dm-register" disabled>登记选中数据集</button></div>
+    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>选择</th><th>原始目录</th><th>登记名称</th><th>机器人类型</th><th>Episodes / 帧</th><th>版本 / FPS</th><th>检查结果</th></tr></thead><tbody>
+      {% for item in items %}<tr><td><input type="checkbox" class="dm-folder-check" value="{{ item.folder }}" aria-label="选择 {{ item.folder }}" {% if item.state != 'ready' %}disabled{% endif %}></td><td><strong>{{ item.folder }}</strong><small>raw/{{ item.folder }}</small></td><td><input class="dm-register-name" aria-label="{{ item.folder }} 的登记名称" maxlength="100" value="{{ item.folder }}" {% if item.state != 'ready' %}disabled{% endif %}></td><td>{{ item.robot_type }}</td><td>{{ item.episodes if item.episodes is not none else '—' }} / {{ item.frames if item.frames is not none else '—' }}</td><td>{{ item.version }} / {{ item.fps if item.fps is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ '可登记' if item.state == 'ready' else '不可登记' }}</span>{% if item.error %}<small>{{ item.error }}</small>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="7" class="dm-empty">{% if query %}没有匹配的目录。{% else %}raw/ 下暂无待登记数据集。{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% else %}
+    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>原始目录</th><th>机器人类型</th><th>Episodes</th><th>目录状态</th><th>审核状态</th><th>登记时间</th><th></th></tr></thead><tbody>
+      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong></td><td><code>raw/{{ item.folder }}</code></td><td>{{ item.robot_type }}</td><td>{{ item.episodes if item.episodes is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td><span class="dm-badge {% if item.qc_state == 'passed' %}dm-ok{% elif item.qc_state in ('review', 'recapture', 'error', 'stale', 'raw_issue') %}dm-warn{% else %}dm-muted{% endif %}">{{ item.qc_label }}</span></td><td>{{ item.registered_at|local_datetime }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">查看</a>{% if item.state == 'ready' %} · <a class="dm-row-link" href="/qc/?dataset={{ item.id }}">质检 →</a>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="8" class="dm-empty">暂无登记记录。</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+  </section>
+  <p class="dm-help">目录名称不要求等于 DS 编号。重复登记由数据库阻止；审核状态来自该数据集最新的质检任务。</p>
+</div>
+<script src="/static/js/data_manage.js"></script>
+{% endblock %}

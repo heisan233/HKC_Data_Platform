@@ -1,35 +1,23 @@
 {% extends "base.html" %}
 {% block page_title %}数据管理{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">📁 数据集检索、筛选、预览、批量操作</span></div>
-    <a class="btn btn-primary" href="/ingestion/" style="text-decoration:none;">+ 上传数据</a>
-</div>
-<div class="card">
-    <table class="table">
-        <tr><th>ID</th><th>数据集名称</th><th>机器人</th><th>Episodes</th><th>时长</th><th>格式</th><th>状态</th><th>质检</th><th>操作</th></tr>
-        {% for d in datasets %}
-        <tr>
-            <td>{{ d.id }}</td>
-            <td><strong>{{ d.name }}</strong></td>
-            <td>{{ d.robot }}</td>
-            <td>{{ d.episodes }}</td>
-            <td>{{ d.hours }}h</td>
-            <td><span class="tag">{{ d.format }}</span></td>
-            <td><span class="status-badge
-                {% if d.status == '已入库' %}status-done
-                {% elif d.status == '采集中' %}status-running
-                {% else %}status-paused{% endif %}">{{ d.status }}</span></td>
-            <td><span class="status-badge
-                {% if d.qc == '通过' %}status-done
-                {% elif d.qc == '待检' %}status-paused
-                {% else %}status-offline{% endif %}">{{ d.qc }}</span></td>
-            <td>
-                <button class="btn btn-primary btn-sm">预览</button>
-                <button class="btn btn-sm" style="background:#f0f0f0;">详情</button>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
+<link rel="stylesheet" href="/static/css/data.css">
+<div class="dm-wrap">
+  <section class="dm-hero"><div><span class="dm-eyebrow">DATA ASSETS</span><h2>数据资产总览</h2><p>从 Raw 目录选择数据集登记；编号与展示信息由平台管理，原始文件保持原位。</p></div><div><span class="dm-hero-pill">存储目录 · /data</span><a class="dm-hero-link" href="/ingestion/">上传原始数据 →</a></div></section>
+  <div class="dm-grid dm-grid-four">
+    <a class="dm-tile" href="/data/manage/"><div class="dm-tile-icon">📥</div><div class="dm-tile-title">待登记 <span>Raw 目录</span></div><strong>{{ pending|length }}</strong><p>选择已解压的数据集并分配编号</p><span class="dm-tile-link">前往登记 →</span></a>
+    <a class="dm-tile" href="/data/raw/"><div class="dm-tile-icon">📁</div><div class="dm-tile-title">已登记 <span>Raw 数据</span></div><strong>{{ managed|length }}</strong><p>查看原始数据和元数据</p><span class="dm-tile-link">查看数据集 →</span></a>
+    <a class="dm-tile" href="/data/raw/?qc=review"><div class="dm-tile-icon">🕒</div><div class="dm-tile-title">待人工审核 <span>质检状态</span></div><strong>{{ review_count }}</strong><p>质检已完成，等待最终判定{% if passed_count or recapture_count %} · {{ passed_count }} 已通过 / {{ recapture_count }} 打回{% endif %}</p><span class="dm-tile-link">查看待审核 →</span></a>
+    <a class="dm-tile" href="/data/reports/"><div class="dm-tile-icon">📊</div><div class="dm-tile-title">Reports <span>质检报告</span></div><strong>{{ report_count }}</strong><p>按数据集查看报告</p><span class="dm-tile-link">查看报告 →</span></a>
+  </div>
+  <div class="dm-columns">
+    <section class="dm-panel"><div class="dm-panel-head"><div><h3>待登记目录</h3><p>直接读取 raw/ 的一级数据集目录</p></div><a href="/data/manage/">管理全部 →</a></div>
+      {% for item in pending[:5] %}<div class="dm-list-row"><div><strong>{{ item.folder }}</strong><small>{{ item.robot_type }} · {{ item.episodes if item.episodes is not none else '—' }} Episodes</small></div><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ '可登记' if item.state == 'ready' else '需检查' }}</span></div>{% else %}<div class="dm-empty">暂无待登记数据集。</div>{% endfor %}
+    </section>
+    <section class="dm-panel"><div class="dm-panel-head"><div><h3>最近登记</h3><p>编号与原始目录分别保存</p></div><a href="/data/raw/">查看全部 →</a></div>
+      {% for item in managed[:5] %}<a class="dm-list-row" href="/data/raw/{{ item.id }}"><div><strong>{{ item.name }}</strong><small>{{ item.id }} · raw/{{ item.folder }}</small></div><span class="dm-arrow">→</span></a>{% else %}<div class="dm-empty">暂无登记记录。</div>{% endfor %}
+    </section>
+  </div>
+  <div class="dm-notice">登记与质检不移动 Raw 文件。质检结论由任务与人工审核记录管理，报告保存在 reports/qc/。</div>
 </div>
 {% endblock %}

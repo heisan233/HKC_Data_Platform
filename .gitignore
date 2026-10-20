@@ -5,6 +5,7 @@ __pycache__/
 # Local IDE configuration
 .idea/
 .marscode/
+.vscode/
 
 # Local desktop/tool temporary state
 /tmp/

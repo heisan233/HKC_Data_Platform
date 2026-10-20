@@ -6,6 +6,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi.testclient import TestClient
 
+from app.db.datasets import DatasetRepository
 from app.main import app
 from app.modules.ingestion import router as ingestion_router
 
@@ -70,11 +71,13 @@ def test_valid_v3_zip_is_extracted_to_raw(monkeypatch, tmp_path: Path) -> None:
     assert response.status_code == 201
     result = response.json()
     assert result["ok"] is True
+    assert result["dataset_id"] == "DS000001"
     assert result["summary"]["total_episodes"] == 1
     dataset_root = tmp_path / result["raw_relative_path"]
     assert (dataset_root / "meta" / "info.json").is_file()
     assert (dataset_root / "data" / "chunk-000" / "file-000.parquet").is_file()
     assert list((tmp_path / "system" / "upload-records").glob("*.json"))
+    assert DatasetRepository(tmp_path).get("DS000001")["storage_relpath"] == result["storage_name"]
     assert not any((tmp_path / "staging" / "uploads").iterdir())
 
 

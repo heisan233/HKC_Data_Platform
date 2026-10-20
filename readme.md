@@ -16,9 +16,9 @@ Platform v2 已完成第一轮目录迁移。现有演示页面被保留，但�
 静态资源已经移入 `app/`。后续功能应继续遵守下面的实际目录结构，避免重新在
 项目根目录堆放业务文件：
 
-当前阶段采用**纯文件夹存储**：数据集和运行结果保存在 `storage/`，尚未启用
-SQLite、PostgreSQL 或其他数据库。`app/db/` 和 `migrations/` 只是为以后接入
-数据库预留，当前程序不依赖它们。
+数据集和运行结果保存在 `storage/`。数据管理使用 SQLite 登记编号及目录映射，
+数据库文件位于 `storage/system/platform.sqlite`；大型数据文件不写入数据库。
+`migrations/` 仍是后续数据库结构升级预留目录。
 
 ```text
 HKC_Data_Platform_v2/
@@ -26,7 +26,7 @@ HKC_Data_Platform_v2/
 │   ├── main.py                 # FastAPI 应用入口，只负责组装应用和注册路由
 │   ├── web.py                  # 多个页面共享的 Jinja2 模板对象
 │   ├── core/                   # 路径、环境配置等全项目共用的基础代码
-│   ├── db/                     # 未来数据库访问代码预留；当前不参与运行
+│   ├── db/                     # 数据集登记 SQLite 访问代码
 │   ├── modules/                # 按业务能力组织代码，不与 HTML 严格一一对应
 │   │   ├── dashboard/          # 工作台
 │   │   ├── datasets/           # 数据集目录、详情、版本和导出
@@ -46,7 +46,7 @@ HKC_Data_Platform_v2/
 │   ├── templates/              # Jinja2 HTML 模板
 │   └── static/                 # 浏览器直接加载的 CSS、JavaScript、图片
 ├── tests/                      # 单元、接口和集成测试
-├── migrations/                 # 未来数据库表结构升级脚本预留；当前不参与运行
+├── migrations/                 # 未来数据库表结构升级脚本预留
 ├── deploy/                     # 本地与服务器部署配置
 ├── storage/                    # 数据集、处理结果和平台运行数据，实际内容不提交 Git
 ├── Dockerfile                  # 应用镜像构建说明
@@ -61,13 +61,13 @@ HKC_Data_Platform_v2/
 
 1. `app/modules/` 保存“平台能够做什么”的 Python 代码，例如上传、质检和转换。
 2. `storage/` 保存真正的数据集、处理结果、报告和平台产生的普通文件。
-3. `app/db/` 未来保存“如何访问数据库”的 Python 代码；当前为空且不使用。
+3. `app/db/` 保存登记库的数据库访问代码；SQLite 文件在 `storage/system/`。
 4. `migrations/` 未来保存“如何升级数据库表结构”的脚本；它不是旧数据存档。
 
-当前“原始数据集上传”“数据标注”和“数据处理”已经读写真实 LeRobot v3 文件；
-其他页面中的数据集、质检报告等内容仍可能来自各 `router.py` 的静态演示常量。
-完成目录重构不等于全部业务功能已经完成；接下来仍需逐项实现数据管理、质检、
-转换等能力。
+原始数据集上传、数据管理、Episode/task/Subtask 标注、Episode 数据处理
+和数据质检已经读写真实 LeRobot v3 文件。数据管理扫描真实存储目录，
+并通过 SQLite 分配 DS 编号；尚未实现的转换、导出和训练等页面仍可能使用
+演示常量。
 
 ### `modules` 与页面、按钮的关系
 
@@ -82,7 +82,7 @@ HTTP API。
 qc.html 中的按钮
   -> quality/router.py 接收请求
   -> quality/service.py 组织流程
-  -> quality/checkers/ 执行具体检查
+  -> quality/robot_rules.py、vlm.py 执行自定义检查，Doctor 由服务层调用
   -> storage/reports/ 保存报告
 ```
 
@@ -92,15 +92,15 @@ qc.html 中的按钮
 
 ### 当前文件存储方案
 
-- 大型 VLA 数据集直接保存在 `storage/raw/`，不放入数据库。
+- 其他采集流程放入 `storage/raw/` 的 VLA 数据集，登记时不移动原始目录。
+- 数据管理在 SQLite 中分配 DS 编号，保存编号到 Raw 目录的映射。
+- 质检仅读取 Raw 文件；统一报告保存在 `storage/reports/qc/<DS 编号>/`。
+- 数据管理首页显示待人工审核数量；Raw 列表按最新质检任务显示未质检、待审核、已审核通过、打回重采等状态。质检完成本身不等于人工通过。
 - 正在上传、解压或校验的内容放在 `storage/staging/`。
 - 处理生成的新版本放在 `storage/derived/`，不原地修改原始数据。
-- 真实质检完成并通过验收后的完整数据集放在 `storage/detected/`；质检报告仍放在
-  `storage/reports/`，两者不能混放。
 - 质检报告和导出包分别放在 `storage/reports/` 与 `storage/exports/`。
-- 当前通过目录结构、LeRobot 自身元数据以及必要的 JSON 文件管理状态。
-- 如果以后文件式管理无法满足并发查询和状态一致性，再启用数据库；届时数据集
-  仍保存在文件系统，数据库只保存名称、路径、状态等管理信息。
+- 从页面移除的质检报告进入 `storage/trash/reports/`，不直接永久删除。
+- 数据集内容由目录结构和 LeRobot 自身元数据提供；登记与展示信息保存在 SQLite。
 
 ### 文件放置规则
 
@@ -128,7 +128,7 @@ Platform v2 首期暂时把网页/API 和数据集基础自检放在同一个应
 重写业务逻辑。
 
 所有 `storage/` 内容必须持久化到容器外部；删除或重建应用容器不应导致数据集、
-任务记录或质检报告丢失。当前没有数据库服务或数据库容器。
+任务记录或质检报告丢失。登记库是同一存储卷中的 SQLite 文件，不需要独立数据库容器。
 
 ### 当前启动方式
 
@@ -141,6 +141,7 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 使用首期单应用容器运行：
 
 ```bash
+cp .env.example .env
 docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
 
@@ -164,7 +165,8 @@ http://127.0.0.1:8000/ingestion/
 局域网模式则把 `127.0.0.1` 换成开发机的可信内网 IPv4 地址。页面接受一个完整
 的 LeRobot v3.0 `.zip`，需要填写平台显示名称；备注可选。服务端不会把完整 ZIP
 载入内存，而是分块写入 `storage/staging/`。只有同时通过以下检查才会移动到
-`storage/raw/<dataset_id>/`：
+`storage/raw/<内部目录名>/`，随后由 SQLite 自动登记并返回稳定的 `DS000001`
+形式平台编号：
 
 - 有效且未加密的 ZIP，不包含绝对路径、`../` 路径穿越或符号链接；
 - 一个压缩包中只有一个数据集（允许外层有一个同名总目录）；
@@ -177,6 +179,8 @@ http://127.0.0.1:8000/ingestion/
 部署时可通过 `HKC_MAX_UPLOAD_BYTES`、`HKC_MAX_EXPANDED_BYTES` 和
 `HKC_MAX_ARCHIVE_FILES` 环境变量覆盖（大小单位均为字节）。上传记录保存在
 `storage/system/upload-records/`，失败的临时文件会清理，不会进入原始区。
+单文件页面与质检页批量上传共用同一套校验、落盘和登记事务；批量接口为
+`POST /ingestion/api/uploads/batch`，每批最多 20 个 ZIP。
 
 这一步只检查安全性和 LeRobot v3.0 的最低结构，并不解析 Parquet 的实际字段，
 也不等于数据质检。内容级检查仍由后续数据质检模块完成。
@@ -191,7 +195,8 @@ http://127.0.0.1:8000/annotation/
 
 工作流程如下：
 
-1. 页面从 `storage/raw/` 和 `storage/derived/` 读取真实数据集，而不是演示常量。
+1. 页面从 SQLite 列出已登记的 DS 编号，再映射到 `storage/raw/` 或
+   `storage/derived/` 的真实目录；未登记的旧测试目录不会自动导入。
 2. 选择数据集后，平台读取 `meta/tasks.parquet`、Episode 元数据和视频索引。
    其中 task 按 LeRobot 官方结构作为 Pandas DataFrame 索引读取，Episode 帧数
    使用官方 `length` 字段；同时兼容本平台早期的普通 `task` 列和 `num_frames`。
@@ -204,7 +209,8 @@ http://127.0.0.1:8000/annotation/
 7. 填写派生版本名称并正式发布。平台将源数据集完整复制到临时区，在副本中同步
    更新任务表、Episode task、frame `task_index` 和 `info.json.total_tasks`；扩展
    标注写入 `meta/annotations/`。
-8. 校验通过后，新数据集进入 `storage/derived/<dataset_id>/`，版本记录进入
+8. 校验通过后，新数据集进入 `storage/derived/<内部目录名>/`，自动登记新的
+   DS 编号，版本记录进入
    `storage/system/dataset-versions/`；原始数据集和既有派生版本始终保持不变。
 
 因此一次正式发布需要近似一个完整源数据集的额外磁盘空间。平台使用
@@ -232,7 +238,7 @@ POST /annotation/api/publish
 http://127.0.0.1:8000/preprocess/
 ```
 
-页面读取 `storage/raw/`、`storage/derived/` 和 `storage/detected/` 中的真实
+页面读取 `storage/raw/` 和 `storage/derived/` 中的真实
 LeRobot v3 数据集，提供以下操作：
 
 1. 筛除指定 Episode，保留其余 Episode 并连续重新编号；
@@ -248,7 +254,8 @@ LeRobot v3 数据集，提供以下操作：
 `length/tasks` 和标准 data 分片索引。
 
 所有操作只读取源数据。任务先在 `storage/staging/processing/<job_id>/` 中生成
-完整 LeRobot v3 数据集，校验后原子移动到 `storage/derived/<dataset_id>/`；任务
+完整 LeRobot v3 数据集，校验后原子移动到 `storage/derived/<内部目录名>/` 并
+自动登记新的 DS 编号；任务
 记录与派生版本记录分别写入 `storage/system/processing-jobs/` 和
 `storage/system/dataset-versions/`。Episode、frame、全局 index 和 task index 会
 重新映射；已有 `meta/annotations/` 旁路标注也会跟随 Episode 一起迁移。
@@ -269,12 +276,40 @@ GET  /preprocess/api/jobs/{job_id}
 POST /preprocess/api/jobs
 ```
 
+### 数据质检
+
+打开 `/qc/` 上传或选择已登记的 LeRobot v3 Raw 数据集。先从数据集创建质检方案，
+在方案页配置机器人字段与阈值、Doctor 检查项、机器人专项规则及 VLM 判断要求。
+每次保存方案都会生成新版本。任务页选择方案后只调整本次启用的规则；任务保存
+方案版本、启用项和 Raw 文件指纹快照。同一方案可供多个同类型数据集复用：
+一次勾选多个 Raw 数据集或上传多个 ZIP，会为每个数据集各创建一个任务，提交后
+留在任务列表查看进度。方案可从列表删除；删除后不再用于新任务，已有任务、
+版本快照和报告仍可查询。
+
+任务依次执行 `lerobot-doctor` 0.2.0、机器人专项规则、VLM 视频规则。Doctor 使用
+该版本实际提供的 11 项原生检查；机器人专项读取元数据、Parquet 与 MP4；VLM
+依据 Episode 时间边界截取视频片段，通过 `VLM_BASE_URL` 指向的 OpenAI 兼容接口
+请求模型，默认模型为 `qwen3-vl-4b`。VLM 连接所需的 `VLM_BASE_URL` 和
+`VLM_API_TOKEN` 通过 `.env`/Compose 环境变量设置。项目的 `.env.example`
+仅保留可公开的占位配置；实际服务地址和密钥必须在部署机的 `.env` 中设置。
+运行前会快速检查 VLM 服务连通性，连接失败会在报告中说明原因。
+未配置接口时，可在方案或任务中关闭 VLM 规则。视频片段只放在 `staging/` 的
+任务临时目录，执行后删除。
+
+每个任务只生成一份 JSON 报告，包含 Doctor、机器人专项和 VLM 三部分，位于
+`storage/reports/qc/<DS 编号>/<任务 ID>.json`。页面支持人工通过、待复核、
+打回重采、按原配置重跑和下载报告。任务列表可将已结束的记录移出当前显示，并在“已移出记录”
+中恢复；任务、报告、人工判定和 Raw 数据集均保留。列表分页显示，每页 20 条。
+人工复核保留历史；覆盖系统结果
+为通过时须填写理由。报告首页显示三部分结论，点击后进入各自的双列详细结果；
+报告仅记录检查结果，不自动修改原始数据。
+
 ### 当前尚未完成
 
-- `conversion` 现在只有边界定义，业务代码尚未实现。
-- `app/db/` 与 `migrations/` 是未来数据库预留，当前不参与程序运行。
-- 除上传、Episode/task/Subtask 标注和 Episode 数据处理外，页面仍以 v1 静态演示
-  数据为主；目录迁移不代表其他按钮功能已经完成。
+- `ingestion` 已实现独立 ZIP 上传页；质检页批量上传已复用同一校验服务。
+- 机器人 HTTP 上传、`conversion` 与真实数据导出仍待实现。
+- `app/db/` 已供数据集登记使用；`migrations/` 仍为后续结构升级预留。
+- 数据管理、质检、标注和数据处理已统一使用 DS 编号访问登记层。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
 - `semantics` 和独立 `export` 路由为迁移兼容而保留，后续按产品方案调整导航。
 

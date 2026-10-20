@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.modules.annotation import router as annotation_router
+from app.modules.datasets.service import register_dataset
 
 client = TestClient(app)
 CAMERA = "observation.images.head"
@@ -76,6 +77,7 @@ def make_v3_dataset(
     )
     (video_root / "file-000.mp4").write_bytes(b"0123456789-episode-zero")
     (video_root / "file-001.mp4").write_bytes(b"0123456789-episode-one")
+    register_dataset(data_root, "raw", dataset_id, dataset_id)
     return dataset
 
 
@@ -88,9 +90,9 @@ def test_workspace_reads_real_episode_tasks_and_video(monkeypatch, tmp_path: Pat
     use_temporary_storage(monkeypatch, tmp_path)
 
     listing = client.get("/annotation/api/datasets")
-    workspace = client.get("/annotation/api/datasets/ds-test")
+    workspace = client.get("/annotation/api/datasets/DS000001")
     video = client.get(
-        "/annotation/api/datasets/ds-test/episodes/0/video",
+        "/annotation/api/datasets/DS000001/episodes/0/video",
         params={"camera": CAMERA},
         headers={"Range": "bytes=0-4"},
     )
@@ -120,7 +122,7 @@ def test_workspace_and_publish_support_official_task_index_layout(
     raw_schema = pq.read_schema(raw / "meta" / "tasks.parquet")
     assert raw_schema.names == ["task_index", "__index_level_0__"]
 
-    workspace = client.get("/annotation/api/datasets/ds-test")
+    workspace = client.get("/annotation/api/datasets/DS000001")
     assert workspace.status_code == 200
     assert workspace.json()["tasks"] == [{"task_index": 0, "task": "old task"}]
     assert workspace.json()["episodes"][0]["task"] == "old task"
@@ -128,7 +130,7 @@ def test_workspace_and_publish_support_official_task_index_layout(
     response = client.post(
         "/annotation/api/publish",
         json={
-            "dataset_id": "ds-test",
+            "dataset_id": "DS000001",
             "version_name": "官方 task 索引 v1",
             "changes": [{"episode_index": 0, "task": "new official task"}],
         },
@@ -151,7 +153,7 @@ def test_publish_creates_full_derived_copy_and_keeps_raw_unchanged(
     response = client.post(
         "/annotation/api/publish",
         json={
-            "dataset_id": "ds-test",
+            "dataset_id": "DS000001",
             "version_name": "task 标注 v1",
             "description": "测试完整派生发布",
             "changes": [{"episode_index": 0, "task": "new task"}],
@@ -188,7 +190,7 @@ def test_publish_creates_full_derived_copy_and_keeps_raw_unchanged(
     assert [row["task_index"] for row in derived_frames] == [1, 1, 0, 0]
     assert derived_info["total_tasks"] == 2
     assert list((tmp_path / "system" / "dataset-versions").glob("*.json"))
-    assert not (tmp_path / "staging" / "annotation" / result["dataset_id"]).exists()
+    assert not (tmp_path / "staging" / "annotation" / result["storage_name"]).exists()
 
 
 def test_publish_episode_outcome_and_subtasks_as_sidecar_annotations(
@@ -200,7 +202,7 @@ def test_publish_episode_outcome_and_subtasks_as_sidecar_annotations(
     response = client.post(
         "/annotation/api/publish",
         json={
-            "dataset_id": "ds-test",
+            "dataset_id": "DS000001",
             "version_name": "动作段标注 v1",
             "description": "结果与子任务标注",
             "annotations": [
@@ -273,7 +275,7 @@ def test_annotation_rejects_missing_reason_and_overlapping_subtasks(
     make_v3_dataset(tmp_path)
     use_temporary_storage(monkeypatch, tmp_path)
     base = {
-        "dataset_id": "ds-test",
+        "dataset_id": "DS000001",
         "version_name": "无效标注 v1",
         "annotations": [
             {

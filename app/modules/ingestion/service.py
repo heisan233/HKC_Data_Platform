@@ -22,6 +22,9 @@ from zipfile import BadZipFile, ZipFile, ZipInfo, is_zipfile
 from fastapi import UploadFile
 from starlette.concurrency import run_in_threadpool
 
+from app.db.datasets import DatasetRepository
+from app.modules.datasets import service as datasets
+
 MIB = 1024 * 1024
 GIB = 1024 * MIB
 DEFAULT_MAX_UPLOAD_BYTES = 10 * GIB
@@ -365,13 +368,16 @@ async def receive_dataset_upload(
 
     limits = get_upload_limits()
     upload_id = f"up-{uuid4().hex}"
-    dataset_id = f"ds-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid4().hex[:8]}"
+    storage_name = f"ds-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid4().hex[:8]}"
     staging_dir = data_root / "staging" / "uploads" / upload_id
     archive_path = staging_dir / "archive.zip"
     unpacked_path = staging_dir / "unpacked"
+    accepted_destination: Path | None = None
+    registered_dataset_id: str | None = None
     record: dict[str, Any] = {
         "upload_id": upload_id,
         "dataset_id": None,
+        "storage_name": None,
         "dataset_name": dataset_name.strip(),
         "description": description.strip(),
         "original_filename": upload.filename or "",
@@ -415,17 +421,33 @@ async def receive_dataset_upload(
         )
         raw_root = data_root / "raw"
         raw_root.mkdir(parents=True, exist_ok=True)
-        raw_destination = raw_root / dataset_id
+        raw_destination = raw_root / storage_name
         if raw_destination.exists():
             raise OSError("生成的数据集目录发生冲突")
         unpacked_path.replace(raw_destination)
+        accepted_destination = raw_destination
+
+        try:
+            registered = await run_in_threadpool(
+                datasets.register_dataset,
+                data_root,
+                "raw",
+                storage_name,
+                clean_name,
+            )
+        except ValueError as exc:
+            shutil.rmtree(raw_destination, ignore_errors=True)
+            accepted_destination = None
+            raise OSError("数据集登记失败") from exc
+        registered_dataset_id = registered["id"]
 
         record.update(
-            dataset_id=dataset_id,
+            dataset_id=registered["id"],
+            storage_name=storage_name,
             status="accepted",
-            message="LeRobot v3 数据集已通过结构校验并保存",
+            message=f"LeRobot v3 数据集已入库并登记为 {registered['id']}",
             completed_at=_utc_now(),
-            raw_relative_path=f"raw/{dataset_id}",
+            raw_relative_path=f"raw/{storage_name}",
             summary=summary,
         )
         _write_record(data_root, record)
@@ -442,6 +464,10 @@ async def receive_dataset_upload(
         _write_record(data_root, record)
         return UploadOutcome(status_code=400, payload=_failure_payload(record))
     except (BadZipFile, OSError):
+        if registered_dataset_id:
+            DatasetRepository(data_root).unregister(registered_dataset_id)
+        if accepted_destination:
+            shutil.rmtree(accepted_destination, ignore_errors=True)
         record.update(
             status="failed",
             message="服务器保存或解压文件失败，请检查存储空间和目录权限。",

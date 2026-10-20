@@ -6,7 +6,7 @@
 * Docker 启动时，``HKC_DATA_ROOT=/data``，而 Compose 把宿主机 ``./storage``
   挂载到容器的 ``/data``。
 
-当前采用文件夹存储数据集，没有启用数据库；这个配置指向的是真实文件存储。
+数据集文件与 SQLite 登记库都位于这个存储根目录；数据库文件在 system/ 下。
 """
 
 from dataclasses import dataclass, field
@@ -24,6 +24,11 @@ class Settings:
         default_factory=lambda: Path(
             os.getenv("HKC_DATA_ROOT", str(DEFAULT_DATA_ROOT))
         ).expanduser().resolve()
+    )
+    vlm_base_url: str = field(default_factory=lambda: os.getenv("VLM_BASE_URL", "").rstrip("/"))
+    vlm_api_token: str = field(default_factory=lambda: os.getenv("VLM_API_TOKEN", "EMPTY"))
+    doctor_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("QC_DOCTOR_TIMEOUT_SECONDS", "1800"))
     )
 
 
