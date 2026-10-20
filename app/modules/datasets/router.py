@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 from app.db.datasets import DatasetRepository
+from app.db.quality import QualityRepository
 from app.modules.datasets import service
+from app.modules.quality.status import attach_status
 from app.web import templates
 
 
@@ -42,9 +44,12 @@ def record_or_404(dataset_id: str) -> dict:
 @router.get("/")
 def data_page(request: Request):
     pending, managed = service.catalog(storage_root())
+    attach_status(storage_root(), managed)
     return templates.TemplateResponse(request=request, name="data.html", context={
         "pending": pending, "managed": managed,
-        "detected_count": sum(item["detected"] for item in managed),
+        "review_count": sum(item["qc_state"] == "review" for item in managed),
+        "passed_count": sum(item["qc_state"] == "passed" for item in managed),
+        "recapture_count": sum(item["qc_state"] == "recapture" for item in managed),
         "report_count": sum(item["report_count"] for item in managed),
     })
 
@@ -52,6 +57,8 @@ def data_page(request: Request):
 @router.get("/manage/")
 def manage_page(request: Request, q: str = "", view: str = "pending"):
     pending, managed = service.catalog(storage_root())
+    if view == "registered":
+        attach_status(storage_root(), managed)
     rows = pending if view != "registered" else managed
     term = q.strip().casefold()
     if term:
@@ -95,20 +102,26 @@ def accept_rescan(dataset_id: str):
 
 
 @router.get("/raw/")
-def raw_list(request: Request, q: str = ""):
+def raw_list(request: Request, q: str = "", qc: str = "all"):
     _, managed = service.catalog(storage_root())
+    attach_status(storage_root(), managed)
+    if qc in {"uninspected", "review", "passed", "recapture", "running", "error", "stale", "raw_issue"}:
+        managed = [item for item in managed if item["qc_state"] == qc]
+    else:
+        qc = "all"
     term = q.strip().casefold()
     if term:
         managed = [row for row in managed if term in " ".join(
             str(row.get(key) or "") for key in ("id", "name", "folder", "robot_type")).casefold()]
     return templates.TemplateResponse(request=request, name="data_raw.html", context={
-        "items": managed, "query": q.strip(),
+        "items": managed, "query": q.strip(), "qc_filter": qc,
     })
 
 
 def asset_page(request: Request, dataset_id: str, area: str):
     record = record_or_404(dataset_id)
     item = service.summary(storage_root(), record["raw_relpath"], record)
+    attach_status(storage_root(), [item])
     detail = service.detail(storage_root(), record, area)
     return templates.TemplateResponse(request=request, name="data_raw_detail.html", context={
         "item": item, "detail": detail, "area": area, "record": record,
@@ -119,27 +132,6 @@ def asset_page(request: Request, dataset_id: str, area: str):
 @router.get("/raw/{dataset_id}")
 def raw_detail(request: Request, dataset_id: str):
     return asset_page(request, dataset_id, "raw")
-
-
-@router.get("/detected/")
-def detected_list(request: Request, q: str = ""):
-    _, managed = service.catalog(storage_root())
-    items = [row for row in managed if row["detected"]]
-    term = q.strip().casefold()
-    if term:
-        items = [row for row in items if term in " ".join(
-            str(row.get(key) or "") for key in ("id", "name", "robot_type")).casefold()]
-    return templates.TemplateResponse(request=request, name="data_detected.html", context={
-        "items": items, "query": q.strip(),
-    })
-
-
-@router.get("/detected/{dataset_id}")
-def detected_detail(request: Request, dataset_id: str):
-    record_or_404(dataset_id)
-    if service.directory(storage_root(), "detected", dataset_id) is None:
-        raise HTTPException(404, "质检产物目录不存在")
-    return asset_page(request, dataset_id, "detected")
 
 
 def video_file(dataset_id: str, video_path: str, area: str):
@@ -155,11 +147,6 @@ def video_file(dataset_id: str, video_path: str, area: str):
 @router.get("/raw/{dataset_id}/video/{video_path:path}")
 def raw_video(dataset_id: str, video_path: str):
     return video_file(dataset_id, video_path, "raw")
-
-
-@router.get("/detected/{dataset_id}/video/{video_path:path}")
-def detected_video(dataset_id: str, video_path: str):
-    return video_file(dataset_id, video_path, "detected")
 
 
 @router.get("/reports/")
@@ -184,3 +171,26 @@ def report_file(dataset_id: str, filename: str, download: bool = False):
         if data is not None:
             return data
     return FileResponse(file)
+
+
+@router.delete("/reports/{dataset_id}/{filename}")
+def delete_report(dataset_id: str, filename: str):
+    record_or_404(dataset_id)
+    folder = service.directory(storage_root() / "reports", "qc", dataset_id)
+    file = service.safe_file(folder, filename) if folder and Path(filename).name == filename else None
+    if file is None or filename.startswith("."):
+        raise HTTPException(404, "报告文件不存在")
+    if filename.startswith("QC-") and filename.endswith(".json"):
+        task = QualityRepository(storage_root()).get_task(filename[:-5])
+        if task is not None:
+            if task["dataset_id"] != dataset_id:
+                raise HTTPException(409, "报告与质检任务的数据集不一致")
+            if task["status"] in {"QUEUED", "RUNNING"}:
+                raise HTTPException(409, "质检任务仍在执行，不能删除报告")
+    try:
+        file.unlink()
+    except FileNotFoundError as exc:
+        raise HTTPException(404, "报告文件不存在") from exc
+    except OSError as exc:
+        raise HTTPException(500, "删除报告文件失败") from exc
+    return {"dataset_id": dataset_id, "filename": filename, "deleted": True}
