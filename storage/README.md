@@ -30,7 +30,7 @@
 - `reports/qc/<DS 编号>/`：每个质检任务的一份三部分统一报告。
 - `models/`：模型定义、权重或发布包；首期暂不使用。
 - `training-runs/`：训练日志、指标和 checkpoint；首期暂不使用。
-- `system/`：平台运行状态及 `platform.sqlite`，不提交 Git。
+- `system/`：平台运行数据目录；其中 `platform.sqlite` 是 SQLite 数据库，保存数据集登记、质检任务和人工审核记录。数据库文件不提交 Git。
 
 不要把 Python、HTML、配置文件或 Dockerfile 放在此目录。测试用小样本应放在
 `tests/fixtures/`，并确认其许可和体积适合进入 Git。
