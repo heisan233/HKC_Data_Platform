@@ -7,7 +7,7 @@
   <div class="dm-grid dm-grid-four">
     <a class="dm-tile" href="/data/manage/"><div class="dm-tile-icon">📥</div><div class="dm-tile-title">待登记 <span>Raw 目录</span></div><strong>{{ pending|length }}</strong><p>选择已解压的数据集并分配编号</p><span class="dm-tile-link">前往登记 →</span></a>
     <a class="dm-tile" href="/data/raw/"><div class="dm-tile-icon">📁</div><div class="dm-tile-title">已登记 <span>Raw 数据</span></div><strong>{{ managed|length }}</strong><p>查看原始数据和元数据</p><span class="dm-tile-link">查看数据集 →</span></a>
-    <a class="dm-tile" href="/data/detected/"><div class="dm-tile-icon">✅</div><div class="dm-tile-title">Detected <span>质检产物</span></div><strong>{{ detected_count }}</strong><p>查看已关联的质检后文件</p><span class="dm-tile-link">查看产物 →</span></a>
+    <a class="dm-tile" href="/data/raw/?qc=review"><div class="dm-tile-icon">🕒</div><div class="dm-tile-title">待人工审核 <span>质检状态</span></div><strong>{{ review_count }}</strong><p>质检已完成，等待最终判定{% if passed_count or recapture_count %} · {{ passed_count }} 已通过 / {{ recapture_count }} 打回{% endif %}</p><span class="dm-tile-link">查看待审核 →</span></a>
     <a class="dm-tile" href="/data/reports/"><div class="dm-tile-icon">📊</div><div class="dm-tile-title">Reports <span>质检报告</span></div><strong>{{ report_count }}</strong><p>按数据集查看报告</p><span class="dm-tile-link">查看报告 →</span></a>
   </div>
   <div class="dm-columns">
@@ -18,6 +18,6 @@
       {% for item in managed[:5] %}<a class="dm-list-row" href="/data/raw/{{ item.id }}"><div><strong>{{ item.name }}</strong><small>{{ item.id }} · raw/{{ item.folder }}</small></div><span class="dm-arrow">→</span></a>{% else %}<div class="dm-empty">暂无登记记录。</div>{% endfor %}
     </section>
   </div>
-  <div class="dm-notice">登记只建立编号与目录的关系，不代表数据通过质检。质检产物与报告在独立目录中查看。</div>
+  <div class="dm-notice">登记与质检不移动 Raw 文件。质检结论由任务与人工审核记录管理，报告保存在 reports/qc/。</div>
 </div>
 {% endblock %}
