@@ -7,15 +7,19 @@ from fastapi.testclient import TestClient
 import pytest
 
 from app.core.config import Settings
+from app.db.quality import QualityRepository
 from app.main import app
 from app.modules.datasets import router as data_router
+from app.modules.quality import router as quality_router
+from app.modules.quality.service import raw_fingerprint
 
 
 @pytest.fixture
 def platform(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(data_router, "settings", Settings(data_root=tmp_path))
+    settings = Settings(data_root=tmp_path)
+    monkeypatch.setattr(data_router, "settings", settings)
+    monkeypatch.setattr(quality_router, "settings", settings)
     (tmp_path / "raw").mkdir()
-    (tmp_path / "detected").mkdir()
     (tmp_path / "reports" / "qc").mkdir(parents=True)
     return TestClient(app), tmp_path
 
@@ -100,20 +104,98 @@ def test_unsafe_paths_cannot_be_registered_or_served(platform):
     assert client.get("/data/raw/DS000001/video/../../outside").status_code in {404, 307}
 
 
-def test_detected_and_reports_use_registered_id(platform):
+def test_reports_use_registered_id(platform):
     client, root = platform
     dataset(root, "source")
     client.post("/data/api/register", json={"folders": ["source"]})
-    detected = root / "detected" / "DS000001"
-    (detected / "meta").mkdir(parents=True)
-    (detected / "meta" / "info.json").write_text("{}", encoding="utf-8")
     report = root / "reports" / "qc" / "DS000001" / "run.json"
     report.parent.mkdir(parents=True)
     report.write_text('{"decision":"PASS","status":"COMPLETED"}', encoding="utf-8")
-    assert "DS000001" in client.get("/data/detected/").text
-    assert client.get("/data/detected/DS000001").status_code == 200
+    assert client.get("/data/detected/").status_code == 404
     assert "run.json" in client.get("/data/reports/").text
+    assert 'aria-label="删除报告 run.json"' in client.get("/data/reports/").text
     assert client.get("/data/reports/DS000001/run.json").json()["decision"] == "PASS"
+    assert client.delete("/data/reports/DS000001/run.json").json() == {
+        "dataset_id": "DS000001", "filename": "run.json", "deleted": True,
+    }
+    assert not report.exists()
+    assert "run.json" not in client.get("/data/reports/").text
+    assert client.get("/data/reports/DS000001/run.json").status_code == 404
+    assert client.delete("/data/reports/DS000001/run.json").status_code == 404
+
+
+def test_delete_qc_report_preserves_task_and_review(platform):
+    client, root = platform
+    source = dataset(root, "source")
+    client.post("/data/api/register", json={"folders": ["source"]})
+    repo = QualityRepository(root)
+    plan = repo.create_plan("测试方案", "zhiyan", {})
+    task = repo.create_task("DS000001", plan, {}, raw_fingerprint(source))
+    report = root / "reports" / "qc" / "DS000001" / f"{task['id']}.json"
+    report.parent.mkdir(parents=True)
+    report.write_text('{"status":"COMPLETED","decision":"PASS"}', encoding="utf-8")
+
+    assert client.delete(f"/data/reports/DS000001/{report.name}").status_code == 409
+    assert report.exists()
+    repo.set_task(task["id"], status="COMPLETED", outcome="PASS")
+    repo.review(task["id"], "PASS", "人工确认")
+    assert client.delete(f"/data/reports/DS000001/{report.name}").status_code == 200
+    assert not report.exists()
+    assert repo.get_task(task["id"])["decision"] == "PASS"
+    assert repo.reviews(task["id"])[0]["reason"] == "人工确认"
+    assert "报告文件已删除或不可读取" in client.get(f"/qc/reports/{task['id']}").text
+    assert client.get(f"/qc/reports/{task['id']}/download").status_code == 404
+    assert client.post(f"/qc/api/tasks/{task['id']}/review", json={
+        "decision": "PASS", "reason": "再次确认",
+    }).status_code == 409
+
+
+def test_report_delete_rejects_other_files(platform):
+    client, root = platform
+    dataset(root, "source")
+    client.post("/data/api/register", json={"folders": ["source"]})
+    report_dir = root / "reports" / "qc" / "DS000001"
+    report_dir.mkdir(parents=True)
+    outside = root / "secret.json"
+    outside.write_text("private", encoding="utf-8")
+    (report_dir / "link.json").symlink_to(outside)
+    assert client.delete("/data/reports/DS000001/link.json").status_code == 404
+    assert client.delete("/data/reports/DS999999/secret.json").status_code == 404
+    assert outside.read_text(encoding="utf-8") == "private"
+
+
+def test_data_pages_show_latest_human_review_state(platform):
+    client, root = platform
+    source = dataset(root, "source")
+    client.post("/data/api/register", json={"folders": ["source"]})
+    repo = QualityRepository(root)
+    plan = repo.create_plan("测试方案", "zhiyan", {})
+
+    assert "未质检" in client.get("/data/raw/").text
+    assert "/data/raw/?qc=review" in client.get("/data/").text
+
+    task = repo.create_task("DS000001", plan, {}, raw_fingerprint(source))
+    repo.set_task(task["id"], status="COMPLETED", outcome="PASS")
+    assert "待人工审核" in client.get("/data/raw/?qc=review").text
+    assert "DS000001" in client.get("/data/raw/?qc=review").text
+    assert "已审核通过" not in client.get("/data/manage/?view=registered").text
+
+    repo.review(task["id"], "PASS", "")
+    assert "DS000001" not in client.get("/data/raw/?qc=review").text
+    assert "DS000001" in client.get("/data/raw/?qc=passed").text
+    assert "已审核通过" in client.get("/data/raw/DS000001").text
+
+    repo.set_task_visibility(task["id"], True)
+    assert "DS000001" in client.get("/data/raw/?qc=passed").text
+
+    (source / "meta" / "new.txt").write_text("changed", encoding="utf-8")
+    assert "DS000001" in client.get("/data/raw/?qc=stale").text
+    assert "DS000001" not in client.get("/data/raw/?qc=passed").text
+
+    latest = repo.create_task("DS000001", plan, {}, raw_fingerprint(source))
+    assert latest["id"] != task["id"]
+    assert "DS000001" in client.get("/data/raw/?qc=running").text
+    assert "DS000001" not in client.get("/data/raw/?qc=stale").text
 
 
 def test_video_preview_stays_inside_dataset(platform):
