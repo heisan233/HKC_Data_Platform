@@ -4,9 +4,14 @@
 <link rel="stylesheet" href="/static/css/data.css">
 <div class="dm-wrap"><nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>Raw</nav>
   <section class="dm-hero"><div><span class="dm-eyebrow">RAW DATA</span><h2>已登记原始数据</h2><p>登记编号与原目录分开保存；原始数据不因登记或质检而移动。</p></div><a class="dm-hero-link" href="/data/manage/">登记新目录 →</a></section>
-  <section class="dm-panel"><div class="dm-toolbar"><div><h3>数据集列表</h3><p class="dm-subtle">{{ items|length }} 条当前筛选记录</p></div><form class="dm-search" method="get"><input type="search" name="q" value="{{ query }}" placeholder="搜索编号、名称或目录"><button type="submit">搜索</button></form></div>
-    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>机器人</th><th>原始目录</th><th>Episodes / 帧</th><th>Raw 状态</th><th>Detected</th><th>报告</th><th></th></tr></thead><tbody>
-      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong><small>{{ item.registered_at|local_datetime }}</small></td><td>{{ item.robot_type }}</td><td><code>{{ item.folder }}</code></td><td>{{ item.episodes if item.episodes is not none else '—' }} / {{ item.frames if item.frames is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td>{{ '有文件' if item.detected else '—' }}</td><td>{{ item.report_count }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">详情 →</a></td></tr>
+  <section class="dm-panel"><div class="dm-toolbar"><div><h3>数据集列表</h3><p class="dm-subtle">{{ items|length }} 条当前筛选记录</p></div><form class="dm-search" method="get"><input type="hidden" name="qc" value="{{ qc_filter }}"><input type="search" name="q" value="{{ query }}" placeholder="搜索编号、名称或目录"><button type="submit">搜索</button></form></div>
+    <nav class="dm-tabs dm-status-tabs" aria-label="按质检状态筛选">
+      {% for value, label in [('all','全部'), ('uninspected','未质检'), ('review','待人工审核'), ('passed','已审核通过'), ('recapture','打回重采'), ('running','质检中'), ('error','执行异常'), ('stale','数据已变化'), ('raw_issue','Raw 目录异常')] %}
+      <a class="{% if qc_filter == value %}active{% endif %}" href="/data/raw/?qc={{ value }}{% if query %}&amp;q={{ query|urlencode }}{% endif %}">{{ label }}</a>
+      {% endfor %}
+    </nav>
+    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>机器人</th><th>原始目录</th><th>Episodes / 帧</th><th>Raw 状态</th><th>审核状态</th><th>报告</th><th></th></tr></thead><tbody>
+      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong><small>{{ item.registered_at|local_datetime }}</small></td><td>{{ item.robot_type }}</td><td><code>{{ item.folder }}</code></td><td>{{ item.episodes if item.episodes is not none else '—' }} / {{ item.frames if item.frames is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td><span class="dm-badge {% if item.qc_state == 'passed' %}dm-ok{% elif item.qc_state in ('review', 'recapture', 'error', 'stale', 'raw_issue') %}dm-warn{% else %}dm-muted{% endif %}">{{ item.qc_label }}</span></td><td>{{ item.report_count }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">详情 →</a></td></tr>
       {% else %}<tr><td colspan="8" class="dm-empty">暂无匹配的登记数据集。</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
