@@ -40,6 +40,8 @@ HTML/JavaScript 按钮
 ## 当前实际状态
 
 数据管理的 `datasets` 模块已扫描 `storage/raw/` 并通过 `app/db/datasets.py`
-保存登记编号。hs 上传解压独立进行，数据管理不处理上传。其他多数模块仍只有
-从旧原型迁移来的演示路由，不表示质检、处理、标注、转换或训练功能已经完成。
-`ingestion` 和 `conversion` 等目录目前只有边界占位。
+保存登记编号。`ingestion` 实现了质检页的 LeRobot v3 ZIP 上传与自动登记；
+`quality` 的 `service.py` 负责方案版本、任务快照和统一报告，
+`robot_rules.py` 与 `vlm.py` 分别执行机器人专项与视频规则，Doctor 由服务层调用。
+质检任务及人工复核历史保存在 `app/db/quality.py` 管理的 SQLite 表中。
+其他多数模块仍只有从旧原型迁移来的演示路由；`conversion` 尚未实现。
