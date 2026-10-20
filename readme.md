@@ -61,8 +61,8 @@ HKC_Data_Platform_v2/
 4. `migrations/` 未来保存“如何升级数据库表结构”的脚本；它不是旧数据存档。
 
 数据管理页面扫描 `storage/raw/` 的真实目录，并由用户选择目录登记为 DS 编号；
-hs 的上传解压流程不与登记流程耦合。其他页面仍可能使用演示常量，不能据此判断
-质检、处理、标注等功能已经完成。
+质检页面另提供单个或批量 LeRobot v3 ZIP 上传，先在 `staging/` 安全解压和校验，
+再移入 `raw/` 并登记。其他页面仍可能使用演示常量。
 
 ### `modules` 与页面、按钮的关系
 
@@ -77,7 +77,7 @@ HTTP API。
 qc.html 中的按钮
   -> quality/router.py 接收请求
   -> quality/service.py 组织流程
-  -> quality/checkers/ 执行具体检查
+  -> quality/robot_rules.py、vlm.py 执行自定义检查，Doctor 由服务层调用
   -> storage/reports/ 保存报告
 ```
 
@@ -87,9 +87,10 @@ qc.html 中的按钮
 
 ### 当前文件存储方案
 
-- hs 上传解压后的 VLA 数据集直接保存在 `storage/raw/`，登记时不移动原始目录。
+- 其他采集流程放入 `storage/raw/` 的 VLA 数据集，登记时不移动原始目录。
 - 数据管理在 SQLite 中分配 DS 编号，保存编号到 Raw 目录的映射。
-- 质检后的文件放在 `storage/detected/`，与登记编号关联。
+- 质检仅读取 Raw 文件；统一报告保存在 `storage/reports/qc/<DS 编号>/`。
+- `storage/detected/` 保留为未来实际数据清洗产物目录；通过质检不会复制 Raw。
 - 正在上传、解压或校验的内容放在 `storage/staging/`。
 - 处理生成的新版本放在 `storage/derived/`，不原地修改原始数据。
 - 质检报告和导出包分别放在 `storage/reports/` 与 `storage/exports/`。
@@ -134,6 +135,7 @@ python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 使用首期单应用容器运行：
 
 ```bash
+cp .env.example .env
 docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
 
@@ -142,9 +144,37 @@ docker compose -f compose.yaml -f compose.dev.yaml up --build
 Uvicorn `--reload` 会重新加载应用。正式部署时只使用 `compose.yaml`，代码来自
 镜像而不是宿主机源码挂载。
 
+### 数据质检
+
+打开 `/qc/` 上传或选择已登记的 LeRobot v3 Raw 数据集。先从数据集创建质检方案，
+在方案页配置机器人字段与阈值、Doctor 检查项、机器人专项规则及 VLM 判断要求。
+每次保存方案都会生成新版本。任务页选择方案后只调整本次启用的规则；任务保存
+方案版本、启用项和 Raw 文件指纹快照。同一方案可供多个同类型数据集复用：
+一次勾选多个 Raw 数据集或上传多个 ZIP，会为每个数据集各创建一个任务，提交后
+留在任务列表查看进度。方案可从列表删除；删除后不再用于新任务，已有任务、
+版本快照和报告仍可查询。
+
+任务依次执行 `lerobot-doctor` 0.2.0、机器人专项规则、VLM 视频规则。Doctor 使用
+该版本实际提供的 11 项原生检查；机器人专项读取元数据、Parquet 与 MP4；VLM
+依据 Episode 时间边界截取视频片段，通过 `VLM_BASE_URL` 指向的 OpenAI 兼容接口
+请求模型，默认模型为 `qwen3-vl-4b`。VLM 连接所需的 `VLM_BASE_URL` 和
+`VLM_API_TOKEN` 通过 `.env`/Compose 环境变量设置。项目的 `.env.example`
+已填入 `vlm_api_quickstart.md` 指定的服务地址和占位 key；部署到其他网络时可覆盖。
+运行前会快速检查 VLM 服务连通性，连接失败会在报告中说明原因。
+未配置接口时，可在方案或任务中关闭 VLM 规则。视频片段只放在 `staging/` 的
+任务临时目录，执行后删除。
+
+每个任务只生成一份 JSON 报告，包含 Doctor、机器人专项和 VLM 三部分，位于
+`storage/reports/qc/<DS 编号>/<任务 ID>.json`。页面支持人工通过、待复核、
+打回重采、按原配置重跑和下载报告。任务列表可将已结束的记录移出当前显示，并在“已移出记录”
+中恢复；任务、报告、人工判定和 Raw 数据集均保留。列表分页显示，每页 20 条。
+人工复核保留历史；覆盖系统结果
+为通过时须填写理由。报告首页显示三部分结论，点击后进入各自的双列详细结果；
+报告仅记录检查结果，不自动修改原始数据。
+
 ### 当前尚未完成
 
-- `ingestion`、`conversion` 现在只有边界定义，业务代码尚未实现。
+- `ingestion` 已实现质检页面的 ZIP 上传；机器人 HTTP 上传与 `conversion` 仍待实现。
 - `app/db/` 已供数据集登记使用；`migrations/` 仍为后续结构升级预留。
 - 数据管理已读取真实目录并使用 SQLite 登记；其他页面仍可能使用 v1 演示数据。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
