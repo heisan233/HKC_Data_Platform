@@ -64,9 +64,10 @@ HKC_Data_Platform_v2/
 3. `app/db/` 未来保存“如何访问数据库”的 Python 代码；当前为空且不使用。
 4. `migrations/` 未来保存“如何升级数据库表结构”的脚本；它不是旧数据存档。
 
-当前除“原始数据集上传”和“数据标注”外，网页中看到的数据集、质检报告等内容
-主要仍是各 `router.py` 中的静态演示常量。完成目录重构不等于全部业务功能已经
-完成；接下来仍需逐项实现数据管理、质检、处理、转换等能力。
+当前“原始数据集上传”“数据标注”和“数据处理”已经读写真实 LeRobot v3 文件；
+其他页面中的数据集、质检报告等内容仍可能来自各 `router.py` 的静态演示常量。
+完成目录重构不等于全部业务功能已经完成；接下来仍需逐项实现数据管理、质检、
+转换等能力。
 
 ### `modules` 与页面、按钮的关系
 
@@ -223,12 +224,57 @@ GET  /annotation/api/datasets/{dataset_id}/episodes/{episode_index}/video?camera
 POST /annotation/api/publish
 ```
 
+### Episode 数据处理（第一版）
+
+访问：
+
+```text
+http://127.0.0.1:8000/preprocess/
+```
+
+页面读取 `storage/raw/`、`storage/derived/` 和 `storage/detected/` 中的真实
+LeRobot v3 数据集，提供以下操作：
+
+1. 筛除指定 Episode，保留其余 Episode 并连续重新编号；
+2. 按比例或显式 Episode 编号拆分为多个完整数据集；
+3. 合并 FPS、机器人类型、features 及 Parquet schema 完全兼容的数据集；
+4. 按给定的完整排列重排 Episode；
+5. 根据去除全局 `index` 和 `episode_index` 后的 frame Parquet SHA-256 指纹检测
+   精确重复 Episode，并保留每组编号最小的一个。
+
+读取端同时兼容平台早期生成的 v3 Episode 元数据：如果只有 `num_frames/task`，
+且缺少 `data/chunk_index`、`data/file_index`，平台会根据各 frame Parquet 中的
+`episode_index` 只读反查文件位置。原始数据不会被改写；生成派生版本时会补齐
+`length/tasks` 和标准 data 分片索引。
+
+所有操作只读取源数据。任务先在 `storage/staging/processing/<job_id>/` 中生成
+完整 LeRobot v3 数据集，校验后原子移动到 `storage/derived/<dataset_id>/`；任务
+记录与派生版本记录分别写入 `storage/system/processing-jobs/` 和
+`storage/system/dataset-versions/`。Episode、frame、全局 index 和 task index 会
+重新映射；已有 `meta/annotations/` 旁路标注也会跟随 Episode 一起迁移。
+
+带视频的数据集会按新 Episode 边界提取并重新编码为独立 H.264 MP4，因此处理
+时间和新占用空间接近一个完整派生数据集。Web 容器只增加 `av==15.0.0` 负责视频
+读写，没有安装完整 LeRobot、PyTorch 或 CUDA 训练依赖。第一版任务仍由 Web
+进程中的后台任务执行，容器重启不能续跑；大规模并发处理后续再拆到 Worker。
+
+处理模块提供以下真实 API：
+
+```text
+GET  /preprocess/api/datasets
+GET  /preprocess/api/datasets/{dataset_id}
+POST /preprocess/api/datasets/{dataset_id}/duplicates
+GET  /preprocess/api/jobs
+GET  /preprocess/api/jobs/{job_id}
+POST /preprocess/api/jobs
+```
+
 ### 当前尚未完成
 
 - `conversion` 现在只有边界定义，业务代码尚未实现。
 - `app/db/` 与 `migrations/` 是未来数据库预留，当前不参与程序运行。
-- 除上传和 Episode/task 标注外，页面仍以 v1 静态演示数据为主；目录迁移不代表
-  其他按钮功能已经完成。
+- 除上传、Episode/task/Subtask 标注和 Episode 数据处理外，页面仍以 v1 静态演示
+  数据为主；目录迁移不代表其他按钮功能已经完成。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
 - `semantics` 和独立 `export` 路由为迁移兼容而保留，后续按产品方案调整导航。
 

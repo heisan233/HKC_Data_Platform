@@ -1,28 +1,129 @@
 {% extends "base.html" %}
-{% block page_title %}数据预处理{% endblock %}
+{% block page_title %}数据处理{% endblock %}
+
+{% block extra_head %}
+<link rel="stylesheet" href="{{ url_for('static', path='/css/processing.css') }}?v=20261020-1">
+{% endblock %}
+
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">🔧 时间对齐、去重、坏帧剔除、格式标准化</span></div>
-    <button class="btn btn-primary">+ 新建预处理任务</button>
+<section class="processing-heading">
+    <div>
+        <p class="processing-eyebrow">LEROBOT V3 · IMMUTABLE DERIVED DATASETS</p>
+        <h2>数据处理工作台</h2>
+        <p>筛除、拆分、合并、重排或去重 Episode。所有操作只读取源数据，并生成新的派生数据集。</p>
+    </div>
+    <div class="safety-chip">🔒 原始数据不会被修改</div>
+</section>
+
+<div id="processing-message" class="processing-message" hidden></div>
+
+<div class="processing-layout">
+    <section class="panel-card source-panel">
+        <div class="step-title"><span>01</span><div><small>Source</small><h3>选择源数据</h3></div></div>
+        <label class="processing-label" for="source-dataset">主要数据集</label>
+        <select id="source-dataset" class="processing-input"></select>
+        <div id="source-stats" class="source-stats"></div>
+
+        <div class="episode-tools">
+            <label class="processing-label" for="episode-search">Episodes</label>
+            <button id="toggle-all-episodes" type="button" class="text-button">全选</button>
+        </div>
+        <input id="episode-search" class="processing-input" type="search" placeholder="搜索 Episode 或 task">
+        <div id="episode-list" class="episode-list"></div>
+    </section>
+
+    <main class="panel-card operation-panel">
+        <div class="step-title"><span>02</span><div><small>Operation</small><h3>选择处理方式</h3></div></div>
+        <div class="operation-grid" role="radiogroup" aria-label="处理方式">
+            <label class="operation-card active">
+                <input type="radio" name="operation" value="filter" checked>
+                <strong>筛除 Episode</strong><span>移除选中的 Episode</span>
+            </label>
+            <label class="operation-card">
+                <input type="radio" name="operation" value="split">
+                <strong>拆分数据集</strong><span>按编号或比例分组</span>
+            </label>
+            <label class="operation-card">
+                <input type="radio" name="operation" value="merge">
+                <strong>合并数据集</strong><span>仅合并结构完全兼容的数据</span>
+            </label>
+            <label class="operation-card">
+                <input type="radio" name="operation" value="reorder">
+                <strong>Episode 重排</strong><span>按给定顺序重新编号</span>
+            </label>
+            <label class="operation-card">
+                <input type="radio" name="operation" value="deduplicate">
+                <strong>重复检测与去重</strong><span>保留每组中编号最小的 Episode</span>
+            </label>
+        </div>
+
+        <div id="panel-filter" class="operation-config">
+            <h4>筛除选中的 Episode</h4>
+            <p>当前选择 <strong id="filter-count">0</strong> 个；处理后会连续重新编号。</p>
+        </div>
+
+        <div id="panel-split" class="operation-config" hidden>
+            <h4>拆分设置</h4>
+            <label class="processing-label" for="split-mode">拆分方式</label>
+            <select id="split-mode" class="processing-input">
+                <option value="ratio">按比例</option>
+                <option value="indices">按 Episode 编号</option>
+            </select>
+            <div id="split-ratio-fields" class="field-grid three-columns">
+                <label>train 比例<input id="ratio-train" class="processing-input" type="number" min="0" max="1" step="0.05" value="0.8"></label>
+                <label>val 比例<input id="ratio-val" class="processing-input" type="number" min="0" max="1" step="0.05" value="0.2"></label>
+                <label>test 比例<input id="ratio-test" class="processing-input" type="number" min="0" max="1" step="0.05" value="0"></label>
+            </div>
+            <div id="split-index-fields" hidden>
+                <p class="config-help">勾选的 Episode 进入第一组，其余 Episode 进入第二组。</p>
+                <div class="field-grid">
+                    <label>第一组名称<input id="split-selected-name" class="processing-input" value="selected" maxlength="32"></label>
+                    <label>其余组名称<input id="split-rest-name" class="processing-input" value="remaining" maxlength="32"></label>
+                </div>
+            </div>
+        </div>
+
+        <div id="panel-merge" class="operation-config" hidden>
+            <h4>选择要合并的数据集</h4>
+            <p class="config-help">必须具有相同的 FPS、机器人类型、features 和 Parquet 结构。</p>
+            <div id="merge-datasets" class="merge-list"></div>
+        </div>
+
+        <div id="panel-reorder" class="operation-config" hidden>
+            <h4>新的 Episode 顺序</h4>
+            <p class="config-help">必须包含当前数据集的全部 Episode，使用逗号分隔且不能重复。</p>
+            <textarea id="reorder-indices" class="processing-input" rows="4"></textarea>
+        </div>
+
+        <div id="panel-deduplicate" class="operation-config" hidden>
+            <h4>精确重复检测</h4>
+            <p class="config-help">比较去除全局 index 后的 frame Parquet 指纹；第一版不解码视频画面做相似度判断。</p>
+            <button id="scan-duplicates" type="button" class="secondary-button">先扫描重复 Episode</button>
+            <div id="duplicate-report" class="duplicate-report">尚未扫描。</div>
+        </div>
+
+        <div class="release-box">
+            <h4>派生版本信息</h4>
+            <label class="processing-label" for="version-name">版本名称</label>
+            <input id="version-name" class="processing-input" maxlength="120" placeholder="例如：SmolVLA 清理版本 v1">
+            <label class="processing-label" for="version-description">处理说明（可选）</label>
+            <textarea id="version-description" class="processing-input" rows="3" maxlength="1000" placeholder="记录为什么进行这次处理"></textarea>
+            <div class="impact-box">
+                <strong>生成完整新数据集</strong>
+                <span>视频可能重新编码，耗时和磁盘占用取决于数据规模。</span>
+            </div>
+            <button id="start-processing" type="button" class="primary-button">创建处理任务</button>
+        </div>
+    </main>
+
+    <aside class="panel-card job-panel">
+        <div class="step-title"><span>03</span><div><small>Jobs</small><h3>最近任务</h3></div></div>
+        <button id="refresh-jobs" type="button" class="text-button refresh-button">刷新</button>
+        <div id="job-list" class="job-list"></div>
+    </aside>
 </div>
-<div class="card">
-    <table class="table">
-        <tr><th>ID</th><th>数据集</th><th>预处理规则</th><th>处理前</th><th>处理后</th><th>状态</th><th>时间</th><th>操作</th></tr>
-        {% for t in tasks %}
-        <tr>
-            <td>{{ t.id }}</td>
-            <td>{{ t.dataset }}</td>
-            <td>{{ t.rule }}</td>
-            <td>{{ t.before }}</td>
-            <td>{{ t.after }}</td>
-            <td><span class="status-badge
-                {% if t.status == '已完成' %}status-done
-                {% elif t.status == '运行中' %}status-running
-                {% else %}status-paused{% endif %}">{{ t.status }}</span></td>
-            <td style="font-size:13px;color:#666;">{{ t.time }}</td>
-            <td><button class="btn btn-sm" style="background:#f0f0f0;">日志</button></td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', path='/js/processing.js') }}?v=20261020-1" defer></script>
 {% endblock %}

@@ -1,6 +1,6 @@
 # HKC 数采平台协作与 Codex 交接文档
 
-更新日期：2026-10-19
+更新日期：2026-10-20
 
 这是一份双方开发者和双方 Codex 共用的“当前事实”，用于同步思路、减少重复工作
 和合并冲突。架构规则以根目录 `AGENTS.md` 与 `readme.md` 为准；本文件记录人员
@@ -10,8 +10,9 @@
 
 - 当前共同基线来自 `main` 的 Platform v2 目录结构。
 - Web 技术栈为 FastAPI、Uvicorn 和 Jinja2。
-- 当前页面大多仍使用 Python 常量中的演示数据；原始数据上传与 Episode/task/Subtask
-  标注已经读取和写入真实 LeRobot v3 文件。
+- 当前页面仍有部分使用 Python 常量中的演示数据；原始数据上传、
+  Episode/task/Subtask 标注和 Episode 数据处理已经读取和写入真实 LeRobot v3
+  文件。
 - 数据集与运行结果采用文件夹存储，宿主机目录为 `storage/`，容器内为 `/data`。
 - 当前不使用数据库；`app/db/` 和 `migrations/` 只保留未来扩展位置。
 - 当前为单应用容器，没有 PostgreSQL、Redis 或独立 Worker 容器。
@@ -22,13 +23,13 @@
 | 分支 | 负责人 | 当前工作 | 不应修改的主要范围 |
 | --- | --- | --- | --- |
 | `main` | 双方共同维护 | 稳定结构与已验收功能 | 不作为日常开发分支 |
-| `hs_docker` | Heisan | 局域网访问、部署说明、原始数据集上传、Episode/task/Subtask 标注 | 数据集列表/详情与导出业务 |
+| `hs_docker` | Heisan | 局域网访问、部署说明、原始数据集上传、Episode/task/Subtask 标注、Episode 数据处理 | 数据集列表/详情与导出业务 |
 | `lxp_docker` | LXP | 数据管理界面、原有有效功能迁移、数据导出 | 网络开放、上传校验与入库 |
 
 双方开始新任务前先获取最新 `main`。功能完成后先在自己的分支提交并验证，再由
 双方检查差异后合并到 `main`。不要让两个 Codex 同时直接修改 `main`。
 
-## 三、Heisan 当前任务：局域网访问、上传与 Episode/task/Subtask 标注
+## 三、Heisan 当前任务：局域网访问、上传、标注与 Episode 数据处理
 
 ### 目标
 
@@ -84,6 +85,19 @@
 - `storage/raw/` 和既有 `storage/derived/` 均不可原地修改；当前没有覆盖发布和
   永久删除。
 - 派生版本旁路记录写入 `storage/system/dataset-versions/`，不引入数据库。
+
+### Episode 数据处理边界
+
+- 页面与 API 归 `hs_docker` 维护，路由前缀为 `/preprocess/`。
+- 支持 Episode 筛除、按比例或编号拆分、结构完全兼容的数据集合并、完整顺序
+  重排，以及精确重复检测与去重。
+- 所有输出先写入 `storage/staging/processing/`，校验后进入
+  `storage/derived/`；源数据集不可原地修改。
+- 处理后重新映射 Episode、frame、全局 index、task index 和旁路标注；视频按
+  Episode 边界重新编码为独立 H.264 MP4。
+- 任务记录写入 `storage/system/processing-jobs/`，派生版本登记到
+  `storage/system/dataset-versions/`，不引入数据库。
+- 精确重复判定只比较标准化 frame Parquet 指纹，不代表视频视觉相似度检测。
 
 ## 四、LXP 当前任务：数据管理与导出
 
@@ -179,6 +193,63 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-20
+
+开发者/分支：Heisan / `hs_docker`
+
+完成内容：为数据处理模块增加早期 LeRobot v3 Episode 元数据兼容。源数据缺少
+`data/chunk_index`、`data/file_index` 时，根据 `info.json.data_path` 和 frame
+Parquet 的 `episode_index` 自动反查所在分片；同时把 `num_frames/task` 映射为
+`length/tasks`。兼容仅发生在内存读取层，派生输出补齐标准字段，raw 不被改写。
+
+主要修改文件：`app/modules/processing/service.py`、
+`tests/integration/test_processing.py`、数据处理相关说明。
+
+执行的验证：处理模块 Ruff 通过，全平台 26 项自动化测试通过。真实“测试”数据集
+成功读取 7 个 Episodes、2,647 帧、20 FPS、zhiyan 和 2 路视频；每个 Episode 的
+长度、时长和 task 均成功返回。未向真实数据生成派生版本。
+
+未完成或已知问题：自动反查要求一个 Episode 的 frame 数据位于单个 Parquet；
+如果未来出现一个 Episode 跨多个 Parquet 的非标准数据，需要先增加重组策略。
+
+是否修改共享文件：否；没有增加依赖或修改 Compose。
+
+下一步建议：由使用者继续提出数据处理交互要求；正式执行前先用已备份的小数据
+集验证视频重编码和派生版本的训练读取。
+
+日期：2026-10-20
+
+开发者/分支：Heisan / `hs_docker`
+
+完成内容：将 `/preprocess/` 从静态说明页改为真实 LeRobot v3 数据处理工作台。
+支持 Episode 筛除并生成派生数据集、按比例或显式编号拆分、完全兼容数据集合并、
+Episode 完整顺序重排，以及 frame Parquet 精确重复检测和去重。所有操作保持源数据
+只读，重新映射 Episode/frame/index/task，迁移已有旁路标注，并将视频按新 Episode
+边界重新编码后发布为完整派生数据集。
+
+主要修改文件：`app/modules/processing/`、`app/templates/preprocess.html`、
+`app/static/css/processing.css`、`app/static/js/processing.js`、
+`tests/integration/test_processing.py`、`pyproject.toml` 及项目/模块/存储说明。
+
+执行的验证：处理模块 Ruff 通过；全平台 25 项自动化测试通过；PyAV 人工生成的
+10 帧视频成功裁出 3 帧 H.264 MP4。只读浏览器验证真实 SmolVLA v3 数据成功显示
+50 个 Episodes、19,631 帧、so100、30 FPS 和 2 路视频，五种操作面板可切换，
+Episode 选择联动正常；精确重复扫描完成且未发现重复，控制台无错误。没有对真实
+数据创建派生版本。
+
+未完成或已知问题：第一版每个输出写入单个 Parquet shard；重复检测只比较去除
+全局 index 后的 frame 数据，不解码视频判断视觉相似；任务运行在 Web 进程后台，
+容器重启后不能续跑，也未实现任务取消和并发队列。大数据量或多人并发后应拆分
+独立 Worker。
+
+是否修改共享文件：是，在 `pyproject.toml` 增加 `av==15.0.0`，用于派生数据集的
+视频切片和 H.264 重编码；LXP 合并或重建镜像时必须保留。同步更新了 `AGENTS.md`
+中的 Heisan 负责范围。
+
+下一步建议：先用已备份的小型真实数据集分别人工生成一次筛除和拆分版本，核对
+视频、Parquet 和训练读取；确认后再评估多 shard 输出、持久任务队列和视觉近似
+重复检测。
 
 日期：2026-10-19
 

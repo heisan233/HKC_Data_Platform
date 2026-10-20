@@ -23,7 +23,8 @@
 
 - `raw/`：上传成功并登记后的原始数据，只读、不可原地修改。
 - `staging/`：上传、校验、安全解压或派生版本发布期间的临时内容。标注发布临时
-  副本位于 `staging/annotation/`，成功或失败后都会清理。
+  副本位于 `staging/annotation/`，数据处理临时输出位于 `staging/processing/`；
+  成功或失败后都会清理。
 - `derived/`：裁剪、合并、拆分、去重或标注后生成的新版本。一次正式标注发布会
   在这里创建一个完整且独立的 LeRobot v3 数据集副本。总体 task 按 LeRobot
   标准字段更新；Episode 结果和 Subtask 时间段存放在副本的
@@ -38,8 +39,10 @@
 - `training-runs/`：训练日志、指标和 checkpoint；首期暂不使用。
 - `system/`：平台自身的文件式状态。上传记录位于
   `system/upload-records/<upload_id>.json`；标注派生版本记录位于
-  `system/dataset-versions/<dataset_id>.json`。如果未来采用 SQLite，数据库文件
-  也可以放在这里，但现在尚未启用。
+  `system/dataset-versions/<dataset_id>.json`；数据处理任务记录位于
+  `system/processing-jobs/<job_id>.json`，其派生版本仍登记到
+  `system/dataset-versions/`。如果未来采用 SQLite，数据库文件也可以放在这里，
+  但现在尚未启用。
 
 不要把 Python、HTML、配置文件或 Dockerfile 放在此目录。测试用小样本应放在
 `tests/fixtures/`，并确认其许可和体积适合进入 Git。
