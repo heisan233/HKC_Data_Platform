@@ -15,13 +15,13 @@
       {% else %}<tr><td colspan="7" class="dm-empty">{% if query %}没有匹配的目录。{% else %}raw/ 下暂无待登记数据集。{% endif %}</td></tr>{% endfor %}
     </tbody></table></div>
     {% else %}
-    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>原始目录</th><th>机器人类型</th><th>Episodes</th><th>目录状态</th><th>质检文件</th><th>登记时间</th><th></th></tr></thead><tbody>
-      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong></td><td><code>raw/{{ item.folder }}</code></td><td>{{ item.robot_type }}</td><td>{{ item.episodes if item.episodes is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td>{{ '已有产物' if item.detected else '暂无' }}</td><td>{{ item.registered_at|local_datetime }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">查看</a>{% if item.state == 'ready' %} · <a class="dm-row-link" href="/qc/?dataset={{ item.id }}">质检 →</a>{% endif %}</td></tr>
+    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>原始目录</th><th>机器人类型</th><th>Episodes</th><th>目录状态</th><th>审核状态</th><th>登记时间</th><th></th></tr></thead><tbody>
+      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong></td><td><code>raw/{{ item.folder }}</code></td><td>{{ item.robot_type }}</td><td>{{ item.episodes if item.episodes is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td><span class="dm-badge {% if item.qc_state == 'passed' %}dm-ok{% elif item.qc_state in ('review', 'recapture', 'error', 'stale', 'raw_issue') %}dm-warn{% else %}dm-muted{% endif %}">{{ item.qc_label }}</span></td><td>{{ item.registered_at|local_datetime }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">查看</a>{% if item.state == 'ready' %} · <a class="dm-row-link" href="/qc/?dataset={{ item.id }}">质检 →</a>{% endif %}</td></tr>
       {% else %}<tr><td colspan="8" class="dm-empty">暂无登记记录。</td></tr>{% endfor %}
     </tbody></table></div>
     {% endif %}
   </section>
-  <p class="dm-help">目录名称不要求等于 DS 编号。重复登记由数据库阻止；质检状态需要查看报告。</p>
+  <p class="dm-help">目录名称不要求等于 DS 编号。重复登记由数据库阻止；审核状态来自该数据集最新的质检任务。</p>
 </div>
 <script src="/static/js/data_manage.js"></script>
 {% endblock %}
