@@ -16,7 +16,7 @@
     </tbody></table></div>
     {% else %}
     <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>原始目录</th><th>机器人类型</th><th>Episodes</th><th>目录状态</th><th>质检文件</th><th>登记时间</th><th></th></tr></thead><tbody>
-      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong></td><td><code>raw/{{ item.folder }}</code></td><td>{{ item.robot_type }}</td><td>{{ item.episodes if item.episodes is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td>{{ '已有产物' if item.detected else '暂无' }}</td><td>{{ item.registered_at[:16]|replace('T',' ') }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">查看 →</a></td></tr>
+      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong></td><td><code>raw/{{ item.folder }}</code></td><td>{{ item.robot_type }}</td><td>{{ item.episodes if item.episodes is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td>{{ '已有产物' if item.detected else '暂无' }}</td><td>{{ item.registered_at|local_datetime }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">查看</a>{% if item.state == 'ready' %} · <a class="dm-row-link" href="/qc/?dataset={{ item.id }}">质检 →</a>{% endif %}</td></tr>
       {% else %}<tr><td colspan="8" class="dm-empty">暂无登记记录。</td></tr>{% endfor %}
     </tbody></table></div>
     {% endif %}
