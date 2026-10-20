@@ -1,43 +1,35 @@
 {% extends "base.html" %}
-{% block page_title %}数据质检{% endblock %}
+{% block page_title %}数据质检 · 任务{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">✅ 质检规则、执行、报告、打回重采</span></div>
-    <button class="btn btn-primary">+ 新建质检任务</button>
-</div>
+<link rel="stylesheet" href="/static/css/data.css">
+<link rel="stylesheet" href="/static/css/quality.css?v=20261020j">
+<div class="dm-wrap qc-wrap" id="qc-task-page" data-show-hidden="{{ 'true' if show_hidden else 'false' }}">
+  <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>数据质检</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">QUALITY INSPECTION</span><h2>数据质检任务</h2><p>一个方案可用于多个同类型机器人数据集。每个数据集独立排队、执行，并生成一份包含三个部分的报告。</p></div><a class="dm-hero-link" href="/qc/plans/">管理质检方案 →</a></section>
+  <div id="qc-feedback" class="dm-feedback" role="status" hidden></div>
 
-<div class="card">
-    <h3>📋 质检规则</h3>
-    <table class="table">
-        <tr><th>ID</th><th>规则名称</th><th>目标</th><th>状态</th></tr>
-        {% for r in rules %}
-        <tr>
-            <td>{{ r.id }}</td>
-            <td>{{ r.name }}</td>
-            <td>{{ r.target }}</td>
-            <td><span class="status-badge status-online">{{ r.status }}</span></td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
+  <form id="qc-task-form" class="qc-task-builder">
+    <section class="dm-panel"><div class="dm-panel-head"><div><span class="qc-kicker">步骤 01 / 03</span><h3>选择可复用的质检方案</h3><p>方案按机器人类型匹配数据集；规则参数在方案管理中维护，本次可单独调整启用项。</p></div><a href="/qc/plans/">查看与新建方案 →</a></div>
+      <div class="qc-pad qc-plan-picker"><label class="qc-field">质检方案<select id="qc-plan" required><option value="">请选择质检方案</option>{% for plan in plans %}<option value="{{ plan.id }}">{{ plan.name }} · {{ plan.robot_type }} · v{{ plan.version }}</option>{% endfor %}</select></label><div id="qc-plan-context" class="qc-plan-context">选择方案后显示机器人类型、可用数据集和检查规则。</div></div>
+      <div id="qc-task-rule-preview" class="qc-rule-preview" hidden><div class="qc-preview-head"><strong id="qc-selected-plan"></strong><a id="qc-edit-plan" href="#">编辑方案参数 →</a></div><p class="dm-subtle">下列开关只影响本次提交的任务；所有数据集使用同一份规则启用快照。</p><div class="qc-step-tabs" role="tablist" aria-label="本次质检启用项"><button type="button" class="active" data-task-tab="doctor">01 · Doctor</button><button type="button" data-task-tab="robot_rules">02 · 机器人专项</button><button type="button" data-task-tab="vlm">03 · VLM 视频</button></div><div id="qc-task-checks" class="qc-check-list"></div></div>
+    </section>
 
-<div class="card">
-    <h3>📊 质检报告</h3>
-    <table class="table">
-        <tr><th>ID</th><th>数据集</th><th>通过</th><th>失败</th><th>结果</th><th>时间</th><th>操作</th></tr>
-        {% for r in reports %}
-        <tr>
-            <td>{{ r.id }}</td>
-            <td>{{ r.dataset }}</td>
-            <td>{{ r.passed }}</td>
-            <td>{{ r.failed }}</td>
-            <td><span class="status-badge
-                {% if r.result == '通过' %}status-done
-                {% else %}status-error{% endif %}">{{ r.result }}</span></td>
-            <td style="font-size:13px;color:#666;">{{ r.time }}</td>
-            <td><button class="btn btn-primary btn-sm">查看报告</button></td>
-        </tr>
-        {% endfor %}
-    </table>
+    <section class="dm-panel"><div class="dm-panel-head"><div><span class="qc-kicker">步骤 02 / 03</span><h3>选择或上传数据集</h3><p>可批选已登记 Raw 数据集，也可上传多个 LeRobot v3 ZIP。上传成功的数据集会自动参与本批质检。</p></div><span id="qc-selection-count" class="dm-count">已选 0 个</span></div>
+      <div class="qc-source-grid"><div class="qc-source-block"><div class="qc-source-title"><strong>已登记 Raw 数据集</strong><label><input type="checkbox" id="qc-select-all" disabled> 全选匹配项</label></div><div id="qc-dataset-list" class="qc-dataset-list">{% for item in datasets %}<label class="qc-dataset-choice" data-robot="{{ item.robot_type }}" data-state="{{ item.state }}" hidden><input type="checkbox" value="{{ item.id }}" {% if item.state != 'ready' %}disabled{% endif %}><span><strong>{{ item.name }}</strong><small>{{ item.id }} · {{ item.robot_type }} · raw/{{ item.folder }}</small></span></label>{% endfor %}<p id="qc-dataset-empty" class="dm-empty">先选择方案，再选择匹配的 Raw 数据集。</p></div><a class="qc-text-link" href="/data/manage/">在数据管理中登记现有目录 →</a></div>
+        <div class="qc-source-block"><div class="qc-source-title"><strong>上传新数据集</strong><span class="dm-badge dm-muted">可选</span></div><label class="qc-field">LeRobot v3 ZIP（可多选）<input id="qc-upload-files" type="file" accept=".zip" multiple></label><p id="qc-upload-count" class="dm-subtle">未选择文件；单批最多 20 个 ZIP。</p><p class="qc-source-tip">上传文件先进入 raw/ 并登记，随后按当前方案创建质检任务。机器人类型不匹配的文件会在提交结果中单独提示。</p></div></div>
+    </section>
+
+    <section class="dm-panel qc-submit-panel"><div><span class="qc-kicker">步骤 03 / 03</span><h3>创建质检任务</h3><p>单个和批量使用同一流程。提交后留在此页，在下方查看排队、执行进度和报告入口。</p></div><button class="dm-button qc-start" type="submit">开始质检</button></section>
+  </form>
+
+  <section class="dm-panel" id="qc-tasks"><div class="dm-panel-head"><div><h3>{{ '已移出列表的记录' if show_hidden else '质检任务与报告' }}</h3><p>{{ '这些任务、报告和人工判定仍完整保留，可随时恢复显示。' if show_hidden else '每个数据集一条任务、一份统一报告；可将旧记录移出本页列表。' }}</p></div><div class="qc-task-list-links"><a href="{{ '/qc/#qc-tasks' if show_hidden else '/qc/?hidden=1#qc-tasks' }}">{{ '返回当前列表' if show_hidden else '查看已移出记录（' ~ hidden_count ~ '）' }}</a><span class="dm-count">共 {{ task_total }} 项 · 第 {{ task_page }}/{{ task_page_count }} 页</span></div></div>
+    <div class="dm-table-scroll qc-task-table-wrap"><table class="dm-table qc-task-table"><thead><tr><th>数据集 / 任务</th><th>质检方案</th><th>执行阶段</th><th>系统结果</th><th>人工判定</th><th>时间</th><th>操作</th></tr></thead><tbody>
+      {% for task in tasks %}<tr data-task-id="{{ task.id }}"><td><strong>{{ task.dataset.name if task.dataset else task.dataset_id }}</strong><small>{{ task.dataset_id }} · {{ task.id }}</small></td><td>{{ task.plan_id }} · v{{ task.plan_version }}</td><td><span data-task-status class="dm-badge {% if task.status == 'COMPLETED' %}dm-ok{% elif task.status in ['FAILED','INTERRUPTED'] %}qc-fail{% else %}dm-warn{% endif %}">{{ {'QUEUED':'排队中','RUNNING':'运行中','COMPLETED':'已完成','FAILED':'执行失败','INTERRUPTED':'已中断'}.get(task.status, task.status) }}</span><small data-task-phase>{{ {'pending':'等待执行','doctor':'Doctor','robot_rules':'机器人专项','vlm':'VLM 视频','done':'全部完成','error':'执行错误','interrupted':'已中断'}.get(task.phase, task.phase) }}</small></td><td data-task-outcome>{{ {'PASS':'通过','REVIEW':'待复核','FAIL':'发现失败项','PARTIAL':'部分检查'}.get(task.outcome, '—') }}</td><td>{{ {'PASS':'通过','REVIEW':'待复核','RECAPTURE':'打回重采'}.get(task.decision, '—') }}</td><td>{{ task.created_at|local_datetime }}</td><td><div class="qc-task-actions"><a class="dm-row-link" href="/qc/reports/{{ task.id }}">查看统一报告 →</a>{% if show_hidden %}<button type="button" class="qc-restore-task" data-show-task="{{ task.id }}">恢复显示</button>{% elif task.status in ['COMPLETED','FAILED','INTERRUPTED'] %}<button type="button" class="qc-hide-task" data-hide-task="{{ task.id }}" title="仅从当前列表移出，不删除任务或报告">移出列表</button>{% endif %}</div></td></tr>
+      {% else %}<tr><td class="dm-empty" colspan="7">{{ '暂无已移出的记录。' if show_hidden else '暂无质检任务。选择方案与数据集后开始质检。' }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% if task_page_count > 1 %}<nav class="qc-task-pages" aria-label="质检任务翻页"><a {% if task_page > 1 %}href="/qc/?{% if show_hidden %}hidden=1&amp;{% endif %}page={{ task_page - 1 }}#qc-tasks"{% else %}aria-disabled="true"{% endif %}>上一页</a><span>{{ task_page }} / {{ task_page_count }}</span><a {% if task_page < task_page_count %}href="/qc/?{% if show_hidden %}hidden=1&amp;{% endif %}page={{ task_page + 1 }}#qc-tasks"{% else %}aria-disabled="true"{% endif %}>下一页</a></nav>{% endif %}
+  </section>
 </div>
+<script id="qc-plans-json" type="application/json">{{ plans|tojson }}</script>
+<script src="/static/js/quality.js?v=20261020j"></script>
 {% endblock %}
