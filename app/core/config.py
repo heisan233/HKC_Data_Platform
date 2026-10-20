@@ -25,6 +25,11 @@ class Settings:
             os.getenv("HKC_DATA_ROOT", str(DEFAULT_DATA_ROOT))
         ).expanduser().resolve()
     )
+    vlm_base_url: str = field(default_factory=lambda: os.getenv("VLM_BASE_URL", "").rstrip("/"))
+    vlm_api_token: str = field(default_factory=lambda: os.getenv("VLM_API_TOKEN", "EMPTY"))
+    doctor_timeout_seconds: int = field(
+        default_factory=lambda: int(os.getenv("QC_DOCTOR_TIMEOUT_SECONDS", "1800"))
+    )
 
 
 settings = Settings()
