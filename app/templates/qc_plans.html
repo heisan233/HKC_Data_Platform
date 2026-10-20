@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block page_title %}数据质检 · 质检方案{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<link rel="stylesheet" href="/static/css/quality.css?v=20261020j">
+<div class="dm-wrap qc-wrap" id="qc-plans-page">
+  <nav class="dm-crumb"><a href="/qc/">数据质检</a><span>/</span>质检方案</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">REUSABLE QUALITY PLANS</span><h2>质检方案</h2><p>按机器人类型维护规则与阈值。同类型的多个 Raw 数据集可共用一个方案，任务仍各自保存版本与启用项快照。</p></div><button type="button" class="dm-hero-link qc-hero-button" id="qc-open-create">+ 新建方案</button></section>
+  <div id="qc-feedback" class="dm-feedback" role="status" hidden></div>
+  <div class="qc-plan-overview"><div><strong>{{ plans|length }}</strong><span>可用方案</span></div><div><strong>{{ datasets|selectattr('state', 'equalto', 'ready')|list|length }}</strong><span>可质检 Raw 数据集</span></div><p>先在任务页查找可复用方案。需要不同规则或机器人配置时，再从一个代表性数据集创建新方案。</p></div>
+  <div class="qc-plan-grid">{% for plan in plans %}<article class="qc-plan-card" data-plan-id="{{ plan.id }}"><div class="qc-plan-card-head"><span class="dm-badge dm-muted">{{ plan.robot_type }}</span><small>{{ plan.id }} · v{{ plan.version }}</small></div><h3>{{ plan.name }}</h3><p>适用于 {{ datasets|selectattr('robot_type', 'equalto', plan.robot_type)|selectattr('state', 'equalto', 'ready')|list|length }} 个已登记 Raw 数据集</p><div class="qc-plan-counts"><span><strong>{{ plan.config.doctor.checks|selectattr('enabled')|list|length }}</strong>Doctor</span><span><strong>{{ plan.config.robot_rules|selectattr('enabled')|list|length }}</strong>专项规则</span><span><strong>{{ plan.config.vlm.rules|selectattr('enabled')|list|length }}</strong>VLM 规则</span></div><div class="qc-plan-card-foot"><small>更新于 {{ plan.updated_at|local_datetime }}</small><div><a class="dm-button dm-button-secondary" href="/qc/plans/{{ plan.id }}">编辑方案</a><button type="button" class="qc-delete-plan" data-delete-plan="{{ plan.id }}" data-plan-name="{{ plan.name }}">删除</button></div></div></article>{% else %}<div class="qc-plan-empty"><strong>还没有质检方案</strong><p>从一个已登记 Raw 数据集读取机器人字段，创建后即可复用于同类型数据集。</p><button type="button" class="dm-button" id="qc-empty-create">新建方案</button></div>{% endfor %}</div>
+</div>
+<dialog class="dm-dialog qc-plan-dialog" id="qc-create-dialog"><form method="dialog" id="qc-create-form"><span class="qc-kicker">NEW QUALITY PLAN</span><h3>创建质检方案</h3><p>选择一个代表性 Raw 数据集读取初始机器人配置。新方案创建后，可应用到所有相同 robot_type 的数据集。</p><label>代表性 Raw 数据集<select id="qc-plan-dataset" required><option value="">请选择数据集</option>{% for item in datasets %}<option value="{{ item.id }}" data-robot="{{ item.robot_type }}" {% if item.state != 'ready' %}disabled{% endif %}>{{ item.id }} · {{ item.name }}（{{ item.robot_type }}）</option>{% endfor %}</select></label><div id="qc-existing-plans" class="qc-plan-hint">先选择数据集；若已有同类型方案，可直接复用。</div><div class="dm-dialog-actions"><button type="button" class="dm-button dm-button-secondary" id="qc-create-cancel">取消</button><button type="submit" class="dm-button" id="qc-plan-create">创建并编辑</button></div></form></dialog>
+<script id="qc-plans-json" type="application/json">{{ plans|tojson }}</script>
+<script src="/static/js/quality.js?v=20261020j"></script>
+{% endblock %}
