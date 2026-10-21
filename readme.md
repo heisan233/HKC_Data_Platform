@@ -30,13 +30,13 @@ HKC_Data_Platform_v2/
 │   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
 │   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
 │   │   ├── annotation/         # task 提示词等标注信息修改
-│   │   ├── conversion/         # 数据集格式转换
+│   │   ├── conversion/         # 预留的独立转换模块
 │   │   ├── training/           # 模型训练与评估接口，首期只保留框架
 │   │   ├── robots/             # 机器人管理
 │   │   ├── scenes/             # 情景管理
 │   │   ├── system/             # 系统管理
 │   │   ├── semantics/          # v1 数据定义兼容模块，后续从导航移除
-│   │   ├── export/             # v1 导出兼容模块，后续并入 datasets
+│   │   ├── export/             # LeRobot v3 → HDF5 转换与压缩包导出
 │   │   ├── models/             # v1 未注册页面，等待归并
 │   │   └── logs/               # v1 未注册页面，等待归并
 │   ├── templates/              # Jinja2 HTML 模板
@@ -94,7 +94,7 @@ qc.html 中的按钮
 - `storage/detected/` 保留为未来实际数据清洗产物目录；通过质检不会复制 Raw。
 - 正在上传、解压或校验的内容放在 `storage/staging/`。
 - 处理生成的新版本放在 `storage/derived/`，不原地修改原始数据。
-- 质检报告和导出包分别放在 `storage/reports/` 与 `storage/exports/`。
+- LeRobot v3 转换来源位于 `storage/derived/`，HDF5 结果位于 `storage/converted/`；下载时从这两个目录即时生成 tar.gz，不长期保存导出包。
 - 数据集内容由目录结构和 LeRobot 自身元数据提供；登记与展示信息保存在 SQLite。
 
 ### 文件放置规则
@@ -175,11 +175,11 @@ Uvicorn `--reload` 会重新加载应用。正式部署时只使用 `compose.yam
 
 ### 当前尚未完成
 
-- `ingestion` 已实现质检页面的 ZIP 上传；机器人 HTTP 上传与 `conversion` 仍待实现。
+- `ingestion` 已实现质检页面的 ZIP 上传；机器人 HTTP 上传与独立的 `conversion` 模块仍待实现。`export` 已提供 LeRobot v3 → HDF5 转换。
 - `app/db/` 已供数据集登记使用；`migrations/` 仍为后续结构升级预留。
 - 数据管理已读取真实目录并使用 SQLite 登记；其他页面仍可能使用 v1 演示数据。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
-- `semantics` 和独立 `export` 路由为迁移兼容而保留，后续按产品方案调整导航。
+- `semantics` 路由为迁移兼容而保留；`export` 路由承载当前的转换与导出页面。
 
 ## 附录：v1 原型历史记录
 
