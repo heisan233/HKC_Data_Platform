@@ -1,0 +1,14 @@
+.export-wrap { max-width: 1180px; margin: 0 auto; }
+.export-wrap .card { margin-bottom: 18px; }
+.export-note { color: #64748b; font-size: 13px; line-height: 1.6; margin-bottom: 15px; }
+.export-form { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.export-form label { font-size: 14px; color: #334155; font-weight: 600; }
+.export-form select { min-width: 290px; max-width: 100%; padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 5px; background: white; }
+.export-form button:disabled, .export-form select:disabled { opacity: .5; cursor: not-allowed; }
+.export-feedback { margin-top: 12px; color: #1d4ed8; font-size: 13px; }
+.export-feedback.error, .export-error { color: #b91c1c; }
+.export-scroll { overflow-x: auto; }
+.export-wrap .table { min-width: 680px; }
+.export-wrap .table a { color: #1d4ed8; text-decoration: none; }
+.export-wrap .table a:hover { text-decoration: underline; }
+.export-empty { color: #64748b; text-align: center; }
