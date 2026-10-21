@@ -1,4 +1,4 @@
-# HKC 数采平台日常启动与网络切换
+# HKC 数采平台拉取、部署、启动与网络切换
 
 本文用于以下常见情况：
 
@@ -10,7 +10,205 @@
 > 当前平台没有登录鉴权和 HTTPS。局域网模式只允许在可信内网使用，不要映射到
 > 公网，也不要在路由器上配置端口转发。
 
-## 一、进入项目目录
+## 一、同事第一次拉取并构建集成分支
+
+本节适用于同事在另一台 Ubuntu 电脑或服务器上第一次部署
+`integration/hs-lxp-v2`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
+SQLite、报告、模型或其他 `storage/` 运行数据。
+
+### 1. 分支负责人先发布最新代码
+
+同事开始拉取前，分支负责人必须先在当前开发机完成代码审查、提交和推送：
+
+```bash
+cd ~/vscode_project/HKC/HKC_Data_Platform_merge
+git status --short --branch
+git log -3 --oneline --decorate
+```
+
+只有工作区修改已经提交，并且执行以下命令成功后，另一台机器才能取得最新版本：
+
+```bash
+git push origin integration/hs-lxp-v2
+```
+
+不要为了推送而执行 `git reset`、`git clean` 或强制覆盖远程分支。需要提交哪些
+文件应先由双方审查决定。
+
+### 2. 同事检查 Docker
+
+```bash
+docker --version
+docker compose version
+docker info --format 'Docker Server {{.ServerVersion}}'
+```
+
+三条命令都应正常输出。若最后一条出现访问 `/var/run/docker.sock` 权限不足，应先
+完成 Docker 用户组配置并重新登录，不要长期依赖 `sudo docker`。
+
+### 3. 第一次克隆指定分支
+
+```bash
+mkdir -p ~/vscode_project/HKC
+cd ~/vscode_project/HKC
+
+git clone \
+  --branch integration/hs-lxp-v2 \
+  https://github.com/heisan233/HKC_Data_Platform.git \
+  HKC_Data_Platform_merge
+
+cd HKC_Data_Platform_merge
+git status --short --branch
+git log -1 --oneline --decorate
+```
+
+如果同事电脑上已经有这个仓库，不要再次克隆。在工作区没有未提交修改的前提下：
+
+```bash
+cd ~/vscode_project/HKC/HKC_Data_Platform_merge
+git fetch origin
+git switch integration/hs-lxp-v2
+git pull --ff-only origin integration/hs-lxp-v2
+```
+
+如果本地还没有同名分支，则使用：
+
+```bash
+git switch --track origin/integration/hs-lxp-v2
+```
+
+`--ff-only` 会在本地与远程已经分叉时停止，避免自动制造意外合并。遇到这种情况先
+查看 `git status` 和本地提交，不要使用强制拉取。
+
+### 4. 创建这台设备自己的配置
+
+```bash
+cp .env.example .env
+id -u
+id -g
+nano .env
+```
+
+将 `APP_UID`、`APP_GID` 改为两条 `id` 命令的实际输出。开发机可保留：
+
+```dotenv
+HKC_STORAGE_PATH=./storage
+```
+
+服务器建议设置为已经备份、权限明确的绝对目录。真实 VLM 地址和 Token 只写入
+本机 `.env`，不得提交 Git，也不要直接复制其他人的 `.env`。
+
+新的 Git 克隆不会包含原设备的数据。需要复用数据时，必须单独复制原设备
+`HKC_STORAGE_PATH` 指向的完整目录，不能只复制 SQLite，也不能通过 Git 上传。
+
+### 5. 准备基础镜像和 Python 下载源
+
+优先尝试官方 Docker Hub：
+
+```bash
+docker pull python:3.11-slim-bookworm
+```
+
+如果当前网络无法访问 Docker Hub，应优先使用公司内部镜像仓库。仅作临时开发
+验证时，也可以从已经审核的加速地址拉取，再标记成 Dockerfile 使用的标准名称：
+
+```bash
+docker pull docker.m.daocloud.io/library/python:3.11-slim-bookworm
+docker tag \
+  docker.m.daocloud.io/library/python:3.11-slim-bookworm \
+  python:3.11-slim-bookworm
+```
+
+默认通过官方 PyPI 构建。如果官方 PyPI 下载过慢，可只在本机 `.env` 中临时改为：
+
+```dotenv
+PIP_INDEX_URL=https://mirrors.ustc.edu.cn/pypi/simple
+PIP_DEFAULT_TIMEOUT=120
+```
+
+不要把个人代理、公司地址或临时镜像地址写进 `.env.example`。
+
+### 6. 第一次构建并以本机开发模式启动
+
+建议先只允许本机访问，确认平台正常后再开放可信局域网：
+
+```bash
+docker compose \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  config --quiet
+
+docker compose \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  up -d --build --wait
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:8000/
+```
+
+检查容器、依赖和工作台：
+
+```bash
+docker compose -f compose.yaml -f compose.dev.yaml ps
+
+docker compose -f compose.yaml -f compose.dev.yaml \
+  exec platform python -m pip check
+
+curl -fsS -o /dev/null -w '%{http_code}\n' \
+  http://127.0.0.1:8000/dashboard/
+```
+
+正常结果应为容器 `healthy`、pip 没有依赖冲突、HTTP 状态码为 `200`。需要让其他
+设备访问时，再按照本文“三、选择访问方式”的局域网步骤重新创建容器。
+
+### 7. 开发前运行自动化测试
+
+正式运行镜像不包含 pytest/Ruff。可以使用一次性容器检查当前代码，测试数据写入
+`/tmp`，不会读取真实 `storage/`：
+
+```bash
+docker run --rm \
+  --volume "$PWD:/workspace:ro" \
+  --workdir /workspace \
+  --env HKC_DATA_ROOT=/tmp/hkc-test-data \
+  --env PIP_INDEX_URL=https://pypi.org/simple \
+  hkc-data-platform:v2 \
+  sh -lc '
+    python -m pip install --user --no-cache-dir pytest==9.1.1 ruff==0.16.8 &&
+    /home/appuser/.local/bin/ruff check --no-cache app tests &&
+    python -m pytest -q -p no:cacheprovider
+  '
+```
+
+当前集成基线的预期结果是 Ruff 全部通过、pytest `48 passed`。一条来自
+Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取项目 `.env`；
+如果官方 PyPI 较慢，可将测试命令中的地址明确替换成前述中科大地址。
+
+### 8. 以后获取同事提交的更新
+
+先停止正在修改文件，确认自己的工作已经提交或妥善保存，然后执行：
+
+```bash
+git status --short --branch
+git fetch origin
+git pull --ff-only origin integration/hs-lxp-v2
+```
+
+普通 Python/HTML/CSS 修改在开发模式下通常会热重载；如果更新包含 Dockerfile、
+`pyproject.toml` 或 Compose 配置，则重新执行：
+
+```bash
+docker compose \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  up -d --build --force-recreate --wait
+```
+
+## 二、进入项目目录
 
 打开终端，进入包含 `compose.yaml` 的项目根目录：
 
@@ -39,7 +237,7 @@ id -g
 `HKC_STORAGE_PATH=./storage`；如果服务器把数据放在其他磁盘，应改成对应绝对
 路径，并保证该目录归相同 UID/GID 所有。容器内路径始终是 `/data`。
 
-## 二、选择访问方式
+## 三、选择访问方式
 
 ### 方式 A：只有本机访问
 
@@ -153,7 +351,7 @@ http://192.168.123.45:8000/
 
 局域网模式只绑定指定的内网 IP，因此 `http://127.0.0.1:8000/` 不一定可用。
 
-## 三、配置公司网络中的 VLM
+## 四、配置公司网络中的 VLM
 
 VLM 配置保存在项目根目录的 `.env` 中。`.env` 已被 Git 忽略，不要提交，也不要
 把真实 Token 写进 `.env.example`。
@@ -213,7 +411,7 @@ docker compose \
 - `ConnectTimeout`、`No route to host`：网络、路由或防火墙不通；
 - `/models` 返回 `404`：当前 VLM 服务可能没有提供平台所需的 OpenAI 兼容接口。
 
-## 四、确认平台是否启动成功
+## 五、确认平台是否启动成功
 
 局域网模式使用：
 
@@ -262,7 +460,7 @@ docker compose \
 
 按 `Ctrl+C` 只会退出日志查看，不会关闭容器。
 
-## 五、停止平台
+## 六、停止平台
 
 局域网模式：
 
@@ -291,7 +489,7 @@ docker compose \
 
 不要增加 `-v`，以免误删以后可能使用的 Docker 卷。
 
-## 六、切换网络后的最短操作清单
+## 七、切换网络后的最短操作清单
 
 如果只是 IP 改变，按下面执行即可：
 
@@ -321,7 +519,7 @@ docker compose \
 http://新的实际IPv4地址:8000/
 ```
 
-## 七、仍然打不开时的排查顺序
+## 八、仍然打不开时的排查顺序
 
 ### 1. 检查容器
 
@@ -376,7 +574,7 @@ docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
 
 确认正在访问的是当前项目的 `platform` 服务，而不是以前目录启动的旧容器。
 
-## 八、需要记住的区别
+## 九、需要记住的区别
 
 - `docker compose restart`：只重启现有容器，不更新 IP 绑定和 `.env` 环境变量；
 - `docker compose up -d --force-recreate`：按当前配置重新创建容器，切换网络时使用；
