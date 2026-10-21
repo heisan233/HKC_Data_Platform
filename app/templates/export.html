@@ -1,33 +1,57 @@
 {% extends "base.html" %}
 {% block page_title %}数据集导出{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">📤 支持 LeRobot、HDF5、RLDS、MCAP、JSON、CSV 等格式</span></div>
-    <button class="btn btn-primary">+ 新建导出任务</button>
-</div>
+<link rel="stylesheet" href="/static/css/export.css">
+<div class="export-wrap">
+  <section class="card">
+    <h3>格式转换 · LeRobot v3.0 → HDF5</h3>
+    <p class="export-note">只从 storage/derived 读取新版本；转换完成后写入 storage/converted，来源保持原样。视频相机帧会重新编码为 JPEG。</p>
+    <form id="conversion-form" class="export-form">
+      <label for="conversion-source">来源数据集</label>
+      <select id="conversion-source" name="source_name" required {% if not derived %}disabled{% endif %}>
+        {% for item in derived %}<option value="{{ item.name }}">{{ item.name }} · {{ item.episodes }} episodes · {{ item.frames }} 帧</option>{% endfor %}
+      </select>
+      <button class="btn btn-primary" type="submit" {% if not derived %}disabled{% endif %}>开始转换</button>
+    </form>
+    <p id="conversion-empty" class="export-note" {% if derived %}hidden{% endif %}>derived/ 中暂无可转换的 LeRobot v3.0 数据集。</p>
+    <p id="export-feedback" class="export-feedback" role="status" hidden></p>
+  </section>
 
-<div class="card">
-    <h3>📦 支持格式</h3>
-    <div>{% for f in formats %}<span class="tag" style="font-size:13px;padding:4px 12px;">{{ f }}</span>{% endfor %}</div>
-</div>
+  <section class="card">
+    <h3>转换任务</h3>
+    <div class="export-scroll">
+      <table class="table">
+        <thead><tr><th>任务</th><th>来源</th><th>进度</th><th>状态</th><th>结果</th></tr></thead>
+        <tbody id="conversion-tasks">
+          {% for task in tasks %}
+          <tr>
+            <td>{{ task.id }}</td><td>{{ task.source_name }}</td>
+            <td>{{ task.completed_episodes }}/{{ task.total_episodes }} episodes</td>
+            <td>{{ {'QUEUED':'排队中','RUNNING':'转换中','COMPLETED':'已完成','FAILED':'失败'}.get(task.status, task.status) }}</td>
+            <td>{% if task.status == 'COMPLETED' %}<a href="/export/archive/converted/{{ task.id|urlencode }}">下载 HDF5 压缩包</a>{% elif task.error %}<span class="export-error">{{ task.error }}</span>{% else %}—{% endif %}</td>
+          </tr>
+          {% else %}<tr><td colspan="5" class="export-empty">暂无转换任务。</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 
-<div class="card">
-    <h3>📋 导出历史</h3>
-    <table class="table">
-        <tr><th>ID</th><th>数据集</th><th>目标格式</th><th>大小</th><th>状态</th><th>时间</th><th>操作</th></tr>
-        {% for e in exports %}
-        <tr>
-            <td>{{ e.id }}</td>
-            <td>{{ e.dataset }}</td>
-            <td><span class="tag">{{ e.format }}</span></td>
-            <td>{{ e.size }}</td>
-            <td><span class="status-badge
-                {% if e.status == '已完成' %}status-done
-                {% else %}status-paused{% endif %}">{{ e.status }}</span></td>
-            <td style="font-size:13px;color:#666;">{{ e.time }}</td>
-            <td><button class="btn btn-primary btn-sm">下载</button></td>
-        </tr>
-        {% endfor %}
-    </table>
+  <section class="card">
+    <h3>导出数据集</h3>
+    <p class="export-note">derived 和 converted 中的数据集都可以直接打包为 tar.gz 下载；导出不会修改数据集。</p>
+    <div class="export-scroll">
+      <table class="table">
+        <thead><tr><th>区域</th><th>数据集</th><th>格式</th><th>规模</th><th>操作</th></tr></thead>
+        <tbody id="export-datasets">
+          {% for item in derived + converted %}
+          <tr><td>{{ item.area }}</td><td>{{ item.name }}</td><td>{{ item.format }}</td>
+            <td>{{ item.episodes }} episodes · {{ item.frames }} 帧</td>
+            <td><a href="/export/archive/{{ item.area }}/{{ item.name|urlencode }}">下载压缩包</a></td></tr>
+          {% else %}<tr><td colspan="5" class="export-empty">暂无可导出的数据集。</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </div>
+<script src="/static/js/export.js"></script>
 {% endblock %}
