@@ -44,4 +44,6 @@ HTML/JavaScript 按钮
 `quality` 的 `service.py` 负责方案版本、任务快照和统一报告，
 `robot_rules.py` 与 `vlm.py` 分别执行机器人专项与视频规则，Doctor 由服务层调用。
 质检任务及人工复核历史保存在 `app/db/quality.py` 管理的 SQLite 表中。
-其他多数模块仍只有从旧原型迁移来的演示路由；`conversion` 尚未实现。
+`export` 从 `derived/` 创建 LeRobot v3 → HDF5 后台转换任务，结果写到
+`converted/`，并提供两个区域的数据集压缩包下载。其他多数模块仍只有从旧原型
+迁移来的演示路由；独立的 `conversion` 模块尚未启用。
