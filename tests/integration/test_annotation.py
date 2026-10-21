@@ -7,6 +7,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from fastapi.testclient import TestClient
 
+from app.db.datasets import DatasetRepository
 from app.main import app
 from app.modules.annotation import router as annotation_router
 from app.modules.datasets.service import register_dataset
@@ -163,7 +164,12 @@ def test_publish_creates_full_derived_copy_and_keeps_raw_unchanged(
     assert response.status_code == 201
     result = response.json()
     derived = tmp_path / result["derived_relative_path"]
+    registered = DatasetRepository(tmp_path).get(result["dataset_id"])
     assert derived.is_dir()
+    assert result["dataset_id"] == "DS000002"
+    assert registered["storage_area"] == "derived"
+    assert registered["storage_relpath"] == result["storage_name"]
+    assert registered["source_dataset_ids"] == ["DS000001"]
     assert (derived / "videos" / CAMERA / "chunk-000" / "file-001.mp4").is_file()
 
     raw_tasks = pq.read_table(raw / "meta" / "tasks.parquet").to_pylist()

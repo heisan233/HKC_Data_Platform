@@ -25,6 +25,7 @@ import pyarrow.parquet as pq
 from app.db.datasets import DatasetRepository
 from app.modules.annotation.schemas import EpisodeAnnotationChange, EpisodeTaskChange
 from app.modules.datasets import service as datasets_service
+from app.modules.datasets.lerobot_v3 import load_tasks as load_lerobot_tasks
 
 DATASET_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 ANNOTATION_OUTCOMES = {"success", "partial", "failure"}
@@ -191,40 +192,12 @@ def _load_info(dataset: DatasetRef) -> dict[str, Any]:
 
 
 def _load_tasks(dataset: DatasetRef) -> tuple[list[dict[str, Any]], dict[int, str]]:
-    path = dataset.path / "meta" / "tasks.parquet"
-    if not path.is_file():
-        raise AnnotationError("数据集缺少 meta/tasks.parquet。")
-
     try:
-        # 与 LeRobot 官方 load_tasks 保持相同语义：自然语言 task 是 DataFrame
-        # 索引，task_index 才是普通列。旧版平台曾把 task 写成普通列，因此这里
-        # 继续兼容该历史格式，并把它统一转换成官方内存结构。
-        frame = pd.read_parquet(path)
-    except (OSError, ValueError, pa.ArrowException) as exc:
-        raise AnnotationError("无法读取 meta/tasks.parquet。") from exc
-    if "task_index" not in frame.columns:
-        raise AnnotationError("tasks.parquet 缺少 task_index 列。")
-    if isinstance(frame.index, pd.RangeIndex):
-        if "task" not in frame.columns:
-            raise AnnotationError("tasks.parquet 缺少 task 索引或兼容 task 列。")
-        frame = frame.set_index("task")
-    frame.index.name = "task"
-    if frame.index.hasnans or not frame.index.is_unique:
-        raise AnnotationError("tasks.parquet 的 task 索引为空或重复。")
-    if frame["task_index"].isna().any() or not frame["task_index"].is_unique:
-        raise AnnotationError("tasks.parquet 的 task_index 为空或重复。")
-
-    tasks: list[dict[str, Any]] = []
-    mapping: dict[int, str] = {}
-    for task_value, index_value in zip(frame.index, frame["task_index"], strict=True):
-        index = int(index_value)
-        task = str(task_value).strip()
-        if not task:
-            raise AnnotationError("tasks.parquet 包含空 task。")
-        mapping[index] = task
-        tasks.append({"task_index": index, "task": task})
-    tasks.sort(key=lambda item: item["task_index"])
-    return tasks, mapping
+        # 官方格式把自然语言 task 保存在 DataFrame 索引中；公共读取器同时兼容
+        # 平台早期把 task 写成普通列的测试数据。
+        return load_lerobot_tasks(dataset.path)
+    except ValueError as exc:
+        raise AnnotationError(str(exc)) from exc
 
 
 def _episode_task_from_data(dataset: DatasetRef) -> dict[int, int]:

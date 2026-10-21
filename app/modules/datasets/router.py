@@ -99,7 +99,7 @@ def accept_rescan(dataset_id: str):
     if error:
         raise HTTPException(409, error)
     return DatasetRepository(storage_root()).accept_rescan(
-        dataset_id, service.info_digest(folder), info["robot_type"].strip())
+        dataset_id, service.info_digest(folder), service.robot_type_label(info))
 
 
 @router.get("/raw/")
@@ -157,11 +157,28 @@ def dataset_video(dataset_id: str, video_path: str):
 
 
 @router.get("/reports/")
-def reports_page(request: Request):
+def reports_page(request: Request, view: str = "active"):
     _, managed = service.catalog(storage_root())
-    groups = [{"dataset": row, "reports": service.reports_for(storage_root(), row["id"])}
-              for row in managed if row["report_count"]]
-    return templates.TemplateResponse(request=request, name="data_reports.html", context={"groups": groups})
+    view = "trash" if view == "trash" else "active"
+    if view == "trash":
+        groups = [
+            {"dataset": row, "reports": service.trashed_reports_for(storage_root(), row["id"])}
+            for row in managed
+        ]
+    else:
+        groups = [
+            {"dataset": row, "reports": service.reports_for(storage_root(), row["id"])}
+            for row in managed
+        ]
+    groups = [group for group in groups if group["reports"]]
+    return templates.TemplateResponse(request=request, name="data_reports.html", context={
+        "groups": groups,
+        "view": view,
+        "active_count": sum(row["report_count"] for row in managed),
+        "trash_count": sum(
+            len(service.trashed_reports_for(storage_root(), row["id"])) for row in managed
+        ),
+    })
 
 
 @router.get("/reports/{dataset_id}/{filename}")
@@ -195,9 +212,39 @@ def delete_report(dataset_id: str, filename: str):
             if task["status"] in {"QUEUED", "RUNNING"}:
                 raise HTTPException(409, "质检任务仍在执行，不能删除报告")
     try:
-        file.unlink()
-    except FileNotFoundError as exc:
-        raise HTTPException(404, "报告文件不存在") from exc
+        metadata = service.move_report_to_trash(storage_root(), dataset_id, filename)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except OSError as exc:
-        raise HTTPException(500, "删除报告文件失败") from exc
-    return {"dataset_id": dataset_id, "filename": filename, "deleted": True}
+        raise HTTPException(500, "报告移入回收站失败") from exc
+    return {**metadata, "trashed": True}
+
+
+@router.get("/reports/trash/{dataset_id}/{filename}")
+def trashed_report(dataset_id: str, filename: str, download: bool = False):
+    record_or_404(dataset_id)
+    file = service.trashed_report_file(storage_root(), dataset_id, filename)
+    if file is None:
+        raise HTTPException(404, "回收站报告不存在")
+    if download:
+        return FileResponse(file, filename=file.name)
+    if file.suffix.lower() == ".json":
+        data = service.read_json(file)
+        if data is not None:
+            return data
+    return FileResponse(file)
+
+
+@router.post("/reports/trash/{dataset_id}/{filename}/restore")
+def restore_report(dataset_id: str, filename: str):
+    record_or_404(dataset_id)
+    try:
+        return service.restore_trashed_report(storage_root(), dataset_id, filename)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except FileExistsError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, "恢复报告失败") from exc

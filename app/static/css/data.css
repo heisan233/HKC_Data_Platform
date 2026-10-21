@@ -66,10 +66,12 @@
 .dm-row-link{white-space:nowrap;font-weight:700}
 .dm-report-actions{display:flex;align-items:center;gap:12px;white-space:nowrap}
 .dm-report-actions a{font-weight:600}
-.dm-report-actions .dm-delete-report{appearance:none;border:1px solid #efc8c3;border-radius:6px;background:#fff6f4;color:#b8473f;font-family:inherit;font-size:11px;font-weight:600;line-height:1.4;cursor:pointer;padding:4px 10px;transition:background .15s,border-color .15s,color .15s}
+.dm-report-actions .dm-delete-report,.dm-report-actions .dm-restore-report{appearance:none;border:1px solid #efc8c3;border-radius:6px;background:#fff6f4;color:#b8473f;font-family:inherit;font-size:11px;font-weight:600;line-height:1.4;cursor:pointer;padding:4px 10px;transition:background .15s,border-color .15s,color .15s}
 .dm-report-actions .dm-delete-report:hover{background:#fbe7e3;border-color:#d98d84;color:#9d352e}
-.dm-report-actions .dm-delete-report:focus-visible{outline:2px solid #b8473f;outline-offset:2px}
-.dm-report-actions .dm-delete-report:disabled{opacity:.5;cursor:wait}
+.dm-report-actions .dm-restore-report{border-color:#b9dfca;background:#effaf3;color:#2c7d4f}
+.dm-report-actions .dm-restore-report:hover{background:#dff4e7;border-color:#78bf98;color:#21643e}
+.dm-report-actions .dm-delete-report:focus-visible,.dm-report-actions .dm-restore-report:focus-visible{outline:2px solid #b8473f;outline-offset:2px}
+.dm-report-actions .dm-delete-report:disabled,.dm-report-actions .dm-restore-report:disabled{opacity:.5;cursor:wait}
 .dm-metrics .dm-metric{border-left:3px solid #2ea4c2}
 .dm-metric small,.dm-metric strong,.dm-metric span,.dm-metric a{display:block}
 .dm-metric small{font-size:11px;color:#8a9dac}

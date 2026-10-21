@@ -5,6 +5,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from app.db.datasets import DatasetRepository
 from app.modules.datasets.service import register_dataset
 from app.modules.processing.schemas import ProcessingJobRequest
 from app.modules.processing.service import create_job, get_job, run_job, scan_duplicates
@@ -122,12 +123,18 @@ def test_filter_creates_derived_dataset_without_changing_source(tmp_path: Path) 
     )
 
     derived = output_path(tmp_path, job)
+    output = job["outputs"][0]
+    registered = DatasetRepository(tmp_path).get(output["dataset_id"])
     info = json.loads((derived / "meta" / "info.json").read_text())
     frames = pq.read_table(derived / "data" / "chunk-000" / "file-000.parquet").to_pylist()
     source_info = json.loads((source / "meta" / "info.json").read_text())
 
     assert info["total_episodes"] == 2
     assert info["total_frames"] == 4
+    assert output["dataset_id"] == "DS000002"
+    assert registered["storage_area"] == "derived"
+    assert registered["storage_relpath"] == output["storage_name"]
+    assert registered["source_dataset_ids"] == ["DS000001"]
     assert [row["episode_index"] for row in frames] == [0, 0, 1, 1]
     assert [row["value"] for row in frames] == [1, 2, 5, 6]
     assert source_info["total_episodes"] == 3

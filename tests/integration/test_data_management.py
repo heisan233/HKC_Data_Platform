@@ -113,15 +113,37 @@ def test_reports_use_registered_id(platform):
     report.write_text('{"decision":"PASS","status":"COMPLETED"}', encoding="utf-8")
     assert client.get("/data/detected/").status_code == 404
     assert "run.json" in client.get("/data/reports/").text
-    assert 'aria-label="删除报告 run.json"' in client.get("/data/reports/").text
+    assert 'aria-label="移入回收站 run.json"' in client.get("/data/reports/").text
     assert client.get("/data/reports/DS000001/run.json").json()["decision"] == "PASS"
-    assert client.delete("/data/reports/DS000001/run.json").json() == {
-        "dataset_id": "DS000001", "filename": "run.json", "deleted": True,
-    }
+    moved = client.delete("/data/reports/DS000001/run.json")
+    assert moved.status_code == 200
+    assert moved.json()["dataset_id"] == "DS000001"
+    assert moved.json()["filename"] == "run.json"
+    assert moved.json()["trashed"] is True
     assert not report.exists()
+    trashed = root / "trash" / "reports" / "DS000001" / "run.json"
+    metadata = root / "trash" / "reports" / "DS000001" / ".run.json.trash-meta.json"
+    assert trashed.is_file()
+    assert metadata.is_file()
     assert "run.json" not in client.get("/data/reports/").text
+    trash_page = client.get("/data/reports/?view=trash")
+    assert "run.json" in trash_page.text
+    assert 'aria-label="恢复报告 run.json"' in trash_page.text
+    assert client.get("/data/reports/trash/DS000001/run.json").json()["decision"] == "PASS"
     assert client.get("/data/reports/DS000001/run.json").status_code == 404
     assert client.delete("/data/reports/DS000001/run.json").status_code == 404
+    restored = client.post("/data/reports/trash/DS000001/run.json/restore")
+    assert restored.json() == {
+        "dataset_id": "DS000001",
+        "filename": "run.json",
+        "original_path": "reports/qc/DS000001/run.json",
+        "restored": True,
+    }
+    assert report.is_file()
+    assert not trashed.exists()
+    assert not metadata.exists()
+    assert "run.json" in client.get("/data/reports/").text
+    assert "run.json" not in client.get("/data/reports/?view=trash").text
 
 
 def test_delete_qc_report_preserves_task_and_review(platform):
@@ -141,13 +163,25 @@ def test_delete_qc_report_preserves_task_and_review(platform):
     repo.review(task["id"], "PASS", "人工确认")
     assert client.delete(f"/data/reports/DS000001/{report.name}").status_code == 200
     assert not report.exists()
+    trashed = root / "trash" / "reports" / "DS000001" / report.name
+    assert trashed.is_file()
     assert repo.get_task(task["id"])["decision"] == "PASS"
     assert repo.reviews(task["id"])[0]["reason"] == "人工确认"
-    assert "报告文件已删除或不可读取" in client.get(f"/qc/reports/{task['id']}").text
+    assert "报告文件已移入回收站或不可读取" in client.get(
+        f"/qc/reports/{task['id']}"
+    ).text
     assert client.get(f"/qc/reports/{task['id']}/download").status_code == 404
     assert client.post(f"/qc/api/tasks/{task['id']}/review", json={
         "decision": "PASS", "reason": "再次确认",
     }).status_code == 409
+    assert client.post(
+        f"/data/reports/trash/DS000001/{report.name}/restore"
+    ).status_code == 200
+    assert report.is_file()
+    assert repo.get_task(task["id"])["decision"] == "PASS"
+    assert repo.reviews(task["id"])[0]["reason"] == "人工确认"
+    assert client.get(f"/qc/reports/{task['id']}/download").status_code == 200
+    assert client.get(f"/data/reports/DS000001/{report.name}").status_code == 200
 
 
 def test_report_delete_rejects_other_files(platform):
@@ -161,6 +195,10 @@ def test_report_delete_rejects_other_files(platform):
     (report_dir / "link.json").symlink_to(outside)
     assert client.delete("/data/reports/DS000001/link.json").status_code == 404
     assert client.delete("/data/reports/DS999999/secret.json").status_code == 404
+    assert client.get("/data/reports/trash/DS000001/../secret.json").status_code == 404
+    assert client.post(
+        "/data/reports/trash/DS000001/missing.json/restore"
+    ).status_code == 404
     assert outside.read_text(encoding="utf-8") == "private"
 
 

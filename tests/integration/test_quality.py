@@ -8,6 +8,7 @@ import subprocess
 import zipfile
 from pathlib import Path
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
@@ -386,6 +387,78 @@ def test_doctor_json_cli_and_vlm_episode_results(tmp_path: Path, monkeypatch: py
     result = vlm.run_vlm_rules(tmp_path, "test", folder, config, "http://example/v1", "")
     assert result["status"] == "REVIEW"
     assert result["results"][-1]["episodes"][0]["status"] == "UNCERTAIN"
+
+
+def test_vlm_reads_official_v3_tasks_index_and_episode_tasks(tmp_path: Path, monkeypatch):
+    from app.modules.quality.catalog import default_config
+
+    folder = tmp_path / "derived" / "sample"
+    _dataset(folder)
+    pd.DataFrame(
+        {"task_index": [0, 1]},
+        index=pd.Index(["拿起方块", "放入盒子"], name="task"),
+    ).to_parquet(folder / "meta" / "tasks.parquet")
+    pq.write_table(
+        pa.table({"episode_index": [0], "length": [3], "tasks": [["拿起方块", "放入盒子"]]}),
+        folder / "meta" / "episodes" / "chunk-000" / "file-000.parquet",
+    )
+    info = json.loads((folder / "meta" / "info.json").read_text(encoding="utf-8"))
+    config = default_config(info)
+    config["vlm"]["rules"][0]["enabled"] = True
+    config["robot"]["video_keys"] = ["camera"]
+    config["vlm"]["rules"][0]["camera_key"] = "camera"
+    prompts = []
+
+    def clip(_folder, _info, _episode, camera, destination, _timeout):
+        destination.write_bytes(b"video")
+        return destination, {"camera": camera}
+
+    def ask(_base_url, _token, _model, _rule, task, _clip, _timeout, _max_tokens):
+        prompts.append(task)
+        return {"result": "pass", "reason": "动作完成", "evidence": "目标进入盒子"}
+
+    monkeypatch.setattr(vlm, "_video_segment", clip)
+    monkeypatch.setattr(vlm, "_probe_endpoint", lambda *_: None)
+    monkeypatch.setattr(vlm, "_ask_model", ask)
+    result = vlm.run_vlm_rules(tmp_path, "test", folder, config, "http://example/v1", "")
+    assert result["status"] == "PASS"
+    assert prompts == ["拿起方块；放入盒子"]
+
+
+def test_quality_accepts_registered_derived_dataset(platform, monkeypatch):
+    from app.modules.datasets.service import register_dataset
+
+    client, root = platform
+    _dataset(root / "derived" / "processed")
+    record = register_dataset(root, "derived", "processed", "处理结果")
+    assert record["id"] == "DS000001"
+    assert "derived/processed" in client.get("/qc/").text
+    plan = client.post("/qc/api/plans/from-dataset/DS000001").json()
+
+    class IdleExecutor:
+        @staticmethod
+        def submit(_fn, *_args):
+            pass
+
+    monkeypatch.setattr(service, "_executor", IdleExecutor())
+    task = client.post("/qc/api/tasks", json={
+        "dataset_id": "DS000001",
+        "plan_id": plan["id"],
+        "plan_version": plan["version"],
+        "selections": {"doctor": ["metadata"], "robot_rules": [], "vlm": []},
+    })
+    assert task.status_code == 200
+    report = service.read_report(root, task.json())
+    assert report["storage_area"] == "derived"
+    assert report["storage_relpath"] == "processed"
+    task_id = task.json()["id"]
+    repo = service.initialize(root)
+    repo.set_task(task_id, status="COMPLETED", outcome="PASS")
+    assert "DS000001" in client.get("/data/raw/?qc=review").text
+    assert client.post(f"/qc/api/tasks/{task_id}/review", json={
+        "decision": "PASS", "reason": "派生数据人工确认",
+    }).status_code == 200
+    assert "DS000001" in client.get("/data/raw/?qc=passed").text
 
 
 def test_vlm_connection_failure_returns_immediately(tmp_path: Path, monkeypatch):

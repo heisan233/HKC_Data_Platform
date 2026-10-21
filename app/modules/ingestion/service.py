@@ -438,7 +438,7 @@ async def receive_dataset_upload(
         except ValueError as exc:
             shutil.rmtree(raw_destination, ignore_errors=True)
             accepted_destination = None
-            raise OSError("数据集登记失败") from exc
+            raise UploadValidationError(f"数据集登记失败：{exc}") from exc
         registered_dataset_id = registered["id"]
 
         record.update(

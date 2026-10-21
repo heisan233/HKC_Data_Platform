@@ -12,6 +12,11 @@ from pathlib import Path
 import httpx
 import pyarrow.parquet as pq
 
+from app.modules.datasets.lerobot_v3 import (
+    episode_task_indexes,
+    episode_task_text,
+    load_tasks,
+)
 from app.modules.datasets.service import safe_file
 
 MAX_VIDEO_BYTES = 100 * 1024 * 1024
@@ -136,6 +141,7 @@ def run_vlm_rules(root: Path, task_id: str, folder: Path, snapshot: dict,
         episodes = _episode_rows(folder)
         if not episodes:
             raise ValueError("没有可读取的 Episode 元数据")
+        _, task_names = load_tasks(folder)
     except Exception as exc:  # noqa: BLE001 - surface metadata failures per rule
         results.extend({"id": rule["id"], "name": rule["name"], "status": "ERROR",
                         "episodes": [], "reason": str(exc)[:500]} for rule in active)
@@ -144,6 +150,14 @@ def run_vlm_rules(root: Path, task_id: str, folder: Path, snapshot: dict,
     max_episodes = config.get("max_episodes")
     sampled = bool(max_episodes and len(episodes) > max_episodes)
     selected = episodes[:int(max_episodes)] if sampled else episodes
+    frame_task_indexes = {}
+    if any(not episode.get("task") and not episode.get("tasks") for episode in selected):
+        try:
+            frame_task_indexes = episode_task_indexes(folder)
+        except ValueError as exc:
+            results.extend({"id": rule["id"], "name": rule["name"], "status": "ERROR",
+                            "episodes": [], "reason": str(exc)[:500]} for rule in active)
+            return {"status": "ERROR", "results": results}
     timeout = int(config["timeout_seconds"])
     staging = root / "staging"
     staging.mkdir(parents=True, exist_ok=True)
@@ -170,9 +184,10 @@ def run_vlm_rules(root: Path, task_id: str, folder: Path, snapshot: dict,
                     if isinstance(clip, Exception):
                         raise clip
                     clip_file, evidence = clip
+                    task_text = episode_task_text(episode, task_names, frame_task_indexes)
                     answer = _ask_model(base_url, token, config["model"], rule,
-                                        str(episode.get("task") or "未填写"), clip_file,
-                                        timeout, int(config["max_tokens"]))
+                                        task_text or "未填写", clip_file, timeout,
+                                        int(config["max_tokens"]))
                     judged.append({"episode": episode_id, "status": answer["result"].upper(),
                                    "reason": answer["reason"], "evidence": answer["evidence"],
                                    "video": evidence})

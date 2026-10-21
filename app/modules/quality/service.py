@@ -219,7 +219,7 @@ def plan_from_dataset(root: Path, dataset_id: str, vlm_available: bool) -> dict:
     if error:
         raise HTTPException(409, error)
     config = default_config(info, vlm_enabled=vlm_available)
-    robot_type = info["robot_type"].strip()
+    robot_type = datasets.robot_type_label(info)
     return initialize(root).create_plan(f"{robot_type} 标准质检", robot_type, config)
 
 
@@ -303,7 +303,7 @@ def create_task(root: Path, dataset_id: str, plan_id: str, plan_version: int,
     info, error = datasets.dataset_info(folder)
     if error:
         raise HTTPException(409, error)
-    if info["robot_type"].strip() != plan["robot_type"]:
+    if datasets.robot_type_label(info) != plan["robot_type"]:
         raise HTTPException(409, "数据集 robot_type 与质检方案不匹配")
     if datasets.info_digest(folder) != dataset["info_sha256"]:
         raise HTTPException(409, "数据集元数据已变化，请在数据管理中核对并重新扫描")

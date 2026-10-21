@@ -1,30 +1,37 @@
 {% extends "base.html" %}
 {% block page_title %}数据管理 · Reports{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="/static/css/data.css?v=20261020-reports1">
+<link rel="stylesheet" href="/static/css/data.css?v=20261021-reports2">
 <div class="dm-wrap" id="dm-reports-page">
   <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>Reports</nav>
-  <section class="dm-hero"><div><span class="dm-eyebrow">QC REPORTS</span><h2>质检报告</h2><p>按已登记数据集查看 reports/qc/&lt;ID&gt;/ 中的实际文件。</p></div></section>
+  <section class="dm-hero"><div><span class="dm-eyebrow">QC REPORTS</span><h2>{{ '报告回收站' if view == 'trash' else '质检报告' }}</h2><p>{% if view == 'trash' %}报告保存在 trash/reports/&lt;ID&gt;/，可恢复且不影响 SQLite 中的任务和人工审核记录。{% else %}按已登记数据集查看 reports/qc/&lt;ID&gt;/ 中的实际文件。移除操作只会放入回收站。{% endif %}</p></div></section>
   <div id="dm-report-feedback" class="dm-feedback" role="status" hidden></div>
+  <section class="dm-panel"><div class="dm-toolbar"><div class="dm-tabs"><a class="{% if view == 'active' %}active{% endif %}" href="/data/reports/">当前报告 <b>{{ active_count }}</b></a><a class="{% if view == 'trash' %}active{% endif %}" href="/data/reports/?view=trash">回收站 <b>{{ trash_count }}</b></a></div></div></section>
   {% for group in groups %}
   <section class="dm-panel">
-    <div class="dm-panel-head"><div><h3><a href="/data/raw/{{ group.dataset.id }}">{{ group.dataset.id }} · {{ group.dataset.name }}</a></h3><p>{{ group.reports|length }} 份报告</p></div></div>
+    <div class="dm-panel-head"><div><h3><a href="/data/raw/{{ group.dataset.id }}">{{ group.dataset.id }} · {{ group.dataset.name }}</a></h3><p>{{ group.reports|length }} 份{{ '已移除' if view == 'trash' else '当前' }}报告</p></div></div>
     <div class="dm-table-scroll"><table class="dm-table">
-      <thead><tr><th>文件</th><th>判定</th><th>状态</th><th>时间</th><th>大小</th><th>操作</th></tr></thead>
+      <thead><tr><th>文件</th><th>判定</th><th>状态</th><th>{{ '移入时间' if view == 'trash' else '时间' }}</th><th>大小</th><th>操作</th></tr></thead>
       <tbody>
         {% for report in group.reports %}
-        <tr><td><strong>{{ report.name }}</strong></td><td>{{ report.decision }}</td><td>{{ report.status }}</td><td>{{ report.created_at }}</td><td>{{ report.size }}</td>
+        <tr><td><strong>{{ report.name }}</strong>{% if view == 'trash' %}<small>{{ report.original_path }}</small>{% endif %}</td><td>{{ report.decision }}</td><td>{{ report.status }}</td><td>{{ report.trashed_at|local_datetime if view == 'trash' else report.created_at }}</td><td>{{ report.size }}</td>
           <td><div class="dm-report-actions">
+            {% if view == 'trash' %}
+            <a href="/data/reports/trash/{{ group.dataset.id }}/{{ report.name|urlencode }}">查看</a>
+            <a href="/data/reports/trash/{{ group.dataset.id }}/{{ report.name|urlencode }}?download=true">下载</a>
+            <button type="button" class="dm-restore-report" data-dataset-id="{{ group.dataset.id }}" data-filename="{{ report.name }}" aria-label="恢复报告 {{ report.name }}">恢复</button>
+            {% else %}
             {% if report.name.startswith('QC-') and report.name.endswith('.json') %}<a href="/qc/reports/{{ report.name[:-5] }}">查看统一报告</a>{% else %}<a href="/data/reports/{{ group.dataset.id }}/{{ report.name|urlencode }}">查看</a>{% endif %}
             <a href="/data/reports/{{ group.dataset.id }}/{{ report.name|urlencode }}?download=true">下载</a>
-            <button type="button" class="dm-delete-report" data-dataset-id="{{ group.dataset.id }}" data-filename="{{ report.name }}" aria-label="删除报告 {{ report.name }}">删除</button>
+            <button type="button" class="dm-delete-report" data-dataset-id="{{ group.dataset.id }}" data-filename="{{ report.name }}" aria-label="移入回收站 {{ report.name }}">移入回收站</button>
+            {% endif %}
           </div></td>
         </tr>
         {% endfor %}
       </tbody>
     </table></div>
   </section>
-  {% else %}<section class="dm-panel dm-empty">暂无与已登记数据集关联的质检报告。</section>{% endfor %}
+  {% else %}<section class="dm-panel dm-empty">{{ '报告回收站为空。' if view == 'trash' else '暂无与已登记数据集关联的质检报告。' }}</section>{% endfor %}
 </div>
-<script src="/static/js/data_reports.js"></script>
+<script src="/static/js/data_reports.js?v=20261021-reports2"></script>
 {% endblock %}

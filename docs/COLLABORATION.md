@@ -84,7 +84,8 @@
   原始数据集的核心格式。
 - `storage/raw/` 和既有 `storage/derived/` 均不可原地修改；当前没有覆盖发布和
   永久删除。
-- 派生版本旁路记录写入 `storage/system/dataset-versions/`，不引入数据库。
+- 派生版本旁路记录写入 `storage/system/dataset-versions/`，并由当前 SQLite 统一
+  登记层分配 DS 编号和保存来源关系。
 
 ### Episode 数据处理边界
 
@@ -96,7 +97,7 @@
 - 处理后重新映射 Episode、frame、全局 index、task index 和旁路标注；视频按
   Episode 边界重新编码为独立 H.264 MP4。
 - 任务记录写入 `storage/system/processing-jobs/`，派生版本登记到
-  `storage/system/dataset-versions/`，不引入数据库。
+  `storage/system/dataset-versions/`，同时由 SQLite 统一登记层分配 DS 编号。
 - 精确重复判定只比较标准化 frame Parquet 指纹，不代表视频视觉相似度检测。
 
 ## 四、LXP 当前任务：数据管理与导出
@@ -169,8 +170,9 @@ data_root = settings.data_root
 ```
 
 - 目录含义以 `storage/README.md` 为准；容器内统一为 `/data`。
-- 质检通过后的完整数据集写入 `storage/detected/`，质检报告写入
-  `storage/reports/`；质检不得覆盖 `raw/` 或其他输入数据集。
+- 质检不复制完整数据集；结果由 SQLite 中的任务/人工审核状态和
+  `storage/reports/qc/` 报告表达。页面移除的报告进入
+  `storage/trash/reports/`，不得永久删除，且不影响任务或审核记录。
 - 页面路由继续位于 `/data/` 等现有前缀下。
 - 路由负责参数和响应，文件操作放入 service。
 - 上传文件名、压缩包内部路径和浏览器传来的路径都不可信。
@@ -193,6 +195,149 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-21
+
+开发者/分支：Heisan / `integration/hs-lxp-v2`
+
+完成内容：废止并移除空的 `storage/detected/`。质检不再复制完整数据集，结论由
+SQLite 任务/人工审核状态和 `storage/reports/qc/` 报告共同表达。将原来的报告
+永久删除改为可恢复回收站：页面移除报告时原子移动到
+`storage/trash/reports/<DS 编号>/`，隐藏元数据记录原路径和 UTC 移入时间；新增
+回收站列表、查看、下载和恢复功能，不提供永久清空接口。质检任务和审核历史在
+移入及恢复过程中均保持不变，同名文件不会被覆盖。
+
+主要修改文件：`app/modules/datasets/service.py`、
+`app/modules/datasets/router.py`、`app/templates/data_reports.html`、
+`app/templates/qc_report.html`、`app/static/js/data_reports.js`、
+`app/static/css/data.css`、`tests/integration/test_data_management.py`、
+`storage/trash/reports/.gitkeep`、`storage/README.md`、`AGENTS.md`、
+`readme.md`、`docs/COLLABORATION.md`。
+
+执行的验证：移除前确认 `storage/detected/` 为空；相关 Ruff 检查通过，数据管理与
+质检回归测试共 21 项全部通过。测试覆盖移入、回收站列表/读取、元数据、恢复、
+同名防覆盖、路径安全及任务/审核记录保留。运行中容器保持健康，当前报告页、
+回收站页和质检页均返回 HTTP 200。
+
+未完成或已知问题：首期不提供回收站永久清空功能，也不自动按时间清理。正式存储
+目前没有报告被移动；需要使用者在页面用一份可恢复的测试报告做一次人工验收。
+
+是否修改共享文件：修改了数据管理报告接口和页面、存储约定及协作规则；未修改
+SQLite 表结构、现有 DS 编号、数据集内容、质检任务或人工审核记录。
+
+下一步建议：打开 `/data/reports/` 将一份测试报告移入回收站，再到“回收站”页
+确认查看、下载和恢复均正常；之后再继续真实 VLM 端到端质检验收。
+
+日期：2026-10-21
+
+开发者/分支：Heisan / `integration/hs-lxp-v2`
+
+完成内容：完成集成计划第七步的本地质检适配。确认质检方案版本、Doctor、机器人
+规则、VLM、任务历史、隐藏与恢复、人工审核和数据管理状态回显均已使用统一 DS
+编号；Raw 与 Derived 数据集都可创建质检任务。新增公共 LeRobot v3 task 读取器，
+使标注和 VLM 共用官方 `tasks.parquet` Pandas 索引语义，并让 VLM 正确读取 Episode
+的 `tasks` 列；缺少 Episode task 时可根据 frame `task_index` 回查任务文本。
+
+主要修改文件：`app/modules/datasets/lerobot_v3.py`、
+`app/modules/annotation/service.py`、`app/modules/quality/vlm.py`、
+`tests/integration/test_quality.py`、`readme.md`、`docs/COLLABORATION.md`。
+
+执行的验证：相关 Ruff 检查通过；质检、数据管理和标注集成测试共 26 项全部通过。
+测试覆盖官方索引格式、多 task Episode 传入 VLM、Derived DS 创建质检任务及报告
+保存真实存储区域。VLM 使用模拟函数，没有调用公司服务或上传真实视频。
+
+未完成或已知问题：尚未在公司网络中使用真实 VLM 地址执行端到端视频质检；正式
+测试前仍需确认 `.env` 中地址、Token、模型名及服务器接口兼容性。报告移入回收站
+属于后续计划，不在本步骤中修改。
+
+是否修改共享文件：新增数据集公共元数据读取模块，并让标注、质检共享该逻辑；
+未修改 SQLite 表结构、现有数据集、DS 编号或正式质检记录。
+
+下一步建议：先用一个小型已登记 Raw 数据集关闭 VLM 完成 Doctor/机器人规则人工
+验收，再在公司网络中启用一条 VLM 规则进行端到端验证，最后用 Derived DS 重复
+一次并完成人工审核。
+
+日期：2026-10-21
+
+开发者/分支：Heisan / `integration/hs-lxp-v2`
+
+完成内容：使用 `git worktree move` 将集成 worktree 从 Codex 项目镜像目录安全
+移动到 `~/vscode_project/HKC/HKC_Data_Platform_merge`，保留未提交改动、`.env`、
+SQLite、Raw 数据和上传记录；从新目录重建局域网容器并验证 `/data/staging` 可写。
+同时定位上传误报权限问题：LeRobot v3 ZIP 的 `robot_type` 为 `null` 时，上传预检
+允许继续但统一登记层拒绝，异常最终被错误包装成 500。现统一按“未声明”登记，
+质检方案及重新扫描使用相同规范；其他可预期登记错误会返回真实校验原因。
+
+主要修改文件：`app/modules/datasets/service.py`、
+`app/modules/datasets/router.py`、`app/modules/ingestion/service.py`、
+`app/modules/quality/catalog.py`、`app/modules/quality/service.py`、
+`tests/integration/test_ingestion.py`、`how_use.md`、`readme.md`、
+`docs/COLLABORATION.md`。
+
+执行的验证：新容器健康检查通过，bind mount 已指向新目录，容器临时写入测试
+通过；相关 Ruff 检查通过，上传、质检和数据管理共 23 项测试通过；实际
+`my_sim_dataset.zip` 在一次性临时目录中成功完成解压与登记模拟，识别 47 个
+Episodes、4700 帧并以“未声明”机器人类型登记，未写入正式 storage。
+
+未完成或已知问题：此前 15 条失败上传记录作为历史事实继续保留；实际 ZIP 尚未
+替使用者再次正式上传。未声明机器人类型的数据可以进入平台，但团队仍应在数据
+采集规范中决定是否要求采集端填写明确类型。
+
+是否修改共享文件：修改了统一登记、上传和质检对缺失机器人类型的共同解释；
+未修改 SQLite 表结构、数据集内容或现有 DS 编号。
+
+下一步建议：由使用者在上传页重新提交同一个 ZIP，确认正式入库后获得新 DS 编号；
+再继续第七步质检适配。
+
+日期：2026-10-21
+
+开发者/分支：Heisan / `integration/hs-lxp-v2`
+
+完成内容：验收并补齐集成计划第六步。确认标注和数据处理均使用统一 DS 编号解析
+Raw/Derived 真实目录；发布结果进入 `storage/derived/` 后自动登记新 DS 并保存
+来源关系。数据处理任务输出改为可点击结果，可直接把新派生 DS 载入处理工作台；
+标注发布原有的自动切换新 DS 行为保持不变。
+
+主要修改文件：`app/static/js/processing.js`、`app/static/css/processing.css`、
+`app/templates/preprocess.html`、`tests/integration/test_annotation.py`、
+`tests/integration/test_processing.py`、`readme.md`、`docs/COLLABORATION.md`。
+
+执行的验证：一次性项目容器内运行相关 Ruff 检查通过，标注和处理集成测试共
+10 项全部通过；新增
+断言确认派生结果获得 `DS000002`、登记区域为 `derived`、真实目录映射正确且来源
+为 `DS000001`。`git diff --check` 通过。
+
+未完成或已知问题：数据处理是后台任务，拆分操作可能一次生成多个 DS，因此页面
+在任务完成后提供逐个点击载入，而不是擅自自动选择其中一个。当前容器内任务仍不
+支持重启续跑，该限制不属于本次 DS 适配范围。
+
+是否修改共享文件：修改了数据处理前端及项目说明，没有修改 SQLite 表结构、
+Compose、Dockerfile、上传或质检实现。
+
+下一步建议：人工用小型已备份数据集各发布一次标注派生版本和处理派生版本，确认
+页面能载入新 DS 后，再进入集成计划第七步的质检适配验收。
+
+日期：2026-10-21
+
+开发者/分支：Heisan / `integration/hs-lxp-v2`
+
+完成内容：新增平台日常使用文档，说明切换网络后重新确认局域网 IPv4、使用 LAN
+Compose 覆盖配置强制重建容器、配置和验证公司 VLM、查看状态与日志、停止平台及
+常见网络故障排查方法。
+
+主要修改文件：`how_use.md`、`docs/COLLABORATION.md`。
+
+执行的验证：使用占位局域网地址完成 Compose 组合配置解析；`git diff --check`
+通过。
+
+未完成或已知问题：VLM 的真实地址、端口、Token、公司网段和防火墙规则仍需由
+实际部署环境提供，文档没有写入任何凭据。
+
+是否修改共享文件：只新增使用文档并更新协作交接记录，没有修改应用、镜像或
+Compose 行为。
+
+下一步建议：回到公司网络后按 `how_use.md` 的最短操作清单重新创建容器，并在
+容器内部验证 `/models` 连通性。
 
 日期：2026-10-20
 
@@ -308,8 +453,8 @@ Episode 选择联动正常；精确重复扫描完成且未发现重复，控制
 
 开发者/分支：Heisan / `hs_docker`
 
-完成内容：新增 `storage/detected/`，明确用于保存真实质检完成并通过验收后的完整
-数据集；质检报告继续单独保存在 `storage/reports/`。
+完成内容（历史记录，已于 2026-10-21 废止）：曾新增 `storage/detected/`，用于
+保存质检通过后的完整数据集；现已改为 SQLite 状态与 `reports/qc/` 报告表达结论。
 
 主要修改文件：`storage/detected/.gitkeep`、`storage/README.md`、`AGENTS.md`、
 `readme.md`、`docs/COLLABORATION.md`。
@@ -322,8 +467,7 @@ Episode 选择联动正常；精确重复扫描完成且未发现重复，控制
 
 是否修改共享文件：是，只补充存储目录约定，没有修改 LXP 的数据管理代码。
 
-下一步建议：实现质检服务时采用“临时区处理—校验—原子写入 detected”的流程，
-并让数据管理页面识别 `detected` 类型。
+下一步建议（已废止）：不再向 `detected/` 写入或复制数据集。
 
 日期：2026-10-19
 

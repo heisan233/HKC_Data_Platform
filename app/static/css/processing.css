@@ -89,7 +89,25 @@
 .job-status.failed { background: #fff0f1; color: #a63d49; }
 .progress-track { background: #edf0f4; border-radius: 999px; height: 4px; margin-top: 7px; overflow: hidden; }
 .progress-bar { background: var(--processing-blue); height: 100%; transition: width .2s; }
-.job-output { color: #16845b !important; word-break: break-all; }
+.job-output {
+    align-items: center;
+    background: #edf9f4;
+    border: 1px solid #c9eadb;
+    border-radius: 6px;
+    color: #16845b;
+    cursor: pointer;
+    display: flex;
+    font: inherit;
+    justify-content: space-between;
+    margin-top: 7px;
+    padding: 7px 8px;
+    text-align: left;
+    width: 100%;
+    word-break: break-all;
+}
+.job-output:hover { background: #e2f5ec; border-color: #9dd8bf; }
+.job-output span { font-size: 9px; font-weight: 800; }
+.job-output small { color: #39745e; font-size: 8px; margin-left: 6px; white-space: nowrap; }
 .empty-copy { color: var(--processing-muted); font-size: 11px; padding: 18px 4px; text-align: center; }
 
 @media (max-width: 1280px) {

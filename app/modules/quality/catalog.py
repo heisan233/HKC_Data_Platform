@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from app.modules.datasets.service import robot_type_label
+
 # lerobot-doctor 0.2.0 exposes these names in runner._get_all_checks().
 DOCTOR_CHECKS = [
     ("metadata", "元数据与格式"),
@@ -115,7 +117,7 @@ def default_config(info: dict, *, vlm_enabled: bool = False) -> dict:
                           "prompt": entry["prompt"]})
     return {
         "robot": {
-            "robot_type": str(info.get("robot_type", "")).strip(),
+            "robot_type": robot_type_label(info),
             "expected_fps": info.get("fps"),
             "state_key": "observation.state",
             "state_dim": dimension(state),

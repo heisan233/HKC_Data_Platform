@@ -94,12 +94,14 @@ qc.html 中的按钮
 
 - 其他采集流程放入 `storage/raw/` 的 VLA 数据集，登记时不移动原始目录。
 - 数据管理在 SQLite 中分配 DS 编号，保存编号到 Raw 目录的映射。
-- 质检仅读取 Raw 文件；统一报告保存在 `storage/reports/qc/<DS 编号>/`。
+- 质检可读取已登记的 Raw 和 Derived 数据集；统一报告保存在 `storage/reports/qc/<DS 编号>/`。
 - 数据管理首页显示待人工审核数量；Raw 列表按最新质检任务显示未质检、待审核、已审核通过、打回重采等状态。质检完成本身不等于人工通过。
 - 正在上传、解压或校验的内容放在 `storage/staging/`。
 - 处理生成的新版本放在 `storage/derived/`，不原地修改原始数据。
 - 质检报告和导出包分别放在 `storage/reports/` 与 `storage/exports/`。
-- 从页面移除的质检报告进入 `storage/trash/reports/`，不直接永久删除。
+- 从页面移除的质检报告进入
+  `storage/trash/reports/<DS 编号>/`，同时记录原路径和移入时间；报告可在回收站
+  页面恢复，不提供永久清空功能。
 - 数据集内容由目录结构和 LeRobot 自身元数据提供；登记与展示信息保存在 SQLite。
 
 ### 文件放置规则
@@ -167,6 +169,10 @@ http://127.0.0.1:8000/ingestion/
 载入内存，而是分块写入 `storage/staging/`。只有同时通过以下检查才会移动到
 `storage/raw/<内部目录名>/`，随后由 SQLite 自动登记并返回稳定的 `DS000001`
 形式平台编号：
+
+如果 LeRobot v3 的 `meta/info.json` 没有填写 `robot_type` 或值为 `null`，平台不会
+修改原始元数据，而是在登记和页面中使用“未声明”作为管理标签；后续可为该类
+数据集创建“未声明”类型的质检方案。
 
 - 有效且未加密的 ZIP，不包含绝对路径、`../` 路径穿越或符号链接；
 - 一个压缩包中只有一个数据集（允许外层有一个同名总目录）；
@@ -259,6 +265,9 @@ LeRobot v3 数据集，提供以下操作：
 记录与派生版本记录分别写入 `storage/system/processing-jobs/` 和
 `storage/system/dataset-versions/`。Episode、frame、全局 index 和 task index 会
 重新映射；已有 `meta/annotations/` 旁路标注也会跟随 Episode 一起迁移。
+任务完成后，“最近任务”中的每个输出会显示新分配的 DS 编号；点击该结果即可在
+数据处理工作台载入新的派生数据集。拆分任务可能产生多个 DS，使用者可以分别
+选择需要继续查看或处理的输出。
 
 带视频的数据集会按新 Episode 边界提取并重新编码为独立 H.264 MP4，因此处理
 时间和新占用空间接近一个完整派生数据集。Web 容器只增加 `av==15.0.0` 负责视频
@@ -278,7 +287,7 @@ POST /preprocess/api/jobs
 
 ### 数据质检
 
-打开 `/qc/` 上传或选择已登记的 LeRobot v3 Raw 数据集。先从数据集创建质检方案，
+打开 `/qc/` 上传或选择已登记的 LeRobot v3 Raw/Derived 数据集。先从数据集创建质检方案，
 在方案页配置机器人字段与阈值、Doctor 检查项、机器人专项规则及 VLM 判断要求。
 每次保存方案都会生成新版本。任务页选择方案后只调整本次启用的规则；任务保存
 方案版本、启用项和 Raw 文件指纹快照。同一方案可供多个同类型数据集复用：
@@ -293,6 +302,8 @@ POST /preprocess/api/jobs
 `VLM_API_TOKEN` 通过 `.env`/Compose 环境变量设置。项目的 `.env.example`
 仅保留可公开的占位配置；实际服务地址和密钥必须在部署机的 `.env` 中设置。
 运行前会快速检查 VLM 服务连通性，连接失败会在报告中说明原因。
+VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.parquet` 的 Pandas
+索引格式、Episode 的 `tasks` 列，并在必要时根据 frame 的 `task_index` 回查任务文本。
 未配置接口时，可在方案或任务中关闭 VLM 规则。视频片段只放在 `staging/` 的
 任务临时目录，执行后删除。
 

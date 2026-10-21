@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -10,6 +10,16 @@ from app.db.datasets import STORAGE_AREAS, DatasetRepository
 
 MAX_METADATA_BYTES = 4 * 1024 * 1024
 MAX_LIST_FILES = 500
+UNKNOWN_ROBOT_TYPE = "未声明"
+
+
+def robot_type_label(info: dict) -> str:
+    """Return a stable display/registry value without mutating dataset metadata."""
+
+    value = info.get("robot_type")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return UNKNOWN_ROBOT_TYPE
 
 
 def directory(root: Path, area: str, name: str) -> Path | None:
@@ -79,8 +89,6 @@ def dataset_info(folder: Path) -> tuple[dict | None, str | None]:
         return None, "meta/info.json 不是有效的 JSON 对象或文件过大"
     if not str(data.get("codebase_version", "")).startswith("v3"):
         return None, "仅支持 LeRobot v3 数据集"
-    if not isinstance(data.get("robot_type"), str) or not data["robot_type"].strip():
-        return None, "meta/info.json 缺少 robot_type"
     return data, None
 
 
@@ -130,7 +138,7 @@ def register_dataset(
         storage_area,
         storage_relpath,
         name,
-        info["robot_type"].strip(),
+        robot_type_label(info),
         info_digest(folder),
         source_dataset_ids,
     )
@@ -166,7 +174,9 @@ def summary(root: Path, name: str, registered: dict | None = None, area: str = "
         "name": registered["name"] if registered else name,
         "folder": name,
         "storage_area": area,
-        "robot_type": registered["robot_type"] if registered else (info or {}).get("robot_type", "—"),
+        "robot_type": registered["robot_type"] if registered else (
+            robot_type_label(info) if info else "—"
+        ),
         "episodes": (info or {}).get("total_episodes"),
         "frames": (info or {}).get("total_frames"),
         "fps": (info or {}).get("fps"),
@@ -262,3 +272,150 @@ def reports_for(root: Path, dataset_id: str) -> list[dict]:
                      "created_at": datetime.fromtimestamp(file.stat().st_mtime).astimezone().strftime("%Y-%m-%d %H:%M"),
                      "decision": (data or {}).get("decision", "—"), "status": (data or {}).get("status", "—")})
     return rows
+
+
+def _report_storage_folder(
+    root: Path,
+    dataset_id: str,
+    *,
+    trashed: bool,
+    create: bool = False,
+) -> Path | None:
+    """Resolve one report folder without following storage symlinks."""
+
+    if (
+        not dataset_id
+        or Path(dataset_id).name != dataset_id
+        or dataset_id.startswith(".")
+    ):
+        return None
+    parts = ("trash", "reports") if trashed else ("reports", "qc")
+    current = root
+    try:
+        for part in parts:
+            current = current / part
+            if current.is_symlink():
+                return None
+            if create:
+                current.mkdir(exist_ok=True)
+            if not current.is_dir():
+                return None
+        folder = current / dataset_id
+        if folder.is_symlink():
+            return None
+        if create:
+            folder.mkdir(exist_ok=True)
+        if not folder.is_dir() or folder.resolve().parent != current.resolve():
+            return None
+        return folder
+    except OSError:
+        return None
+
+
+def _safe_report_name(filename: str) -> bool:
+    return bool(
+        filename
+        and Path(filename).name == filename
+        and not filename.startswith(".")
+        and not filename.endswith(".trash-meta.json")
+    )
+
+
+def trashed_report_file(root: Path, dataset_id: str, filename: str) -> Path | None:
+    folder = _report_storage_folder(root, dataset_id, trashed=True)
+    if folder is None or not _safe_report_name(filename):
+        return None
+    return safe_file(folder, filename)
+
+
+def _trash_metadata_file(folder: Path, filename: str) -> Path:
+    return folder / f".{filename}.trash-meta.json"
+
+
+def trashed_reports_for(root: Path, dataset_id: str) -> list[dict]:
+    folder = _report_storage_folder(root, dataset_id, trashed=True)
+    if folder is None:
+        return []
+    rows = []
+    for file in sorted(folder.iterdir(), key=lambda path: path.name):
+        if file.is_symlink() or not file.is_file() or not _safe_report_name(file.name):
+            continue
+        metadata = read_json(safe_file(folder, _trash_metadata_file(folder, file.name).name)) or {}
+        data = read_json(file) if file.suffix.lower() == ".json" else None
+        rows.append({
+            "name": file.name,
+            "size": size_label(file.stat().st_size),
+            "trashed_at": metadata.get("trashed_at", "—"),
+            "original_path": metadata.get(
+                "original_path", f"reports/qc/{dataset_id}/{file.name}"
+            ),
+            "decision": (data or {}).get("decision", "—"),
+            "status": (data or {}).get("status", "—"),
+        })
+    rows.sort(key=lambda row: row["trashed_at"], reverse=True)
+    return rows
+
+
+def move_report_to_trash(root: Path, dataset_id: str, filename: str) -> dict:
+    source_folder = _report_storage_folder(root, dataset_id, trashed=False)
+    source = safe_file(source_folder, filename) if source_folder and _safe_report_name(filename) else None
+    if source is None:
+        raise ValueError("报告文件不存在")
+    destination_folder = _report_storage_folder(root, dataset_id, trashed=True, create=True)
+    if destination_folder is None:
+        raise OSError("无法创建报告回收站目录")
+    destination = destination_folder / filename
+    metadata_file = _trash_metadata_file(destination_folder, filename)
+    if destination.exists() or metadata_file.exists():
+        raise FileExistsError("回收站中已有同名报告，请先恢复")
+
+    metadata = {
+        "schema_version": 1,
+        "dataset_id": dataset_id,
+        "filename": filename,
+        "original_path": f"reports/qc/{dataset_id}/{filename}",
+        "trash_path": f"trash/reports/{dataset_id}/{filename}",
+        "trashed_at": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
+    source.replace(destination)
+    temporary = metadata_file.with_suffix(metadata_file.suffix + ".tmp")
+    try:
+        temporary.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+        temporary.replace(metadata_file)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        if destination.exists() and not source.exists():
+            destination.replace(source)
+        raise
+    return metadata
+
+
+def restore_trashed_report(root: Path, dataset_id: str, filename: str) -> dict:
+    trash_folder = _report_storage_folder(root, dataset_id, trashed=True)
+    source = trashed_report_file(root, dataset_id, filename)
+    if trash_folder is None or source is None:
+        raise ValueError("回收站报告不存在")
+    metadata_file = _trash_metadata_file(trash_folder, filename)
+    metadata = read_json(safe_file(trash_folder, metadata_file.name))
+    expected = f"reports/qc/{dataset_id}/{filename}"
+    if metadata is None or metadata.get("original_path") != expected:
+        raise ValueError("回收站元数据缺失或无效")
+    destination_folder = _report_storage_folder(root, dataset_id, trashed=False, create=True)
+    if destination_folder is None:
+        raise OSError("无法创建报告目录")
+    destination = destination_folder / filename
+    if destination.exists():
+        raise FileExistsError("报告目录中已有同名文件，不能覆盖")
+    source.replace(destination)
+    try:
+        metadata_file.unlink()
+    except OSError:
+        if destination.exists() and not source.exists():
+            destination.replace(source)
+        raise
+    return {
+        "dataset_id": dataset_id,
+        "filename": filename,
+        "original_path": expected,
+        "restored": True,
+    }

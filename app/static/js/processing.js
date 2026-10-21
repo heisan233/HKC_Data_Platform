@@ -64,7 +64,7 @@
     };
 
     const datasetLabel = (dataset) => {
-        const kind = {raw: "原始", derived: "派生", detected: "质检通过"}[dataset.kind] || dataset.kind;
+        const kind = {raw: "原始", derived: "派生"}[dataset.kind] || dataset.kind;
         return `${dataset.dataset_name} · ${kind} · ${dataset.total_episodes} Episodes`;
     };
 
@@ -199,7 +199,7 @@
         }
     };
 
-    const loadDatasets = async () => {
+    const loadDatasets = async (preferredId = null) => {
         try {
             const payload = await requestJson("/preprocess/api/datasets");
             state.datasets = payload.datasets;
@@ -207,11 +207,19 @@
             if (!state.datasets.length) {
                 showMessage("没有找到可处理的 LeRobot v3 数据集。", "info");
                 elements.start.disabled = true;
-                return;
+                return false;
             }
+            const selectedId = state.datasets.some(
+                (dataset) => dataset.dataset_id === preferredId
+            )
+                ? preferredId
+                : state.datasets[0].dataset_id;
+            elements.source.value = selectedId;
             await loadWorkspace();
+            return true;
         } catch (error) {
             showMessage(error.message, "error");
+            return false;
         }
     };
 
@@ -380,9 +388,23 @@
                 track.append(bar);
                 item.append(row, message, track);
                 for (const output of job.outputs || []) {
-                    const result = document.createElement("p");
+                    const result = document.createElement("button");
+                    result.type = "button";
                     result.className = "job-output";
-                    result.textContent = `${output.dataset_id} · ${output.total_episodes} Episodes`;
+                    const label = document.createElement("span");
+                    label.textContent = `${output.dataset_id} · ${output.total_episodes} Episodes`;
+                    const action = document.createElement("small");
+                    action.textContent = "载入派生数据集 →";
+                    result.append(label, action);
+                    result.addEventListener("click", async () => {
+                        const loaded = await loadDatasets(output.dataset_id);
+                        if (!loaded) return;
+                        showMessage(`已载入派生数据集 ${output.dataset_id}。`, "success");
+                        document.querySelector(".source-panel")?.scrollIntoView({
+                            behavior: "smooth",
+                            block: "start",
+                        });
+                    });
                     item.append(result);
                 }
                 return item;
