@@ -11,7 +11,6 @@ from fastapi.templating import Jinja2Templates
 
 from app.core.paths import TEMPLATES_DIR
 
-
 # 各模块通过 ``from app.web import templates`` 使用同一个模板目录。
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -21,7 +20,7 @@ def local_datetime(value: str | None) -> str:
     if not value:
         return "—"
     try:
-        timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        timestamp = datetime.fromisoformat(value)
     except ValueError:
         return value
     if timestamp.tzinfo is None:

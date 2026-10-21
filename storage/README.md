@@ -13,8 +13,12 @@
 宿主机上的本目录会被 Docker 映射为容器内的 `/data`：
 
 ```text
-项目中的 ./storage  ->  容器中的 /data
+HKC_STORAGE_PATH（默认 ./storage） -> 容器中的 /data
 ```
+
+服务器可在 `.env` 中把 `HKC_STORAGE_PATH` 设置成独立磁盘上的绝对路径；更换该
+路径不会改变容器内路径或业务代码。目录所有者的数字 UID/GID 应与 `.env` 中的
+`APP_UID`/`APP_GID` 一致。
 
 所以业务代码应读取配置提供的存储根目录，不能写死
 `/home/heisan/.../storage` 这样的个人路径。

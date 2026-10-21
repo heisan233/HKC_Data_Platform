@@ -3,6 +3,11 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APP_UID: ${APP_UID:-1000}
+        APP_GID: ${APP_GID:-1000}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
     image: hkc-data-platform:v2
     init: true
     environment:
@@ -10,14 +15,22 @@ services:
       VLM_BASE_URL: ${VLM_BASE_URL:-}
       VLM_API_TOKEN: ${VLM_API_TOKEN:-EMPTY}
       QC_DOCTOR_TIMEOUT_SECONDS: ${QC_DOCTOR_TIMEOUT_SECONDS:-1800}
+      HKC_MAX_UPLOAD_BYTES: ${HKC_MAX_UPLOAD_BYTES:-10737418240}
+      HKC_MAX_EXPANDED_BYTES: ${HKC_MAX_EXPANDED_BYTES:-53687091200}
+      HKC_MAX_ARCHIVE_FILES: ${HKC_MAX_ARCHIVE_FILES:-200000}
     ports:
-      - "127.0.0.1:8000:8000"
+      - name: web
+        target: 8000
+        published: "8000"
+        host_ip: 127.0.0.1
+        protocol: tcp
     volumes:
       - type: bind
-        source: ./storage
+        source: ${HKC_STORAGE_PATH:-./storage}
         target: /data
       - type: bind
         source: /etc/localtime
         target: /etc/localtime
         read_only: true
     restart: unless-stopped
+    stop_grace_period: 30s

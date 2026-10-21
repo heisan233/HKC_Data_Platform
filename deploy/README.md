@@ -3,6 +3,40 @@
 这里保存开发与服务器部署的 Compose 覆盖配置和反向代理配置。业务代码不放在
 此目录，真实密码、Token、证书和 `.env` 文件也不得提交 Git。
 
+## 配置分层
+
+- `compose.yaml`：唯一应用容器、完整运行依赖、持久化存储及仅本机端口；适合
+  正式运行，也是所有覆盖配置的基础。
+- `compose.dev.yaml`：只把 `app/` 只读挂载进容器并启用 Uvicorn 热重载；只在
+  本地开发时叠加。
+- `deploy/compose.lan.yaml`：把默认 `127.0.0.1` 端口替换成指定可信内网 IPv4；
+  本地开发和内网服务器都可以叠加。
+
+不要复制出第二套 Dockerfile，也不要为数据管理、质检再启动重复平台容器。
+
+## 首次准备 `.env` 和持久化目录
+
+```bash
+cp .env.example .env
+id -u
+id -g
+```
+
+将输出写入 `.env` 的 `APP_UID`、`APP_GID`。默认数据目录是项目内
+`./storage`；服务器可设置绝对路径，例如：
+
+```dotenv
+HKC_STORAGE_PATH=/srv/hkc-data-platform/storage
+APP_UID=1000
+APP_GID=1000
+```
+
+目标目录必须由这组数字 UID/GID 写入。容器内部路径始终为 `/data`，业务代码和
+数据集记录中不得出现宿主机绝对路径。已有 `.env` 时不要用示例文件覆盖它。
+
+`.env.example` 还给出上传限制、Doctor 超时以及空的 VLM 配置。真实 VLM 地址与
+Token 只写入部署机 `.env`，不要提交 Git。
+
 ## 默认模式与可信局域网模式
 
 项目默认的 `compose.yaml` 将网页发布到 `127.0.0.1:8000`，只有本机能够访问。
@@ -33,17 +67,28 @@ docker compose \
   -f compose.yaml \
   -f compose.dev.yaml \
   -f deploy/compose.lan.yaml \
-  config
+  config --quiet
 ```
 
 输出中的端口应为指定内网 IP 的 `8000`，不应同时保留 `127.0.0.1:8000`。
 
-### 3. 启动局域网开发模式
+### 3. 启动局域网开发模式或服务器模式
+
+本地开发需要源码热重载：
 
 ```bash
 docker compose \
   -f compose.yaml \
   -f compose.dev.yaml \
+  -f deploy/compose.lan.yaml \
+  up -d --build --wait
+```
+
+内网服务器不挂载源码，只运行镜像中的代码：
+
+```bash
+docker compose \
+  -f compose.yaml \
   -f deploy/compose.lan.yaml \
   up -d --build --wait
 ```
@@ -117,3 +162,48 @@ docker compose -f compose.yaml -f compose.dev.yaml up -d --wait
 ```
 
 恢复后，`ss` 应重新显示 `127.0.0.1:8000`。
+
+## 依赖与镜像验收
+
+Python 直接依赖统一来自 `pyproject.toml`；Dockerfile 另外安装 FFmpeg，基础镜像
+提供 HTTPS CA 证书。修改依赖或 Dockerfile 后必须重新构建，不能只 `restart`：
+
+```bash
+docker compose build --pull platform
+docker compose run --rm platform python -m pip check
+docker compose up -d --force-recreate --wait
+docker compose ps
+```
+
+正常结果应为 `pip check` 输出 `No broken requirements found`，`platform` 显示
+`healthy`。运行镜像不包含 pytest/Ruff、CUDA、ROS 2 或 VLA 训练依赖。
+
+默认通过官方 `https://pypi.org/simple` 构建。仅当部署网络无法稳定访问官方 PyPI
+时，可以在本机 `.env` 中临时设置 `PIP_INDEX_URL` 和 `PIP_DEFAULT_TIMEOUT`；不要把
+个人代理或未经审核的镜像地址提交到仓库。恢复正常网络后应切回官方源。
+
+## 更新、备份与迁移设备
+
+代码、镜像和 `storage/` 是三类不同内容。更换服务器时需要同时迁移 Git 项目和
+`HKC_STORAGE_PATH` 指向的完整目录；只推送或拉取镜像不会包含数据集、SQLite、
+报告或回收站。
+
+备份前先停止写入：
+
+```bash
+docker compose stop platform
+```
+
+然后由管理员备份 `HKC_STORAGE_PATH` 的整个目录，完成后再启动：
+
+```bash
+docker compose up -d --wait
+```
+
+禁止只复制 `platform.sqlite` 而遗漏 Raw/Derived/报告文件，也不要在运行上传、
+标注发布、数据处理或质检任务时制作不一致的文件级备份。
+
+更新代码后按顺序执行：拉取/切换到已验收版本、检查 `.env`、执行
+`docker compose config --quiet`、重新构建、再 `up -d --force-recreate --wait`。
+Compose 重建容器不会删除 bind mount 中的持久化目录；不要使用带数据删除含义的
+命令或手工清空 `storage/`。

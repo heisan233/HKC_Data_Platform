@@ -132,6 +132,24 @@ Platform v2 首期暂时把网页/API 和数据集基础自检放在同一个应
 所有 `storage/` 内容必须持久化到容器外部；删除或重建应用容器不应导致数据集、
 任务记录或质检报告丢失。登记库是同一存储卷中的 SQLite 文件，不需要独立数据库容器。
 
+### 运行依赖与镜像边界
+
+Python 直接依赖只在 `pyproject.toml` 中维护并固定版本：FastAPI/Uvicorn/Jinja2
+负责网页，Pydantic 负责请求模型，python-multipart 负责上传，Pandas/PyArrow
+负责 LeRobot v3 Parquet，NumPy/AV/FFmpeg 负责数据和视频处理，HTTPX 负责 VLM
+接口，`lerobot-doctor` 负责官方结构检查。开发工具 pytest 和 Ruff 位于 `dev`
+可选依赖中，不安装进正式运行镜像。
+
+首期镜像不包含 CUDA、PyTorch、ROS 2 或任何 VLA 训练环境。平台负责管理、处理和
+质检数据；以后每种训练模型继续使用独立镜像，避免把互相冲突的大型依赖塞进平台
+容器。
+
+`Dockerfile` 使用自带 HTTPS CA 证书的 Python 3.11 slim 基础镜像，安装 FFmpeg，
+并以非 root 用户运行。
+`APP_UID`/`APP_GID` 控制容器用户数字 ID，应与宿主机持久化目录所有者一致。
+镜像构建默认使用官方 PyPI；`PIP_INDEX_URL`、`PIP_DEFAULT_TIMEOUT` 只提供部署机
+按网络条件临时覆盖，不改变项目依赖版本。
+
 ### 当前启动方式
 
 直接使用本机 Python 时，从项目根目录运行：
@@ -147,11 +165,15 @@ cp .env.example .env
 docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
 
+`.env` 中的 `HKC_STORAGE_PATH` 决定宿主机持久化目录，默认是项目内 `./storage`；
+容器内部始终使用 `/data`。上传大小、解压大小和 ZIP 文件数限制也可在 `.env`
+调整。真实 VLM 地址和 Token 只能写入 `.env`。
+
 默认端口只绑定 `127.0.0.1`。需要让可信局域网中的其他机器临时访问时，不要直接
 修改 `compose.yaml`，请按 `deploy/README.md` 使用
 `deploy/compose.lan.yaml` 覆盖配置。当前没有登录鉴权，禁止开放到公网。
 
-容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`；开发机上的
+容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`；默认情况下
 `./storage` 会挂载到 `/data`。修改 Python 或模板后，开发覆盖配置中的
 Uvicorn `--reload` 会重新加载应用。正式部署时只使用 `compose.yaml`，代码来自
 镜像而不是宿主机源码挂载。

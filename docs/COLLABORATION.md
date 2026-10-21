@@ -1,6 +1,6 @@
 # HKC 数采平台协作与 Codex 交接文档
 
-更新日期：2026-10-20
+更新日期：2026-10-21
 
 这是一份双方开发者和双方 Codex 共用的“当前事实”，用于同步思路、减少重复工作
 和合并冲突。架构规则以根目录 `AGENTS.md` 与 `readme.md` 为准；本文件记录人员
@@ -8,13 +8,14 @@
 
 ## 一、项目当前状态
 
-- 当前共同基线来自 `main` 的 Platform v2 目录结构。
+- 当前集成工作位于 `integration/hs-lxp-v2`，基线来自 `main`，已合并双方功能；
+  验收完成前不直接覆盖 `main`。
 - Web 技术栈为 FastAPI、Uvicorn 和 Jinja2。
-- 当前页面仍有部分使用 Python 常量中的演示数据；原始数据上传、
-  Episode/task/Subtask 标注和 Episode 数据处理已经读取和写入真实 LeRobot v3
-  文件。
+- 原始数据上传、数据管理、质检、Episode/task/Subtask 标注和 Episode 数据处理
+  已使用真实 LeRobot v3 文件及统一 DS 编号；其他预留模块仍可能只有框架页面。
 - 数据集与运行结果采用文件夹存储，宿主机目录为 `storage/`，容器内为 `/data`。
-- 当前不使用数据库；`app/db/` 和 `migrations/` 只保留未来扩展位置。
+- SQLite 保存 DS 编号映射、展示信息、质检任务和人工审核记录；大型数据文件仍
+  保存在普通目录，`migrations/` 保留给未来表结构升级。
 - 当前为单应用容器，没有 PostgreSQL、Redis 或独立 Worker 容器。
 - 当前没有登录鉴权，任何网络开放都只能面向可信内网。
 
@@ -24,7 +25,8 @@
 | --- | --- | --- | --- |
 | `main` | 双方共同维护 | 稳定结构与已验收功能 | 不作为日常开发分支 |
 | `hs_docker` | Heisan | 局域网访问、部署说明、原始数据集上传、Episode/task/Subtask 标注、Episode 数据处理 | 数据集列表/详情与导出业务 |
-| `lxp_docker` | LXP | 数据管理界面、原有有效功能迁移、数据导出 | 网络开放、上传校验与入库 |
+| `lxp_docker_v2` | LXP | 数据管理界面、原有有效功能迁移、数据导出 | 网络开放、上传校验与入库 |
+| `integration/hs-lxp-v2` | 当前集成 | 解决双方差异、统一登记/质检/依赖/部署并验收 | 未验收前不直接推送覆盖 `main` |
 
 双方开始新任务前先获取最新 `main`。功能完成后先在自己的分支提交并验证，再由
 双方检查差异后合并到 `main`。不要让两个 Codex 同时直接修改 `main`。
@@ -61,8 +63,9 @@
 - 页面与 API 归 `hs_docker` 维护，路由前缀为 `/ingestion/`。
 - 上传时分块写入 `storage/staging/`，不得把整个大型文件一次性载入内存。
 - 入库前检查 ZIP 路径穿越、符号链接、加密文件、异常压缩率和最低 v3.0 结构。
-- 通过检查后安全解压到 `storage/raw/<dataset_id>/`；失败内容不得进入原始区。
-- 文件式上传记录放在 `storage/system/upload-records/`，不引入数据库。
+- 通过检查后安全解压到 `storage/raw/<内部目录名>/`；失败内容不得进入原始区。
+- 文件式上传记录放在 `storage/system/upload-records/`；入库成功后由 SQLite 统一
+  登记层分配 DS 编号，真实目录名不改。
 - 该结构检查不等于数据质检；Parquet 内容、时间戳和图像质量仍由质检模块处理。
 
 ### Episode/task/Subtask 标注边界
@@ -195,6 +198,48 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-21
+
+开发者/分支：Heisan / `integration/hs-lxp-v2`
+
+完成内容：完成集成计划第十、十一步的依赖、部署和协作规范合并。确认对方分支的
+FastAPI/Jinja2/Uvicorn、上传、Doctor、HTTPX、NumPy 依赖均已进入当前基线，并
+保留本分支处理官方 LeRobot v3 所需的 AV、Pandas、PyArrow；补充代码直接使用的
+Pydantic 固定版本。`pyproject.toml` 成为 Python 直接依赖唯一来源。Dockerfile
+继续使用 Python 3.11 slim 和 FFmpeg，支持可配置 APP_UID/APP_GID 并保持非 root。
+Compose 保留 127.0.0.1:8000 安全默认和可信局域网覆盖，拒绝对方临时 8001；新增
+HKC_STORAGE_PATH、三项上传限制、30 秒优雅停止，并保持单平台容器。同步更新部署、
+换机、备份、依赖边界和双方 Codex 协作规则，示例中不包含公司地址或 Token。
+Dockerfile 与 Compose 支持按部署网络临时覆盖 PIP_INDEX_URL/PIP_DEFAULT_TIMEOUT，
+默认仍使用官方 PyPI。修复全仓库 Ruff 报告的 9 条既有规则问题。
+
+主要修改文件：`pyproject.toml`、`Dockerfile`、`compose.yaml`、`.env.example`、
+`app/core/config.py`、`app/core/paths.py`、`app/modules/logs/router.py`、`app/web.py`、
+`tests/integration/test_pages.py`、`deploy/README.md`、`how_use.md`、`readme.md`、
+`storage/README.md`、`AGENTS.md`、`docs/COLLABORATION.md`。
+
+执行的验证：默认、开发、本机局域网和服务器局域网四种 Compose 组合均通过
+`config --quiet`；另用无密钥环境验证自定义绝对存储路径、UID/GID 与默认端口解析。
+从 DaoCloud 加速地址取得 `linux/amd64` Python 基础镜像后，使用中科大 PyPI
+临时构建源完成最终验证镜像；容器以 uid/gid 1000 非 root 运行，`pip check` 无
+冲突，关键依赖导入、Doctor 0.2.0 与 FFmpeg 通过。全仓库 `ruff check app tests`
+通过，pytest 48 项全部通过，仅有一条来自 Starlette/AnyIO 的上游弃用警告。最终
+镜像在不挂载宿主机源码和真实数据的条件下为 healthy，工作台、上传、数据管理、
+标注、处理、质检和报告回收站页面均返回 HTTP 200。新旧镜像显示大小均约
+1.55 GB，没有因本次合并异常膨胀。
+
+未完成或已知问题：当前网络仍不能直连 Docker Hub，最终验收通过经确认的临时
+加速地址取得基础镜像；生产环境应优先使用公司仓库或受控镜像缓存。全仓库
+`ruff format --check` 会建议机械格式化 28 个历史文件，本次为避免产生大面积无关
+差异，只格式化实际修复文件；规则检查已经完全通过。当前正式运行容器未被替换。
+
+是否修改共享文件：是，修改依赖、Docker/Compose、公开环境变量示例及共同文档；
+未修改 SQLite 表结构、数据集内容、现有 DS 编号、质检任务或真实 `.env`。
+
+下一步建议：双方审阅当前差异后提交并推送集成分支；确认备份和 `.env` 后，再由
+负责人决定是否将正式 Compose 服务替换为本次验收镜像。合并 `main` 前在目标
+服务器使用实际 UID/GID 与 HKC_STORAGE_PATH 再执行一次部署验收。
 
 日期：2026-10-21
 

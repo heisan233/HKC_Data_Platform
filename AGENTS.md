@@ -30,6 +30,23 @@
    模块的 `service.py` 或明确的子模块。
 7. 真实数据集、模型、报告、密钥、Token、`.env` 和运行状态不得提交 Git。
 
+## 依赖与部署规则
+
+- `pyproject.toml` 是 Python 直接依赖的唯一声明来源；应用代码直接导入的第三方包
+  必须在此固定版本。不要再维护一份容易漂移的 `requirements.txt`。
+- `Dockerfile` 只安装 Python 运行依赖和确实需要的系统包；当前 FFmpeg 用于视频
+  截取/重编码。不得在镜像中安装 CUDA、ROS 或训练模型依赖，VLA 训练环境继续
+  使用各自独立镜像。
+- 应用容器保持非 root 运行。部署时 `APP_UID`、`APP_GID` 应与持久化目录所有者
+  匹配；宿主机数据目录由 `HKC_STORAGE_PATH` 指定，容器内始终为 `/data`。
+- `compose.yaml` 是单容器、安全本机默认配置；`compose.dev.yaml` 只增加源码热
+  重载；`deploy/compose.lan.yaml` 只负责可信局域网端口绑定。不得把临时测试端口
+  或个人 IP 写进通用 Compose 文件。
+- `.env.example` 只保存公开占位值和安全默认值，不得出现真实公司地址、Token、
+  密码或个人绝对路径。实际 `.env` 不提交 Git。
+- 依赖或镜像变化至少验证 `docker compose config`、全新镜像构建、`pip check`、
+  健康检查和关键页面；Compose 覆盖必须分别验证默认、开发和局域网组合。
+
 ## 文件放置规则
 
 - FastAPI 入口和路由注册：`app/main.py`

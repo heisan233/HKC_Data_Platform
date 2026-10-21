@@ -11,7 +11,14 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home --uid 1000 appuser
+ARG APP_UID=1000
+ARG APP_GID=1000
+
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_DEFAULT_TIMEOUT=120
+
+RUN groupadd --gid "${APP_GID}" appuser \
+    && useradd --create-home --uid "${APP_UID}" --gid "${APP_GID}" appuser
 
 COPY pyproject.toml ./
 COPY app ./app

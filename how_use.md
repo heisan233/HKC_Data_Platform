@@ -27,6 +27,18 @@ ls compose.yaml compose.dev.yaml deploy/compose.lan.yaml
 
 下文所有 Docker 命令都在这个目录执行。
 
+首次运行时创建本机配置；如果 `.env` 已存在则不要覆盖：
+
+```bash
+cp .env.example .env
+id -u
+id -g
+```
+
+确认 `.env` 中的 `APP_UID`、`APP_GID` 与两条命令输出一致。默认
+`HKC_STORAGE_PATH=./storage`；如果服务器把数据放在其他磁盘，应改成对应绝对
+路径，并保证该目录归相同 UID/GID 所有。容器内路径始终是 `/data`。
+
 ## 二、选择访问方式
 
 ### 方式 A：只有本机访问
@@ -161,7 +173,9 @@ nano .env
 填写公司 VLM 服务的实际地址和 Token，例如：
 
 ```dotenv
-HKC_DATA_ROOT=/data
+HKC_STORAGE_PATH=./storage
+APP_UID=1000
+APP_GID=1000
 VLM_BASE_URL=http://192.168.123.105:实际端口/v1
 VLM_API_TOKEN=实际令牌
 QC_DOCTOR_TIMEOUT_SECONDS=1800
@@ -170,6 +184,7 @@ QC_DOCTOR_TIMEOUT_SECONDS=1800
 注意：
 
 - 地址、端口和 Token 必须以公司实际部署为准；
+- `HKC_STORAGE_PATH` 是宿主机目录，不要把它改成容器路径 `/data`；
 - `VLM_BASE_URL` 通常写到 `/v1`，平台会继续请求 `/models` 和
   `/chat/completions`；
 - 不要把 Markdown 链接写法或方括号复制进 `.env`；
@@ -271,7 +286,7 @@ docker compose \
 `down` 会删除应用容器和 Compose 网络，但不会删除：
 
 - 已构建的镜像；
-- 宿主机 `storage/` 中的数据集、SQLite、报告和导出文件；
+- 宿主机 `HKC_STORAGE_PATH` 目录中的数据集、SQLite、报告和导出文件；
 - 项目代码。
 
 不要增加 `-v`，以免误删以后可能使用的 Docker 卷。
