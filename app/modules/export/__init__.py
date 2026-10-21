@@ -1,1 +1,1 @@
-"""旧版独立导出模块，后续合并进数据集管理。"""
+"""LeRobot v3 to HDF5 conversion and derived/converted archive exports."""
