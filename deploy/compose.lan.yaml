@@ -8,6 +8,6 @@ services:
     ports: !override
       - name: web
         target: 8000
-        published: "8000"
+        published: "8002"
         host_ip: "${HKC_LAN_BIND_ADDRESS:?Set HKC_LAN_BIND_ADDRESS to this host's trusted LAN IPv4 address}"
         protocol: tcp
