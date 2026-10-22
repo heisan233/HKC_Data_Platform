@@ -21,7 +21,7 @@ services:
     ports:
       - name: web
         target: 8000
-        published: "8002"
+        published: "8000"
         host_ip: 127.0.0.1
         protocol: tcp
     volumes:
