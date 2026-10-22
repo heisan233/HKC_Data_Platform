@@ -7,15 +7,16 @@
 架构规则以根目录 `AGENTS.md` 为准。本文件后面的按人分工与交接内容包含历史
 背景，不得用它覆盖当前集成源码。
 
-> 当前下一阶段开发分支是 `integration/hs-v2.1`，它从已验证的
-> `integration/hs-lxp-v2` 创建。`hs_docker`、`lxp_docker_v2` 与旧 `main` 只供
+> 当前集成分支是 `integration/hs-lxp-v3.0`，它从已验证的
+> `integration/hs-v2.1` 创建并合入 `integration/hs-lxp-v2.5`。历史分支只供
 > 查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
 
 ## 一、项目当前状态
 
-- 当前下一阶段开发工作位于 `integration/hs-v2.1`；它继承已经合并双方功能并
-  验证通过的 `integration/hs-lxp-v2`，验收完成前不直接覆盖 `main`。
+- 当前集成工作位于 `integration/hs-lxp-v3.0`，以 `integration/hs-v2.1` 为基线，
+  合入同事的 `integration/hs-lxp-v2.5`；
+  验收完成前不直接覆盖 `main`。
 - Web 技术栈为 FastAPI、Uvicorn 和 Jinja2。
 - 原始数据上传、数据管理、质检、Episode/task/Subtask 标注和 Episode 数据处理
   已使用真实 LeRobot v3 文件及统一 DS 编号；其他预留模块仍可能只有框架页面。
@@ -30,14 +31,16 @@
 
 | 分支 | 当前用途 | 规则 |
 | --- | --- | --- |
-| `integration/hs-v2.1` | 下一阶段集成开发 | 登录、机器人管理、数据定义和工作台逐步开发验收 |
+| `integration/hs-lxp-v3.0` | 当前合并与验收分支 | 集成 v2.1 与 v2.5；验收前不覆盖 `main` |
+| `integration/hs-v2.1` | Heisan 来源分支 | 登录、机器人、数据定义、视频裁剪等已冻结能力 |
+| `integration/hs-lxp-v2.5` | LXP 来源分支 | 格式转换、导出和数据管理扩展 |
 | `integration/hs-lxp-v2` | 双方已经合并且可运行的稳定基线 | 保留为上一阶段回退点；未授权不得覆盖 `main` |
 | `main` | 未来验收后的稳定目标 | 当前仍落后于集成分支，不作为新功能起点 |
 | `hs_docker` | Heisan 合并前历史 | 只读参考，不把旧目录覆盖回集成分支 |
 | `lxp_docker_v2` | LXP 合并前历史 | 只读参考，不继续作为独立事实来源 |
 | `feat/platform-v2` | 最初目录重构历史 | 只读参考 |
 
-本阶段双方开始新任务前先获取最新 `integration/hs-v2.1`。如需并行开发，从这一
+本阶段双方开始新任务前先获取最新 `integration/hs-lxp-v3.0`。如需并行开发，从这一
 分支创建范围明确的功能分支；完成后先提交并验证，再由双方审查集成。不要让两个
 Codex 同时修改同一个共享文件，也不要让它们直接修改 `main`。
 
@@ -215,6 +218,34 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-22
+
+开发者/分支：Heisan + LXP / `integration/hs-lxp-v3.0`
+
+完成内容：从已冻结验收的 `integration/hs-v2.1` 创建独立集成 worktree，合入
+`origin/integration/hs-lxp-v2.5`。人工解决数据库说明、模块说明、全局导航、协作
+记录和项目 README 冲突；保留登录/退出、机器人管理、数据定义、情景管理移除、
+“数据处理”命名和视频裁剪，接入 LeRobot v3 Derived DS → HDF5、CV 任务、转换
+结果展示以及 Derived/CV 打包导出。转换结果使用 CV 编号，不进入 DS 登记表；
+Raw 与 Derived 均继续支持质检。
+
+主要修改文件：`app/db/conversions.py`、`app/modules/conversion/`、
+`app/modules/export/`、`app/modules/datasets/`、转换/数据管理模板与静态资源、
+`pyproject.toml`、`AGENTS.md`、当前状态与协作文档。
+
+执行的验证：冲突标记已清除，`git diff --cached --check` 与 Python 语法编译通过；
+旧验证镜像不含本次新增的 h5py，完整 Ruff/pytest 和页面人工验收留到依赖镜像重建
+阶段执行。
+
+未完成或已知问题：尚未构建包含 h5py/Pillow 的 v3.0 验证镜像，尚未用真实派生
+数据执行转换和导出。首次大数据导出为同步打包，`exports/` 需要后续磁盘清理策略。
+
+是否修改共享文件：是，修改 SQLite 转换任务表、数据管理路由、全局导航、直接
+依赖和共同文档；没有改写现有 DS 编号或真实 storage 数据。
+
+下一步建议：重建验证镜像并运行全套检查；随后用小型已备份 Derived DS 人工完成
+转换、HDF5 文件核对、打包下载和容器重启验收。
 
 日期：2026-10-22
 
@@ -445,6 +476,114 @@ README 后半部分包含早期本机/Windows 运行笔记，不能优先于新�
 
 下一步建议：同事拉取该提交后让 Codex 先读取 `AGENTS.md` 和
 `docs/CODEX_CURRENT_STATE.md`，再围绕约定模块开始具体任务。
+
+日期：2026-10-22
+
+开发者/分支：Codex / `integration/hs-lxp-v2.5`（来源分支记录）
+
+完成内容：来源分支曾增加服务器训练环境只读盘点。本轮集成没有把包含特定服务器
+地址、目录和环境快照的 `服务器配置.md` 纳入共享分支；训练架构将在后续阶段根据
+当时服务器状态重新核实。
+
+日期：2026-10-22
+
+开发者/分支：LXP / `integration/hs-lxp-v2.5`
+
+完成内容：按最新要求，转换结果不再进入数据集登记流程，也不分配新的 DS 编号。Raw/Derived 的既有 DS 登记方式保持不变；已完成的转换结果以 CV 任务编号关联 `converted/<CV 编号>/`，在 `/data/` 的独立“格式转换结果”区域展示。导出接口接受 Derived DS 或转换 CV 编号，压缩包仍写入 `storage/exports/`。已有的旧版 `converted_datasets` 表及文件保留，但不再用于新结果的登记、查询或展示。
+
+主要修改文件：`app/db/datasets.py`、`app/db/conversions.py`、`app/modules/conversion/service.py`、`app/modules/export/service.py`、`app/modules/datasets/`、`app/templates/data*.html`、`app/templates/export.html`、`app/static/js/export.js`、`tests/integration/test_conversion.py` 及相关说明。
+
+执行的验证：Python 语法编译、应用导入和 `/data/`、`/export/` 页面 HTTP 200；在临时存储目录直接运行现有的转换并导出、旧 JSON 转换任务展示两条集成用例，均通过；`git diff --check` 通过。运行镜像未安装 pytest，临时安装测试依赖因下载超时失败，因此未运行 pytest 命令。
+
+未完成或已知问题：旧版 `converted_datasets` 表作为历史元数据保留，不再显示为已登记数据集；该表清理需要单独制定数据迁移方案。未用真实业务数据运行转换或导出。
+
+是否修改共享文件：本轮未修改 `app/main.py`、`app/templates/base.html`、部署配置或依赖声明。
+
+下一步建议：在数据管理页确认“已登记”与“格式转换结果”两个区域的实际排版，并用一份小型派生数据集确认转换后的 CV 导出文件。
+
+日期：2026-10-22
+
+开发者/分支：LXP / `integration/hs-lxp-v2.5`
+
+完成内容：按本轮确认，完整导出包必须写入 `storage/exports/`。`/export/` 新增独立“数据集导出”区和转换成功任务的导出按钮，可按统一 DS 编号打包已登记的 Derived 或 Converted 数据集为 `tar.gz`；先写入 `staging/export/`，校验来源快照后原子发布到 `exports/`，相同快照复用已生成的包。转换页不再提供“查看数据集”入口，之前新增的 Converted 专用详情页和路由已移除；转换结果仍在数据管理已登记列表显示。
+
+主要修改文件：`app/modules/export/service.py`、`app/modules/export/router.py`、`app/templates/export.html`、`app/static/js/export.js`、`app/static/css/export.css`、`app/modules/datasets/router.py`、`app/templates/data.html`、`app/templates/data_manage.html`、`tests/integration/test_conversion.py` 及相关说明。
+
+执行的验证：仅运行转换、导出和数据管理相关的 15 个集成测试，覆盖 Derived/Converted 压缩包内容、`exports/` 落盘、非法路径和符号链接拒绝；全部通过。相关 Python 文件 Ruff 检查通过，页面与 API 在开发容器返回 HTTP 200，并检查了页面排版。
+
+未完成或已知问题：目前只提供 LeRobot v3.0 → HDF5 转换方案；生成大型压缩包时，首次下载需等待打包完成，且 `exports/` 会占用相应磁盘空间。未使用真实业务数据触发导出。
+
+是否修改共享文件：已在本条记录中提前说明 `app/templates/base.html` 导航文案调整；未改动 Compose、Dockerfile、`main` 或对方业务模块。
+
+下一步建议：在需要导出真实数据时确认 `exports/` 的可用空间；后续按业务需求添加其他转换方案。
+
+日期：2026-10-22
+
+开发者/分支：LXP / `integration/hs-lxp-v2.5`
+
+完成内容：重做 `/export/` 为按转换方案选择的页面，目前只开放 LeRobot v3.0 → HDF5。成功任务在 SQLite 中登记独立 DS 编号，保存来源 DS、格式、目录、转换 CV 任务、规模与展示信息；结果可在数据管理总览和已登记列表中看到。CV 任务状态迁入 SQLite，首次访问会幂等复制旧 JSON 任务并保留原文件；有效的历史成功结果也登记 DS。失败和运行中的任务不登记结果。Converted 专用详情页在下一轮按使用者要求移除。
+
+主要修改文件：`app/db/datasets.py`、`app/db/conversions.py`、`app/modules/conversion/service.py`、`app/modules/datasets/`、`app/modules/export/router.py`、`app/templates/export.html`、`app/templates/data*.html`、`app/static/css/export.css`、`app/static/js/export.js`、相关说明与 `tests/integration/test_conversion.py`。
+
+执行的验证：仅运行转换相关的 6 个集成测试（含 DS 登记、数据管理可见、展示信息修改、历史 JSON 迁移），全部通过；相关 Python 文件 Ruff 检查与 `git diff --check` 通过；当前开发容器中的 `/export/`、`/data/`、`/data/manage/?view=registered`、`/export/api/profiles` 返回 HTTP 200，并在浏览器检查了页面排版。
+
+未完成或已知问题：只实现 HDF5 方案；其他格式需新增转换器和方案定义。历史任务若输出文件已经缺失，不会生成 DS 记录。CV 任务由当前应用进程后台执行，重启时运行中的任务标记为失败。
+
+是否修改共享文件：已在本记录先行说明 `app/templates/base.html` 的导航文案和窄屏主区宽度调整；未改动 Compose、Dockerfile、`main` 或对方业务模块。
+
+下一步建议：用真实已登记的派生数据集从页面发起一次转换，检查生成文件；之后再按业务需求添加第二个转换方案。
+
+日期：2026-10-22
+
+开发者/分支：LXP / `integration/hs-lxp-v2.5`
+
+完成内容：修复开发环境页面无法访问。开发 Compose 热加载了新增转换代码，但正在运行的
+旧 `v2.5` 镜像没有 `h5py`，导致 Uvicorn 子进程导入失败。使用当前依赖重建镜像并
+重新创建开发容器，保留原有 `storage/` 挂载。
+
+主要修改文件：未修改应用代码或部署配置；只补充本交接记录。
+
+执行的验证：运行容器 `pip check` 通过，`h5py` 与 Pillow 可导入，容器状态为
+`healthy`；本机 `http://127.0.0.1:8000/dashboard/`、`/export/` 和
+`/export/api/datasets` 均返回 HTTP 200。
+
+未完成或已知问题：当前 Compose 仅绑定 `127.0.0.1:8000`；其他机器访问仍需按
+`deploy/README.md` 使用可信局域网覆盖配置。
+
+是否修改共享文件：仅更新协作文档；未修改 Compose、Dockerfile 或正式数据。
+
+下一步建议：本机刷新 `/export/`；如需其他机器访问，先确认可信内网地址。
+
+日期：2026-10-22
+
+开发者/分支：LXP / `integration/hs-lxp-v2.5`
+
+完成内容：实现已登记 Derived 数据集的 LeRobot v3.0 → HDF5 格式转换。转换任务
+使用统一 DS 编号定位来源并保存文件指纹，读取官方 task 索引及早期全局 Parquet
+行索引；视频/图像转为逐帧 JPEG，保留平台旁路标注元数据。结果先写入
+`storage/staging/conversion/`，校验后原子发布至 `storage/converted/`，任务元数据
+写入 `storage/system/conversion-jobs/`。页面支持进度查询与 HDF5 分块、清单下载；
+Raw/Derived 来源不原地修改。
+
+主要修改文件：`pyproject.toml`（新增固定版本 `h5py`、`pillow`）、
+`app/modules/conversion/`、`app/modules/export/router.py`、`app/templates/export.html`、
+`app/static/css/export.css`、`app/static/js/export.js`、
+`tests/integration/test_conversion.py`、模块/存储/项目说明。
+
+执行的验证：默认、开发、局域网三种 Compose 组合通过 `config --quiet`；使用临时
+镜像标签完成全新构建，`pip check` 无冲突，容器健康；`/dashboard/`、`/export/`、
+`/export/api/datasets` 均返回 HTTP 200。全仓库 pytest 53 项通过，转换模块 Ruff
+通过，`git diff --check` 通过。测试只用临时合成 LeRobot v3 数据。
+
+未完成或已知问题：尚未用实际业务数据集核对 HDF5 内容和体积；视频会有损重编码
+为 JPEG，可能显著增大存储占用。Web 进程单线程执行，运行中的任务重启后标记失败，
+需重新创建；打包导出不在本次范围内。
+
+是否修改共享文件：修改 `pyproject.toml` 增加 HDF5/JPEG 运行依赖；请另一位开发者
+合并依赖时保留。未修改 Compose、Dockerfile、`app/main.py` 或正式数据集。
+
+下一步建议：双方审阅本分支差异后，在已备份的小型真实 Derived DS 上人工核对
+Episode、动作、图像、标注和生成文件体积，再决定是否集成打包导出。
 
 日期：2026-10-21
 

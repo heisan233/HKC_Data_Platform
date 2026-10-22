@@ -3,7 +3,9 @@
 本目录保存数据管理使用的 SQLite 访问代码。
 
 - 当前数据集保存在项目根目录的 `storage/` 中。
-- `datasets.py` 管理统一 DS 编号、登记信息、派生来源以及 Raw/Derived 目录映射。
+- `datasets.py` 管理 Raw/Derived 数据集的统一 DS 编号、登记信息、派生来源以及目录映射。
+- `conversions.py` 管理转换任务状态；转换结果由 CV 任务编号关联 `converted/`
+  目录，不进入 DS 登记表。旧版转换登记表若已存在，会保留但不再读写。
 - `users.py` 管理用户、scrypt 密码哈希和只保存令牌摘要的登录会话。
 - `robots.py` 管理稳定 RB 编号、机器人档案、状态和传感器摘要；不保存机器人运行
   遥测，也不直接修改数据集。

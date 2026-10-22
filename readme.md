@@ -6,9 +6,9 @@
 
 ## 当前集成开发基线
 
-当前双方已经把原 `hs_docker` 与 `lxp_docker_v2` 的有效功能合并；下一阶段开发
-分支是 `integration/hs-v2.1`，本目录 `HKC_Data_Platform_merge` 是当前共同工作区。
-上一阶段稳定回退点是 `integration/hs-lxp-v2`。
+当前集成分支是 `integration/hs-lxp-v3.0`，由已冻结验收的
+`integration/hs-v2.1` 合入同事的 `integration/hs-lxp-v2.5`；本目录
+`HKC_Data_Platform_v3.0` 是本轮独立集成 worktree。两个来源分支均保留为回退点。
 在使用者明确完成验收并合入 `main` 前，旧 `main`、`hs_docker`、
 `lxp_docker_v2` 与 `feat/platform-v2` 只作为历史参考，不能用于覆盖当前目录。
 
@@ -16,8 +16,8 @@
 结构。其他 worktree 可以保留，但每个目录有自己的当前分支和未提交文件。
 
 Platform v2 已完成目录迁移，并已接入登录、上传、数据管理、标注、处理、质检、
-机器人档案和数据定义等真实功能；工作台、导出、训练和系统管理仍有明确的占位
-内容。所有入口、路由、模板和静态资源已经移入 `app/`。后续功能应继续遵守下面
+机器人档案、数据定义、HDF5 转换和打包导出等真实功能；工作台、训练和系统管理
+仍有明确的占位内容。所有入口、路由、模板和静态资源已经移入 `app/`。后续功能应继续遵守下面
 的实际目录结构，避免重新在项目根目录堆放业务文件：
 
 数据集和运行结果保存在 `storage/`。数据管理使用 SQLite 登记编号及目录映射，
@@ -38,12 +38,12 @@ HKC_Data_Platform_merge/
 │   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
 │   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
 │   │   ├── annotation/         # Episode/task/Subtask 标注与派生发布
-│   │   ├── conversion/         # 数据集格式转换，当前尚未实现
+│   │   ├── conversion/         # LeRobot v3 派生数据集转换为 HDF5
 │   │   ├── training/           # 模型训练与评估接口，首期只保留框架
 │   │   ├── robots/             # 机器人管理
 │   │   ├── system/             # 系统管理
 │   │   ├── semantics/          # LeRobot v3 结构参考与平台受控词表
-│   │   ├── export/             # 独立导出占位页，真实业务尚未实现
+│   │   ├── export/             # /export 页面与转换 API 入口
 │   │   ├── models/             # v1 未注册页面，等待归并
 │   │   └── logs/               # v1 未注册页面，等待归并
 │   ├── templates/              # Jinja2 HTML 模板
@@ -69,8 +69,8 @@ HKC_Data_Platform_merge/
 
 原始数据集上传、数据管理、Episode/task/Subtask 标注、Episode 数据处理
 和数据质检已经读写真实 LeRobot v3 文件。数据管理扫描真实存储目录，
-并通过 SQLite 分配 DS 编号；尚未实现的转换、导出和训练等页面仍可能使用
-演示常量。
+并通过 SQLite 分配 DS 编号；转换已接入真实 Derived 数据，打包导出结果保存到 `storage/exports/`，
+训练等页面仍可能使用演示常量。
 
 ### `modules` 与页面、按钮的关系
 
@@ -372,15 +372,35 @@ VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.pa
 为通过时须填写理由。报告首页显示三部分结论，点击后进入各自的双列详细结果；
 报告仅记录检查结果，不自动修改原始数据。
 
+### 数据格式转换与导出
+
+访问 `/export/`，先选择转换方案，再从已登记的 Derived 数据集选择来源 DS 编号。
+目前开放 LeRobot v3.0 → HDF5。页面展示进度；完成后结果以 CV 任务编号关联
+`converted/` 目录，在数据管理页的“格式转换结果”区域单独展示，不参与 DS 登记。
+页面提供“导出数据集”按钮：可选择已登记的 Derived 来源或转换结果，生成包含完整目录的 `tar.gz` 并下载；转换结果包包含
+`manifest.json` 和全部 `chunk_*.hdf5`。
+每个 HDF5 文件最多包含 10 个 Episode。来源只读，任务临时目录位于
+`storage/staging/conversion/`，成功结果位于 `storage/converted/<CV 编号>/`，
+导出时先在 `storage/staging/export/` 打包，再原子发布到 `storage/exports/`；相同文件快照复用已有压缩包。
+任务状态与结果管理元数据位于 SQLite 的 `storage/system/platform.sqlite`；旧 JSON 任务记录首次访问时复制入库并保留原文件。视频/图像帧转换为 JPEG，
+`meta/annotations/` 旁路标注作为元数据文件保存到 HDF5。
+
+接口为 `GET /export/api/profiles`、`GET /export/api/datasets`、`GET /export/api/exportable-datasets`、`POST /export/api/conversions`
+（JSON：`{"profile_id":"lerobot-v3-hdf5","source_dataset_id":"DS000001"}`）、`GET /export/api/conversions`、
+`GET /export/api/conversions/{task_id}` 和
+`GET /export/conversions/{task_id}/files/{filename}`，以及完整打包下载
+`GET /export/archive/{dataset_id}`（Derived 使用 DS 编号，转换结果使用 CV 编号）。
+
 ### 当前尚未完成
 
 - `ingestion` 已实现独立 ZIP 上传页；质检页批量上传已复用同一校验服务。
-- 机器人 HTTP 上传、`conversion` 与真实数据导出仍待实现。
+- 机器人 HTTP 上传仍待实现；格式转换读取已登记的 Derived 数据集，打包导出接受 Derived 的 DS 编号或转换结果的 CV 编号。
 - `app/db/` 已供数据集登记使用；`migrations/` 仍为后续结构升级预留。
 - 数据管理、质检、标注和数据处理已统一使用 DS 编号访问登记层。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
-- `semantics` 已实现真实 LeRobot v3 结构参考和 SQLite 受控词表；独立 `export`
-  路由仍是占位页面，不能视为真实导出功能。
+- `semantics` 已实现真实 LeRobot v3 结构参考和 SQLite 受控词表。
+- `/export/` 已提供已登记 Derived 数据集的 LeRobot v3.0 → HDF5 格式转换，以及
+  Derived 数据集或转换结果的完整压缩包下载。
 
 当前本地功能冻结与验收结果见
 `docs/LOCAL_ACCEPTANCE_2026-10-22.md`。附录中的 v1 Windows/Conda 内容只用于
@@ -607,11 +627,11 @@ routers/training.py
 | `/preprocess/` | 数据处理 | 200 |
 | `/qc/` | 数据质检 | 200 |
 | `/annotation/` | 数据标注 | 200 |
-| `/export/` | 数据集导出 | 200 |
+| `/export/` | 格式转换与导出 | 200 |
 | `/training/` | 模型训练 | 200 |
 | `/system/` | 系统管理 | 200 |
 
-独立情景管理已在 `integration/hs-v2.1` 删除，`/scenes/` 应返回 404；未来的场景
+独立情景管理已在来源分支 `integration/hs-v2.1` 删除，`/scenes/` 应返回 404；未来的场景
 分类归入数据定义。
 
 该验证确认已注册页面能返回并渲染 HTML，不代表页面按钮对应的业务功能已经实现。

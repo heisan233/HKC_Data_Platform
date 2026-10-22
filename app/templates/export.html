@@ -1,33 +1,22 @@
 {% extends "base.html" %}
-{% block page_title %}数据集导出{% endblock %}
+{% block page_title %}格式转换与导出{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">📤 支持 LeRobot、HDF5、RLDS、MCAP、JSON、CSV 等格式</span></div>
-    <button class="btn btn-primary">+ 新建导出任务</button>
+<link rel="stylesheet" href="/static/css/export.css">
+<div class="conversion-wrap">
+  <section class="conversion-hero"><div><span class="conversion-eyebrow">CONVERT &amp; EXPORT</span><h2>数据格式转换与导出</h2><p>将已登记的派生数据集转换为目标格式，并将派生数据集或转换结果打包导出。</p></div><div class="conversion-hero-stat"><strong>{{ profiles|length }}</strong><span>当前可用方案</span></div></section>
+  <form id="conversion-form" class="conversion-workflow">
+    <section class="conversion-panel"><div class="conversion-heading"><span class="conversion-step">01</span><div><h3>选择转换方案</h3><p>每个方案明确来源与目标格式；后续方案会在这里增加。</p></div></div><div class="conversion-profiles" role="radiogroup" aria-label="转换方案">
+      {% for profile in profiles %}<label class="conversion-profile {% if not profile.available %}is-unavailable{% endif %}"><input type="radio" name="profile_id" value="{{ profile.id }}" {% if loop.first and profile.available %}checked{% endif %} {% if not profile.available %}disabled{% endif %}><span class="conversion-profile-content"><span class="conversion-profile-top"><strong>{{ profile.title }}</strong><em>{{ '可用' if profile.available else '暂未开放' }}</em></span><span class="conversion-profile-meta">{{ profile.source_format }} <b>→</b> {{ profile.target_format }}</span><small>{{ profile.description }}</small></span></label>{% endfor %}
+    </div></section>
+    <section class="conversion-panel"><div class="conversion-heading"><span class="conversion-step">02</span><div><h3>选择来源数据集</h3><p>当前方案读取已登记的 LeRobot v3.0 派生数据集，来源文件保持只读。</p></div></div><div class="conversion-source-row"><label for="conversion-source">来源 DS</label><select id="conversion-source" required {% if not sources %}disabled{% endif %}>{% for source in sources %}<option value="{{ source.dataset_id }}">{{ source.dataset_id }} · {{ source.name }} · {{ source.total_episodes }} Episodes</option>{% endfor %}</select></div>
+      <div id="conversion-empty" class="conversion-empty-state" {% if sources %}hidden{% endif %}><strong>暂无可转换的数据集</strong><span>请先登记派生数据集，或在数据处理中生成新版本。</span></div>
+      <div class="conversion-output"><span class="conversion-output-icon">↳</span><div><strong>输出预览</strong><p>转换成功后保存到 <code>converted/&lt;CV 编号&gt;/</code>，在数据管理页的“格式转换结果”区域单独展示。结果包含 manifest.json 与 HDF5 分块文件，可在下方导出。</p></div></div><div class="conversion-actions"><button type="submit" id="conversion-submit" {% if not sources %}disabled{% endif %}>开始转换 <span>→</span></button><span>任务在后台运行；页面会自动更新进度。</span></div><p id="conversion-feedback" class="conversion-feedback" role="status" hidden></p>
+    </section>
+  </form>
+  <section class="conversion-panel conversion-export" id="dataset-export"><div class="conversion-heading"><span class="conversion-step">03</span><div><h3>数据集导出</h3><p>选择派生数据集或转换结果，打包为 tar.gz 下载。打包文件保存在 exports/。</p></div></div><div class="conversion-export-controls"><label for="export-source">导出数据集</label><select id="export-source" {% if not exportables %}disabled{% endif %}>{% for item in exportables %}<option value="{{ item.dataset_id }}">{{ item.dataset_id }} · {{ item.name }}（{{ item.kind_label }}）</option>{% endfor %}</select><button type="button" id="export-download" {% if not exportables %}disabled{% endif %}>导出数据集 <span>↓</span></button></div><p id="export-empty" class="conversion-export-empty" {% if exportables %}hidden{% endif %}>暂无可导出的派生数据集或转换结果。</p><p class="conversion-export-note">压缩包内保留数据集文件结构；转换结果包含清单和全部 HDF5 分块。</p></section>
+  <section class="conversion-panel conversion-history" id="conversion-history"><div class="conversion-history-heading"><div><span class="conversion-eyebrow">TASK HISTORY</span><h3>转换任务</h3><p>任务编号用于跟踪进度，成功结果可直接导出完整数据集。</p></div><span class="conversion-count" id="conversion-count">{{ tasks|length }} 个任务</span></div><div class="conversion-scroll"><table><thead><tr><th>任务 / 方案</th><th>来源数据集</th><th>进度</th><th>状态</th><th>结果 / 导出</th></tr></thead><tbody id="conversion-tasks">
+    {% for task in tasks %}<tr><td><strong>{{ task.id }}</strong><small>LeRobot v3.0 → HDF5</small></td><td>{{ task.source_dataset_id }}<small>{{ task.source_name }}</small></td><td>{{ task.completed_episodes }}/{{ task.total_episodes }} Episodes<div class="conversion-progress"><span style="width: {{ (100 * task.completed_episodes / task.total_episodes)|round|int if task.total_episodes else 0 }}%"></span></div></td><td><span class="conversion-status conversion-status-{{ task.status|lower }}">{{ {'QUEUED':'排队中','RUNNING':'转换中','COMPLETED':'已完成','FAILED':'失败'}.get(task.status, task.status) }}</span></td><td>{% if task.status == 'COMPLETED' %}<strong>{{ task.id }} · HDF5</strong><a class="conversion-row-export" href="/export/archive/{{ task.id }}">导出数据集 ↓</a>{% elif task.error %}<span class="conversion-error">{{ task.error }}</span>{% else %}—{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="conversion-no-tasks">暂无转换任务。创建任务后可在这里查看进度和结果。</td></tr>{% endfor %}
+  </tbody></table></div></section>
 </div>
-
-<div class="card">
-    <h3>📦 支持格式</h3>
-    <div>{% for f in formats %}<span class="tag" style="font-size:13px;padding:4px 12px;">{{ f }}</span>{% endfor %}</div>
-</div>
-
-<div class="card">
-    <h3>📋 导出历史</h3>
-    <table class="table">
-        <tr><th>ID</th><th>数据集</th><th>目标格式</th><th>大小</th><th>状态</th><th>时间</th><th>操作</th></tr>
-        {% for e in exports %}
-        <tr>
-            <td>{{ e.id }}</td>
-            <td>{{ e.dataset }}</td>
-            <td><span class="tag">{{ e.format }}</span></td>
-            <td>{{ e.size }}</td>
-            <td><span class="status-badge
-                {% if e.status == '已完成' %}status-done
-                {% else %}status-paused{% endif %}">{{ e.status }}</span></td>
-            <td style="font-size:13px;color:#666;">{{ e.time }}</td>
-            <td><button class="btn btn-primary btn-sm">下载</button></td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
+<script src="/static/js/export.js"></script>
 {% endblock %}

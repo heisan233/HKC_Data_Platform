@@ -8,12 +8,12 @@
 
 ## 1. 从哪个版本开始工作
 
-当前下一阶段开发分支：
+当前集成开发分支：
 
 ```text
-分支：integration/hs-v2.1
-来源：integration/hs-lxp-v2（已验证的上一阶段稳定基线）
-目录：HKC_Data_Platform_merge
+分支：integration/hs-lxp-v3.0
+来源：integration/hs-v2.1 + integration/hs-lxp-v2.5
+目录：HKC_Data_Platform_v3.0
 ```
 
 开始任务时先确认：
@@ -61,7 +61,7 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/annotation/` | `annotation` | 真实 Episode/task/Subtask 标注 |
 | `/preprocess/` | `processing` | 真实数据处理、视频画面裁剪和派生版本生成 |
 | `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
-| `/export/` | `export` | 目前只有演示常量，不能视为真实导出 |
+| `/export/` | `conversion`、`export` | Derived DS 转换 HDF5、CV 任务及完整打包下载 |
 | `/training/` | `training` | 框架页面，未接入训练任务 |
 | `/robots/` | `robots` | 独立 SQLite 机器人档案、新增/编辑、停用/恢复和筛选 |
 | `/semantics/` | `semantics` | 真实 LeRobot v3 结构参考和 SQLite 受控词表 |
@@ -96,6 +96,21 @@ DS000001
 
 真实目录名不需要改成 DS 编号。页面、标注、处理和质检使用 DS 编号，通过 SQLite
 解析真实目录。
+
+### 格式转换与导出
+
+```text
+已登记的 Derived DS
+  → storage/staging/conversion/<CV 编号>/
+  → LeRobot v3 内容校验与 HDF5 转换
+  → storage/converted/<CV 编号>/
+  → SQLite conversion_jobs 保存任务状态
+```
+
+转换结果使用 `CV-...` 任务编号，不分配 DS 编号，也不进入 Raw/Derived 登记表。
+数据管理页单独展示转换结果。导出接受 Derived 的 DS 编号或已完成的 CV 编号，
+先在 `storage/staging/export/` 构建 `tar.gz`，再原子发布到 `storage/exports/`；
+转换和导出均不修改来源数据集。
 
 ### 标注与处理
 
@@ -153,6 +168,7 @@ root = settings.data_root
 SQLite 访问代码：
 
 - `app/db/datasets.py`：DS 编号、Raw/Derived 位置、名称、机器人类型、标签和来源；
+- `app/db/conversions.py`：CV 转换任务、进度、状态和结果文件清单；
 - `app/db/quality.py`：质检方案版本、任务、状态和人工审核；
 - `app/db/users.py`：用户、scrypt 密码哈希和服务端登录会话；
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
@@ -204,7 +220,8 @@ Subtask 动作或对象，也不与机器人档案建立外键。后续接入上
 ## 6. 当前依赖边界
 
 Python 直接依赖只在 `pyproject.toml` 声明。主要包括 FastAPI/Jinja2/Uvicorn、
-Pandas/PyArrow/NumPy、PyAV、HTTPX 和 `lerobot-doctor`。FFmpeg 由 Dockerfile 安装。
+Pandas/PyArrow/NumPy、PyAV、HDF5/Pillow、HTTPX 和 `lerobot-doctor`。FFmpeg 由
+Dockerfile 安装。
 
 平台镜像不包含：
 
@@ -221,7 +238,7 @@ LXP 侧默认继续负责：
 
 - `app/modules/datasets/` 的数据管理页面与详情；
 - 数据集搜索、展示、状态和报告交互；
-- 将 `app/modules/export/` 从演示页面实现为真实、可恢复、可测试的导出功能；
+- 继续维护 `app/modules/conversion/`、`app/modules/export/` 的转换、任务和导出功能；
 - 对应模板、JavaScript、CSS 和集成测试。
 
 以下接口已被其他功能共同依赖，修改前必须先沟通：
@@ -233,8 +250,8 @@ LXP 侧默认继续负责：
 - 质检状态、报告路径与人工审核；
 - `base.html` 的全局导航和共享静态资源。
 
-数据导出的正确方向是：使用 DS 编号解析真实目录，在 `storage/staging/` 或安全
-临时目录构建，最终产物进入 `storage/exports/`；不得修改 Raw/Derived 源数据，
+当前数据导出使用 Derived DS 或 CV 编号解析真实目录，在 `storage/staging/export/`
+构建，最终产物进入 `storage/exports/`；不得修改 Raw/Derived/Converted 来源，
 不得提供不可恢复的删除。
 
 ## 8. 开始和结束任务的固定动作

@@ -12,10 +12,11 @@
 
 ## 1. 当前共同基线
 
-- 当前双方共同可运行基线是 `integration/hs-lxp-v2`，它已经合并 Heisan 与 LXP
-  两套实现。
-- 当前下一阶段开发分支是 `integration/hs-v2.1`，从上述稳定基线创建；登录、
-  机器人管理、数据定义和工作台的新开发在该分支逐步验收。
+- 当前集成分支是 `integration/hs-lxp-v3.0`，它以已冻结验收的
+  `integration/hs-v2.1` 为基线，合入 LXP 的 `integration/hs-lxp-v2.5` 格式转换、
+  导出和数据管理扩展。
+- `integration/hs-v2.1` 与 `integration/hs-lxp-v2.5` 是本轮两个来源分支，保留为
+  只读回退点；不得将任一来源分支整批覆盖回当前集成分支。
 - 在使用者明确完成验收并将它合入 `main` 之前，`main` 不是当前功能基线。
 - `hs_docker`、`lxp_docker_v2`、`feat/platform-v2` 和更早分支只用于查看历史，
   不得把其中的目录或文件整批覆盖回当前集成分支。
@@ -31,8 +32,8 @@
   暂时在同一容器中运行；没有 PostgreSQL、Redis 或独立 Worker。
 - 大型 VLA 数据集始终保存在普通文件夹中。SQLite 只保存稳定 DS 编号、真实目录
   映射、来源关系、质检任务和人工审核等管理元数据。
-- 当前真实数据格式以 LeRobot v3 为准。不要假定 LeRobot v2、ROS bag、MCAP、
-  HDF5 或 RLDS 已经实现。
+- 当前真实数据集格式以 LeRobot v3 为准；已支持把已登记的 Derived DS 转换为
+  HDF5。不要假定 LeRobot v2、ROS bag、MCAP 或 RLDS 已经实现。
 - 当前已有 SQLite 用户、scrypt 密码哈希和服务端 Cookie 会话保护，但没有 HTTPS；
   仍只能开放到可信内网，禁止宣称可安全暴露到公网。
 - 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。不同模型的训练环境继续使用
@@ -54,12 +55,13 @@
   指定相机视频画面裁剪，所有结果生成新的 Derived DS；
 - `quality`：版本化质检方案、Doctor、机器人规则、VLM 调用、任务历史、人工审核、
   隐藏/恢复和 JSON 报告；
+- `conversion`：已登记 Derived DS 的 LeRobot v3 → HDF5 单线程后台转换，结果使用
+  CV 编号保存在 `storage/converted/`，不进入 DS 登记表；
+- `export`：将 Derived DS 或已完成的 CV 转换结果打包到 `storage/exports/` 下载；
 - 报告回收站：报告只能移入 `storage/trash/reports/` 并恢复，不允许永久删除。
 
 仍是占位或未完整实现的功能：
 
-- `export` 独立页面仍使用演示常量，不是真实导出任务；
-- `conversion` 尚未实现；
 - 模型训练与评估、系统管理以及部分工作台页面仍属于框架或演示；
 - 独立情景管理页面和 `/scenes/` 路由已按产品决定移除；未来场景分类归入数据
   定义，不重新建立独立情景管理模块；
@@ -84,10 +86,11 @@ app/
 storage/                    宿主机运行数据；真实内容不提交 Git
 ├── raw/                    上传后不可原地修改的原始数据集
 ├── derived/                标注或处理生成的完整派生数据集
-├── staging/                上传、标注、处理时的临时内容
+├── converted/              CV 编号管理的 HDF5 转换结果
+├── staging/                上传、标注、处理、转换、导出时的临时内容
 ├── reports/qc/             质检 JSON 报告
 ├── trash/reports/          可恢复的报告回收站
-├── exports/                未来的真实导出产物
+├── exports/                Derived/CV 的 tar.gz 导出产物
 └── system/                 SQLite、上传记录、版本和任务记录
 
 deploy/                     局域网 Compose 覆盖和部署说明
@@ -106,8 +109,8 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `app/modules/annotation/`：Episode/task/Subtask 标注与发布；
 - `app/modules/processing/`：Episode 处理及 Derived 构建；
 - `app/modules/quality/`：质检方案、规则、VLM、任务和报告；
-- `app/modules/export/`：未来真实导出功能；
-- `app/modules/conversion/`：未来格式转换。
+- `app/modules/export/`：Derived DS 与 CV 转换结果的安全打包和下载；
+- `app/modules/conversion/`：LeRobot v3 → HDF5 转换及 CV 任务管理。
 
 禁止在项目根目录重新创建 `data_catalog.py`、`data_management.py`、
 `dataset_store.py` 或其他业务 Python 文件。
@@ -129,6 +132,8 @@ tests/                      自动化测试，结构尽量对应业务模块
   主标识。
 - SQLite 文件位于 `storage/system/platform.sqlite`，映射 DS 编号到
   `raw/<目录>` 或 `derived/<目录>`；数据集字节不写入 SQLite。
+- 转换结果使用 `CV-...` 任务编号映射 `converted/<CV 编号>`，不占用 DS 编号；
+  `conversion_jobs` 只保存任务元数据，HDF5 文件仍保存在普通目录。
 - 业务代码通过 `app.core.config.settings.data_root` 取得数据根目录，禁止写死
   `/home/...`、项目绝对路径或宿主机的 `storage/`。
 - 容器内数据根目录始终是 `/data`；宿主机由 `HKC_STORAGE_PATH` 映射。
@@ -159,7 +164,7 @@ tests/                      自动化测试，结构尽量对应业务模块
 合并后双方都基于同一套代码工作，但默认维护边界仍用于减少冲突：
 
 - Heisan：上传、标注、Episode 处理、Docker/Compose、局域网与服务器部署；
-- LXP：数据管理页面、数据集详情、报告展示以及后续真实导出；
+- LXP：数据管理页面、数据集详情、报告展示、格式转换和真实导出；
 - 共同评审：`app/db/`、统一 DS 接口、质检状态、`app/main.py`、`base.html`、
   `pyproject.toml`、Docker/Compose 和存储规范。
 

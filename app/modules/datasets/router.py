@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.db.datasets import DatasetRepository
 from app.db.quality import QualityRepository
+from app.modules.conversion import service as conversion_service
 from app.modules.datasets import service
 from app.modules.quality.status import attach_status
 from app.web import templates
@@ -44,11 +45,12 @@ def record_or_404(dataset_id: str) -> dict:
 def data_page(request: Request):
     pending, managed = service.catalog(storage_root())
     attach_status(storage_root(), managed)
+    converted = conversion_service.list_results(storage_root())
     return templates.TemplateResponse(request=request, name="data.html", context={
-        "pending": pending, "managed": managed,
-        "review_count": sum(item["qc_state"] == "review" for item in managed),
-        "passed_count": sum(item["qc_state"] == "passed" for item in managed),
-        "recapture_count": sum(item["qc_state"] == "recapture" for item in managed),
+        "pending": pending, "managed": managed, "converted": converted,
+        "review_count": sum(item.get("qc_state") == "review" for item in managed),
+        "passed_count": sum(item.get("qc_state") == "passed" for item in managed),
+        "recapture_count": sum(item.get("qc_state") == "recapture" for item in managed),
         "report_count": sum(item["report_count"] for item in managed),
     })
 

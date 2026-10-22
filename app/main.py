@@ -84,7 +84,7 @@ def create_app() -> FastAPI:
     application.include_router(
         export_router.router,
         prefix="/export",
-        tags=["数据集导出"],
+        tags=["格式转换与导出"],
     )
     application.include_router(
         training_router.router,

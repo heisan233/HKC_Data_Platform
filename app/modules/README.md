@@ -83,4 +83,11 @@ Pandas DataFrame 的 `task` 索引，`task_index` 是普通列；Episode 帧数�
 `meta/tasks.parquet`、Episode/frame Parquet、视频路径和旁路标注结构；受控词表
 通过 `app/db/semantics.py` 保存，不向 Raw/Derived 写入内容。
 
-`conversion` 尚未实现；其他仍使用演示常量的模块不应视为已完成业务功能。
+`conversion` 目前提供 LeRobot v3.0 → HDF5 方案，页面按方案选择组织，便于后续增加
+其他转换器。服务通过统一 DS 编号读取已登记的 Derived 来源、校验文件清单并记录
+指纹，单线程后台生成最多每文件 10 个 Episode 的 HDF5；完成后将临时目录原子
+发布到 `converted/<CV 编号>/`，转换结果在数据管理页单独展示，不分配 DS 编号。转换任务使用独立 CV 编号，状态
+写入 SQLite；已有 `system/conversion-jobs/` JSON 记录在首次访问时复制入库，原文件
+保留。`/export/` 页面提供进度和数据集导出按钮，不提供转换结果详情入口。`export`
+服务可将已登记的 Derived 数据集或按 CV 编号定位的转换结果打包到 `storage/exports/`，再供浏览器
+下载。视频帧会转换成 JPEG，旁路标注元数据保存在 HDF5 元数据区。

@@ -14,14 +14,14 @@
         .sidebar .menu { list-style: none; padding: 12px 0; }
         .sidebar .menu li a { display: block; padding: 11px 24px; color: rgba(255,255,255,0.7); text-decoration: none; transition: 0.2s; font-size: 14px; }
         .sidebar .menu li a:hover, .sidebar .menu li a.active { background: rgba(255,255,255,0.1); color: #fff; }
-        .main { margin-left: 230px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+        .main { margin-left: 230px; flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
         .header { background: #fff; padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
         .header h1 { font-size: 20px; color: #1a3c5e; }
         .header .user { display: flex; align-items: center; gap: 16px; font-size: 14px; }
         .header .user form { margin: 0; }
         .logout-button { border: 0; background: transparent; color: #2b7de9; cursor: pointer; font-size: 14px; }
         .logout-button:hover { text-decoration: underline; }
-        .content { padding: 24px 32px; flex: 1; }
+        .content { padding: 24px 32px; flex: 1; min-width: 0; }
         .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 16px; }
         .card h3 { font-size: 16px; color: #1a3c5e; margin-bottom: 12px; }
         .table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -59,7 +59,7 @@
                 <li><a href="/preprocess" class="{% if request.url.path.startswith('/preprocess') %}active{% endif %}">🔧 数据处理</a></li>
                 <li><a href="/qc" class="{% if request.url.path.startswith('/qc') %}active{% endif %}">✅ 数据质检</a></li>
                 <li><a href="/annotation" class="{% if request.url.path.startswith('/annotation') %}active{% endif %}">✏️ 数据标注</a></li>
-                <li><a href="/export" class="{% if request.url.path.startswith('/export') %}active{% endif %}">📤 数据集导出</a></li>
+                <li><a href="/export" class="{% if request.url.path.startswith('/export') %}active{% endif %}">📤 格式转换与导出</a></li>
                 <li><a href="/training" class="{% if request.url.path.startswith('/training') %}active{% endif %}">🧠 模型训练</a></li>
                 <li><a href="/system" class="{% if request.url.path.startswith('/system') %}active{% endif %}">⚙️ 系统管理</a></li>
             </ul>
