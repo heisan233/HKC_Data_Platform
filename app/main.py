@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.paths import STATIC_DIR
 from app.modules.annotation import router as annotation_router
+from app.modules.auth import router as auth_router
+from app.modules.auth.middleware import LoginRequiredMiddleware
 from app.modules.dashboard import router as dashboard_router
 from app.modules.datasets import router as datasets_router
 from app.modules.export import router as export_router
@@ -26,6 +28,7 @@ from app.modules.training import router as training_router
 def create_app() -> FastAPI:
     """创建平台应用，并把各模块提供的路由注册到对应网址。"""
     application = FastAPI(title="HKC 数采平台")
+    application.add_middleware(LoginRequiredMiddleware)
 
     # 把 app/static 暴露为 /static，供浏览器加载 CSS、JavaScript 和图片。
     application.mount(
@@ -33,6 +36,8 @@ def create_app() -> FastAPI:
         StaticFiles(directory=str(STATIC_DIR)),
         name="static",
     )
+
+    application.include_router(auth_router.router, tags=["用户登录"])
 
     # include_router 只是在分配网址。例如 datasets 模块内的 "/"，加上这里的
     # prefix="/data" 后，浏览器最终访问的是 "/data/"。
@@ -91,6 +96,11 @@ def create_app() -> FastAPI:
         prefix="/system",
         tags=["系统管理"],
     )
+
+    @application.get("/healthz", include_in_schema=False)
+    async def healthcheck() -> dict[str, str]:
+        """Public liveness probe; it exposes no platform or user data."""
+        return {"status": "ok"}
 
     # 访问网站根地址时，不渲染新页面，直接跳转到工作台。
     @application.get("/", include_in_schema=False)

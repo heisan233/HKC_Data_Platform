@@ -34,6 +34,7 @@ git log -1 --oneline --decorate
 
 ```text
 浏览器 HTML/JavaScript
+        ↓ Cookie 会话访问保护
         ↓ HTTP
 app/modules/<业务>/router.py
         ↓
@@ -49,6 +50,8 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 
 | 网址 | 模块 | 当前状态 |
 | --- | --- | --- |
+| `/login`、`/logout` | `auth` | SQLite 用户、密码哈希、登录会话和退出 |
+| `/healthz` | 应用入口 | 无需登录的 Docker 存活检查，不返回业务数据 |
 | `/dashboard/` | `dashboard` | 工作台页面，部分展示内容仍偏框架 |
 | `/data/` | `datasets` | 真实 DS 数据集总览和质检状态 |
 | `/data/manage/` | `datasets` | 真实登记、信息修改与重新扫描 |
@@ -60,8 +63,8 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
 | `/export/` | `export` | 目前只有演示常量，不能视为真实导出 |
 | `/training/` | `training` | 框架页面，未接入训练任务 |
-| `/robots/` | `robots` | 保留页面，真实管理功能尚待实现 |
-| `/semantics/` | `semantics` | 现为占位页，后续按当前真实数据结构重新实现 |
+| `/robots/` | `robots` | 独立 SQLite 机器人档案、新增/编辑、停用/恢复和筛选 |
+| `/semantics/` | `semantics` | 真实 LeRobot v3 结构参考和 SQLite 受控词表 |
 | `/system/` | `system` | 框架页面 |
 
 独立情景管理页面已经按产品决定删除；`/scenes/` 当前应返回 HTTP 404。未来如果
@@ -149,9 +152,39 @@ SQLite 访问代码：
 
 - `app/db/datasets.py`：DS 编号、Raw/Derived 位置、名称、机器人类型、标签和来源；
 - `app/db/quality.py`：质检方案版本、任务、状态和人工审核；
+- `app/db/users.py`：用户、scrypt 密码哈希和服务端登录会话；
+- `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
+- `app/db/semantics.py`：稳定 SD 编号和场景/任务/动作/对象受控词表；
 - 真实数据库：`storage/system/platform.sqlite`，被 Git 忽略。
 
+平台不提供默认账号。每台全新部署设备启动后，由管理员在容器中交互执行
+`python -m app.cli.create_user` 创建用户，并可用 `python -m app.cli.list_users`
+查看不含认证秘密的账号摘要；密码不得写入 Git、命令历史或文档。
+除 `/login`、`/healthz` 和静态资源外，页面与 API 都需要有效会话。当前仍没有
+HTTPS，因此只能在可信内网使用。
+
 `migrations/` 未来用于数据库表结构升级，不存放旧数据库、旧数据集或模型。
+
+### 机器人档案边界
+
+`RB000001` 是平台内的机器人实例编号。机器人页面维护名称、类型、型号、序列号、
+使用状态、网络地址、传感器和备注，没有永久删除接口。网络地址只是管理字段，当前
+不会探测在线状态、控制机器人或调用机器人 API。
+
+已有 LeRobot 数据集继续保存自身 `robot_type`。机器人页面展示的“同类型数据集”
+只是字符串匹配统计，不代表数据集已经绑定该机器人。当前没有修改 datasets 表，
+也不会回写 Raw/Derived 文件；未来若要追踪具体采集设备，需要单独设计
+`robot_id` 关联和历史数据迁移。
+
+### 数据定义边界
+
+`SD000001` 是平台受控词条编号。数据定义页维护场景、任务、动作和对象四类词表，
+机器编码创建后不可修改，词条没有永久删除接口，只能停用或恢复。页面同时展示
+平台实际读取的 LeRobot v3 数据集、任务、Episode、帧、视频和旁路标注结构。
+
+词表当前只保存平台管理元数据，不写入 Raw/Derived，不自动替换 Episode task、
+Subtask 动作或对象，也不与机器人档案建立外键。后续接入上传或标注前，必须先
+设计兼容旧自由文本数据的映射方案。
 
 ## 5. 配置与部署
 
@@ -228,6 +261,11 @@ HKC_LAN_BIND_ADDRESS=192.168.123.45 \
 
 如果只改一个业务模块，可先运行其相关测试；修改 DB、共享 LeRobot 读取、配置或
 Compose 时必须运行完整测试。测试使用临时目录，绝不能指向真实 `storage/`。
+
+2026-10-22 的 `integration/hs-v2.1` 工作树基线已完成上述验证：Ruff 0.16.8
+全部通过，pytest 9.1.1 为 `66 passed`（另有 1 条 Starlette/AnyIO 上游弃用
+警告）；默认、开发和局域网三种 Compose 配置均通过解析。当前开发容器健康，
+但正式生产镜像仍需在提交前重新构建并执行不挂载源码的验收。
 
 结束时报告：
 

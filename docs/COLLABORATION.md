@@ -23,7 +23,8 @@
 - SQLite 保存 DS 编号映射、展示信息、质检任务和人工审核记录；大型数据文件仍
   保存在普通目录，`migrations/` 保留给未来表结构升级。
 - 当前为单应用容器，没有 PostgreSQL、Redis 或独立 Worker 容器。
-- 当前没有登录鉴权，任何网络开放都只能面向可信内网。
+- 当前已有 SQLite 用户、密码哈希和服务端会话保护，但尚无 HTTPS；任何网络开放
+  仍只能面向可信内网。
 
 ## 二、分支与人员分工
 
@@ -213,6 +214,118 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-22
+
+开发者/分支：Heisan / `integration/hs-v2.1`
+
+完成内容：将 `/semantics/` 从虚构 Episode 文件结构的占位页改为真实数据定义功能。
+页面只读说明平台实际使用的 LeRobot v3 数据集、任务、Episode、帧、视频和旁路
+标注结构；新增 `semantic_definitions` 与 `semantic_definition_numbers` SQLite
+表，为场景、任务、动作和对象四类词条分配 `SD000001` 形式的稳定编号。支持新增、
+编辑、搜索、筛选、排序、停用和恢复；机器编码创建后不可修改，没有永久删除接口。
+
+主要修改文件：`app/db/semantics.py`、`app/modules/semantics/`、
+`app/templates/semantics.html`、`app/static/css/semantics.css`、
+`app/static/js/semantics.js`、`tests/integration/test_semantics.py`，以及数据库、模块、
+当前状态、使用与项目说明。
+
+执行的验证：数据定义专项 Ruff 与 5 项测试通过；随后以
+`HKC_DATA_ROOT=/tmp/hkc-v21-semantics-full-test-data` 隔离真实数据运行全仓库
+Ruff 0.16.8 和 pytest 9.1.1，结果为 Ruff 全部通过、`66 passed`，仅有 1 条既有
+Starlette/AnyIO 上游弃用警告。测试覆盖真实结构页面、稳定 SD 编号、创建、编辑、
+筛选、唯一性、输入校验、停用、恢复和无 DELETE 接口。
+
+未完成或已知问题：词表当前只保存平台管理元数据，不自动修改 Raw/Derived、
+Episode task 或既有 Subtask；也没有与机器人档案或数据集建立外键。自动化测试
+已经通过，但仍需使用者登录后完成人工页面验收。正式生产镜像按使用者决定留到
+更多功能完成后统一重建。
+
+是否修改共享文件：在现有 `platform.sqlite` 新增独立词表，不修改 datasets、
+quality、users 或 robots 既有表；没有增加依赖，没有修改 Compose、DS 接口或
+LeRobot 数据文件。
+
+下一步建议：在页面建立少量真实场景、动作和对象词条，确认团队命名约定；以后
+若要让标注或上传强制引用 SD 编号，先设计自由文本兼容和历史数据迁移方案。
+
+日期：2026-10-22
+
+开发者/分支：Heisan / `integration/hs-v2.1`
+
+完成内容：将 `/robots/` 从 3 条硬编码演示数据改为独立机器人档案管理。新增
+`robots` 与 `robot_numbers` SQLite 表，稳定编号格式为 `RB000001`；支持名称、
+类型、型号、序列号、使用状态、网络地址、传感器和备注的新增、编辑、搜索、筛选、
+停用与恢复。名称和非空序列号唯一，没有永久删除接口。页面只按 `robot_type`
+统计同类型数据集，不修改 datasets 表、不回写数据集文件，也不建立未经设计的
+机器人实例外键。
+
+主要修改文件：`app/db/robots.py`、`app/modules/robots/`、
+`app/templates/robots.html`、`app/static/css/robots.css`、
+`app/static/js/robots.js`、`tests/integration/test_robots.py`，以及当前状态、数据库、
+模块和项目说明。
+
+执行的验证：以 `HKC_DATA_ROOT=/tmp/hkc-v21-test-data` 隔离真实数据运行完整检查；
+Ruff 0.16.8 全部通过，pytest 9.1.1 共 `61 passed`，仅有 1 条既有的
+Starlette/AnyIO 上游弃用警告。机器人测试覆盖空页面、创建、稳定 RB 编号、编辑、
+停用、恢复和无 DELETE 接口。默认、开发和局域网三种 Compose 配置均通过解析。
+本机网络切换后已按当前地址重新创建开发容器，容器保持 healthy；`/healthz` 返回
+200，未登录访问 `/robots/` 返回 303 到登录页，机器人页面 CSS 与 JavaScript
+均返回 200。真实 SQLite 中机器人表为空，没有写入测试机器人。
+
+未完成或已知问题：当前网络地址只是档案，不探测在线状态、不控制机器人；数据集
+仅按 `robot_type` 统计，没有具体 `robot_id` 关联。自动化和未登录静态资源验证已
+完成，但尚未进行登录后的浏览器人工表单验收。正式生产镜像仍未重新构建；当前
+验收对象是挂载最新源码的开发容器和一次性测试容器。
+
+是否修改共享文件：新增同一 `platform.sqlite` 中的机器人表，但没有修改已有用户、
+数据集或质检表；没有增加依赖，没有修改 Compose、DS 接口或 LeRobot 文件。
+
+下一步建议：使用者先登录当前开发页面，人工注册一条可删除前的测试机器人，验证
+编辑、停用、恢复和筛选；确认业务字段后，再决定是否设计数据集到具体机器人的
+稳定关联，不要直接复用可变名称。
+
+日期：2026-10-22
+
+开发者/分支：Heisan / `integration/hs-v2.1`
+
+完成内容：新增无默认账号的基础登录系统。`app/db/users.py` 在既有
+`storage/system/platform.sqlite` 中创建 `users` 与 `user_sessions`；密码使用
+scrypt 独立盐哈希，浏览器只持有随机 Cookie 令牌，数据库只保存其 SHA-256 摘要。
+新增登录、退出、会话失效和全站中间件保护；未登录网页跳转 `/login`，未登录 API
+返回 401。新增公开且不返回业务数据的 `/healthz`，Docker 健康检查改用该地址。
+提供交互式 `python -m app.cli.create_user`，支持可选的 `--username`，但故意不
+提供密码参数；新增 `python -m app.cli.list_users`，只显示不含认证秘密的账号
+摘要。没有在源码、配置或文档中提供默认密码。已在本机被 Git 忽略的 SQLite 中
+创建首个用户 `hei_san`。
+
+主要修改文件：`app/db/users.py`、`app/modules/auth/`、`app/cli/create_user.py`、
+`app/cli/list_users.py`、`app/main.py`、`app/templates/login.html`、
+`app/templates/base.html`、`Dockerfile`、`tests/conftest.py`、
+`tests/integration/test_auth.py`、`tests/unit/test_user_cli.py`、`pyproject.toml` 及相关
+说明文档。
+
+执行的验证：新增 5 项真实 SQLite 认证测试；全仓库 Ruff 0.16.8 检查通过，pytest
+9.1.1 共 53 项全部通过，仅保留既有 Starlette/AnyIO 上游弃用警告。默认、开发和
+局域网 Compose 均通过配置解析。本机真实库确认存在两张新表，`hei_san` 的哈希
+方案为 scrypt，交互密码校验成功；`/healthz` 返回 200，未登录访问 `/dashboard/`
+返回 303 并跳转登录页。当前开发容器健康且已挂载最新源码。
+
+用户命令补充部分已用现有 Python 3.11 运行镜像验证：创建测试用户、密码认证以及
+不泄露密码/哈希的账号列表均通过；真实开发容器的列表命令成功读取持久化库并显示
+`hei_san`。新增的 3 项 CLI 自动化测试已纳入 2026-10-22 的完整测试，当前全套
+结果为 Ruff 通过、pytest `61 passed`。
+
+未完成或已知问题：平台仍未部署 HTTPS、角色权限、找回密码、登录限速和机器人
+API Token，只能用于可信内网。完整源码测试与 Compose 配置验证已经通过，但旧
+正式镜像尚未包含本次登录和机器人管理代码；后续仍需重新构建正式镜像，并进行
+不挂载源码的生产式验收。
+
+是否修改共享文件：是，修改 `app/main.py`、全局 `base.html`、Docker 健康检查和
+同一个 SQLite 文件中的表结构；没有修改 datasets/quality 既有表、DS 编号、数据
+文件或同事负责的数据管理接口。
+
+下一步建议：先由使用者在当前开发容器浏览器中人工登录、退出；网络稳定后使用
+可信 PyPI/公司仓库重新构建镜像并执行生产式验收，再继续真实机器人管理。
 
 日期：2026-10-22
 

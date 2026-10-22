@@ -3,6 +3,17 @@
 `modules` 按平台的业务能力组织代码，不是按照 HTML 文件数量组织，也不要求与
 左侧导航或页面一一对应。
 
+`auth` 是全平台共享的登录模块：路由提供登录与退出，中间件保护其他页面/API，
+用户和服务端会话元数据由 `app/db/users.py` 写入同一个平台 SQLite。
+
+`robots` 是独立机器人档案模块：每条档案有稳定 RB 编号，支持新增、编辑、停用
+和恢复。它只按 `robot_type` 统计同类型数据集，不会把已有 DS 数据集绑定或回写到
+某台机器人实例。
+
+`semantics` 是数据定义模块：页面准确说明当前 LeRobot v3 文件层级，并在 SQLite
+中维护场景、任务、动作和对象四类受控词表。词条有稳定 SD 编号，只能停用或恢复；
+当前不强制修改已有数据集或标注。
+
 例如“数据管理”页面可能同时调用：
 
 - `datasets`：列出和查看数据集；
@@ -67,5 +78,9 @@ Pandas DataFrame 的 `task` 索引，`task_index` 是普通列；Episode 帧数�
 读取端兼容早期 v3 Episode 元数据中的 `num_frames/task`，并可在缺少
 `data/chunk_index`、`data/file_index` 时从 frame Parquet 的 `episode_index`
 自动反查文件位置；派生输出会补齐当前标准字段，不修改原始数据。
+
+`semantics` 已替换旧占位页：结构参考使用平台实际读取的 `meta/info.json`、
+`meta/tasks.parquet`、Episode/frame Parquet、视频路径和旁路标注结构；受控词表
+通过 `app/db/semantics.py` 保存，不向 Raw/Derived 写入内容。
 
 `conversion` 尚未实现；其他仍使用演示常量的模块不应视为已完成业务功能。

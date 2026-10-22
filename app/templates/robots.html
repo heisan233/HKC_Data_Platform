@@ -1,18 +1,125 @@
 {% extends "base.html" %}
 {% block page_title %}机器人管理{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="/static/css/robots.css?v=20261022a">
+{% endblock %}
 {% block content %}
-<div class="flex mb-12"><div></div><button class="btn btn-primary">+ 注册机器人</button></div>
-<div class="card">
-    <table class="table">
-        <tr><th>ID</th><th>名称</th><th>类型</th><th>状态</th><th>IP</th><th>传感器</th><th>适用场景</th><th>操作</th></tr>
-        {% for r in robots %}
-        <tr>
-            <td>{{ r.id }}</td><td>{{ r.name }}</td><td>{{ r.type }}</td>
-            <td><span class="status-badge {% if r.status == '在线' %}status-online{% else %}status-offline{% endif %}">{{ r.status }}</span></td>
-            <td>{{ r.ip }}</td><td>{{ r.sensors }}</td><td>{{ r.scene }}</td>
-            <td><button class="btn btn-primary btn-sm">查看</button> <button class="btn btn-sm" style="background:#f0f0f0;">编辑</button></td>
-        </tr>
-        {% endfor %}
-    </table>
+<div class="robot-wrap" id="robot-page">
+  <section class="robot-hero">
+    <div>
+      <span class="robot-eyebrow">ROBOT REGISTRY</span>
+      <h2>机器人档案</h2>
+      <p>独立维护机器人身份、类型、型号、网络地址和传感器。停用只改变档案状态，不会永久删除记录。</p>
+    </div>
+    <button class="robot-button" type="button" id="robot-create">+ 注册机器人</button>
+  </section>
+
+  <div class="robot-stats" aria-label="机器人统计">
+    <div><strong>{{ counts.all }}</strong><span>全部档案</span></div>
+    <div><strong>{{ counts.active }}</strong><span>在用</span></div>
+    <div><strong>{{ counts.maintenance }}</strong><span>维护中</span></div>
+    <div><strong>{{ counts.inactive }}</strong><span>已停用</span></div>
+  </div>
+
+  <section class="robot-panel">
+    <form class="robot-toolbar" method="get" action="/robots/">
+      <label>
+        <span>搜索</span>
+        <input name="q" value="{{ query }}" placeholder="编号、名称、类型、型号、序列号或地址">
+      </label>
+      <label>
+        <span>状态</span>
+        <select name="status">
+          <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部</option>
+          {% for value, label in status_labels.items() %}
+          <option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="robot-button robot-button-secondary" type="submit">筛选</button>
+      {% if query or status_filter != 'all' %}<a href="/robots/">清除条件</a>{% endif %}
+    </form>
+
+    <div id="robot-feedback" class="robot-feedback" role="status" hidden></div>
+    <div class="robot-table-scroll">
+      <table class="robot-table">
+        <thead>
+          <tr>
+            <th>编号 / 名称</th>
+            <th>类型 / 型号</th>
+            <th>状态</th>
+            <th>序列号 / 网络地址</th>
+            <th>传感器</th>
+            <th>同类型数据集</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for robot in robots %}
+          <tr>
+            <td><strong>{{ robot.id }} · {{ robot.name }}</strong><small>更新于 {{ robot.updated_at|local_datetime }}</small></td>
+            <td>{{ robot.robot_type }}<small>{{ robot.model or '未填写型号' }}</small></td>
+            <td><span class="robot-status robot-status-{{ robot.status }}">{{ robot.status_label }}</span></td>
+            <td>{{ robot.serial_number or '—' }}<small>{{ robot.network_address or '未填写网络地址' }}</small></td>
+            <td>
+              <div class="robot-sensors">
+                {% for sensor in robot.sensors %}<span>{{ sensor }}</span>{% else %}<small>未登记</small>{% endfor %}
+              </div>
+            </td>
+            <td><strong>{{ robot.matching_dataset_count }}</strong><small>按 robot_type 统计，未建立实例绑定</small></td>
+            <td>
+              <div class="robot-actions">
+                <button type="button" data-robot-edit="{{ robot.id }}">编辑</button>
+                {% if robot.status == 'inactive' %}
+                <button type="button" data-robot-activate="{{ robot.id }}">恢复使用</button>
+                {% else %}
+                <button class="robot-action-danger" type="button" data-robot-deactivate="{{ robot.id }}">停用</button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="robot-empty">当前条件下没有机器人档案。点击“注册机器人”建立第一条真实记录。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </div>
+
+<dialog class="robot-dialog" id="robot-dialog">
+  <form id="robot-form">
+    <div class="robot-dialog-head">
+      <div><span class="robot-eyebrow">ROBOT PROFILE</span><h3 id="robot-dialog-title">注册机器人</h3></div>
+      <button type="button" id="robot-dialog-close" aria-label="关闭">×</button>
+    </div>
+    <input type="hidden" id="robot-id">
+    <div class="robot-form-grid">
+      <label>机器人名称<input id="robot-name" maxlength="100" required></label>
+      <label>机器人类型<input id="robot-type" maxlength="100" placeholder="例如 so100" required></label>
+      <label>型号<input id="robot-model" maxlength="100" placeholder="可选"></label>
+      <label>序列号<input id="robot-serial" maxlength="100" placeholder="可选，同一序列号只能登记一次"></label>
+      <label>状态
+        <select id="robot-status" required>
+          <option value="active">在用</option>
+          <option value="maintenance">维护中</option>
+          <option value="inactive">已停用</option>
+        </select>
+      </label>
+      <label>网络地址<input id="robot-address" maxlength="255" placeholder="IP、主机名或设备 API 地址，可选"></label>
+      <label class="robot-form-wide">传感器<textarea id="robot-sensors" rows="3" placeholder="每行一个，或使用英文逗号分隔"></textarea></label>
+      <label class="robot-form-wide">备注<textarea id="robot-notes" rows="4" maxlength="2000" placeholder="用途、位置、负责人等非敏感说明"></textarea></label>
+    </div>
+    <p class="robot-form-note">机器人类型仅用于分类和统计；本版本不会修改已有数据集，也不会自动连接机器人。</p>
+    <div class="robot-dialog-actions">
+      <button class="robot-button robot-button-secondary" type="button" id="robot-cancel">取消</button>
+      <button class="robot-button" type="submit" id="robot-save">保存档案</button>
+    </div>
+  </form>
+</dialog>
+
+<script id="robot-records-json" type="application/json">{{ robots|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/robots.js?v=20261022a"></script>
 {% endblock %}

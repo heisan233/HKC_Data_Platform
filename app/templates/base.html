@@ -18,7 +18,9 @@
         .header { background: #fff; padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
         .header h1 { font-size: 20px; color: #1a3c5e; }
         .header .user { display: flex; align-items: center; gap: 16px; font-size: 14px; }
-        .header .user a { color: #2b7de9; text-decoration: none; }
+        .header .user form { margin: 0; }
+        .logout-button { border: 0; background: transparent; color: #2b7de9; cursor: pointer; font-size: 14px; }
+        .logout-button:hover { text-decoration: underline; }
         .content { padding: 24px 32px; flex: 1; }
         .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 16px; }
         .card h3 { font-size: 16px; color: #1a3c5e; margin-bottom: 12px; }
@@ -67,7 +69,10 @@
             <header class="header">
                 <h1>{% block page_title %}工作台{% endblock %}</h1>
                 <div class="user">
-                    <span>🛠️ 开发模式</span>
+                    <span>👤 {{ request.state.user.username }}</span>
+                    <form method="post" action="/logout">
+                        <button class="logout-button" type="submit">退出登录</button>
+                    </form>
                 </div>
             </header>
             <div class="content">

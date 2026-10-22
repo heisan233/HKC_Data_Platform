@@ -33,6 +33,9 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "real_auth: run with the real SQLite authentication middleware",
+]
 
 [tool.ruff]
 line-length = 100

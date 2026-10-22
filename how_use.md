@@ -7,13 +7,13 @@
 - 回到公司网络后，需要让平台连接公司服务器上的 VLM；
 - 查看容器状态、日志，或者停止平台。
 
-> 当前平台没有登录鉴权和 HTTPS。局域网模式只允许在可信内网使用，不要映射到
-> 公网，也不要在路由器上配置端口转发。
+> 当前平台已有基础登录鉴权，但没有 HTTPS。局域网模式仍只允许在可信内网使用，
+> 不要映射到公网，也不要在路由器上配置端口转发。
 
 ## 一、同事第一次拉取并构建集成分支
 
 本节适用于同事在另一台 Ubuntu 电脑或服务器上第一次部署
-`integration/hs-lxp-v2`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
+`integration/hs-v2.1`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
 SQLite、报告、模型或其他 `storage/` 运行数据。
 
 ### Git 会带来什么
@@ -70,7 +70,7 @@ git log -3 --oneline --decorate
 只有工作区修改已经提交，并且执行以下命令成功后，另一台机器才能取得最新版本：
 
 ```bash
-git push origin integration/hs-lxp-v2
+git push origin integration/hs-v2.1
 ```
 
 不要为了推送而执行 `git reset`、`git clean` 或强制覆盖远程分支。需要提交哪些
@@ -94,7 +94,7 @@ mkdir -p ~/vscode_project/HKC
 cd ~/vscode_project/HKC
 
 git clone \
-  --branch integration/hs-lxp-v2 \
+  --branch integration/hs-v2.1 \
   https://github.com/heisan233/HKC_Data_Platform.git \
   HKC_Data_Platform_merge
 
@@ -108,14 +108,14 @@ git log -1 --oneline --decorate
 ```bash
 cd ~/vscode_project/HKC/HKC_Data_Platform_merge
 git fetch origin
-git switch integration/hs-lxp-v2
-git pull --ff-only origin integration/hs-lxp-v2
+git switch integration/hs-v2.1
+git pull --ff-only origin integration/hs-v2.1
 ```
 
 如果本地还没有同名分支，则使用：
 
 ```bash
-git switch --track origin/integration/hs-lxp-v2
+git switch --track origin/integration/hs-v2.1
 ```
 
 `--ff-only` 会在本地与远程已经分叉时停止，避免自动制造意外合并。遇到这种情况先
@@ -263,6 +263,57 @@ docker compose \
 http://127.0.0.1:8000/
 ```
 
+#### 创建和检查平台用户
+
+全新 `storage/` 没有默认账号。容器健康后必须由管理员交互创建首个用户。推荐
+明确写出用户名，密码仍由终端隐藏输入：
+
+```bash
+docker compose \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  exec platform \
+  python -m app.cli.create_user --username <用户名>
+```
+
+将 `<用户名>` 换成实际用户名，不要输入尖括号。也可以省略 `--username`，此时
+用户名同样由终端询问。随后根据提示输入两次密码；密码不会显示。命令故意不提供
+`--password` 参数，禁止把密码写入 Git、`.env`、Compose、文档或命令参数。
+
+同一命令既能创建首个用户，也能继续创建其他用户。用户名不区分英文字母大小写，
+重复创建会明确失败且不会覆盖旧密码。创建后可安全查看账号摘要：
+
+```bash
+docker compose \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  exec platform \
+  python -m app.cli.list_users
+```
+
+列表只显示 ID、用户名、启用状态、创建时间和最近登录时间，不显示密码哈希、密码或
+会话令牌。用户保存在 `HKC_STORAGE_PATH/system/platform.sqlite`：重启或重建容器
+不会丢失；重新克隆 Git 或使用一个全新存储目录时不会自动带来旧用户，必须重新
+创建。若把完整 `HKC_STORAGE_PATH` 迁移到新设备，用户记录会与其他平台元数据一同
+迁移。
+
+正式部署或局域网部署时命令相同，只需在启动平台所用的项目目录中执行：
+
+```bash
+docker compose exec platform \
+  python -m app.cli.create_user --username <用户名>
+```
+
+如果没有使用 Docker，也可以在项目 Python 环境中执行：
+
+```bash
+python -m app.cli.create_user --username <用户名>
+python -m app.cli.list_users
+```
+
+此时命令写入 `HKC_DATA_ROOT` 指向的 SQLite；未设置时使用项目内 `storage/`。执行前
+务必确认数据根目录，避免误在另一个空目录中创建一套新数据库。
+
 检查容器、依赖和工作台：
 
 ```bash
@@ -271,12 +322,12 @@ docker compose -f compose.yaml -f compose.dev.yaml ps
 docker compose -f compose.yaml -f compose.dev.yaml \
   exec platform python -m pip check
 
-curl -fsS -o /dev/null -w '%{http_code}\n' \
-  http://127.0.0.1:8000/dashboard/
+curl -fsS http://127.0.0.1:8000/healthz
 ```
 
-正常结果应为容器 `healthy`、pip 没有依赖冲突、HTTP 状态码为 `200`。需要让其他
-设备访问时，再按照本文“三、选择访问方式”的局域网步骤重新创建容器。
+正常结果应为容器 `healthy`、pip 没有依赖冲突并返回 `{"status":"ok"}`。浏览器
+打开平台后应先进入 `/login`；需要让其他设备访问时，再按照本文“三、选择访问
+方式”的局域网步骤重新创建容器。
 
 ### 8. 开发前运行自动化测试
 
@@ -297,7 +348,7 @@ docker run --rm \
   '
 ```
 
-当前集成基线的预期结果是 Ruff 全部通过、pytest `48 passed`。一条来自
+当前 `integration/hs-v2.1` 基线的预期结果是 Ruff 全部通过、pytest `66 passed`。一条来自
 Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取项目 `.env`；
 如果官方 PyPI 较慢，可将测试命令中的地址明确替换成前述中科大地址。
 
@@ -308,7 +359,7 @@ Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取
 ```bash
 git status --short --branch
 git fetch origin
-git pull --ff-only origin integration/hs-lxp-v2
+git pull --ff-only origin integration/hs-v2.1
 ```
 
 普通 Python/HTML/CSS 修改在开发模式下通常会热重载；如果更新包含 Dockerfile、

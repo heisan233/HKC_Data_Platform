@@ -43,8 +43,26 @@ Token 只写入部署机 `.env`，不要提交 Git。
 不要修改这个安全默认值。需要临时允许同一可信局域网中的其他机器访问时，叠加
 `deploy/compose.lan.yaml`。
 
-当前平台没有登录、身份验证或 HTTPS。局域网模式不能用于公网，不要在路由器上
-配置端口转发，也不要绑定公网地址。
+当前平台已有基础登录与服务端会话，但没有 HTTPS。局域网模式仍不能用于公网，
+不要在路由器上配置端口转发，也不要绑定公网地址。
+
+全新数据库没有默认账号。容器首次健康启动后，由管理员交互创建首个用户：
+
+```bash
+docker compose exec platform \
+  python -m app.cli.create_user --username <用户名>
+```
+
+密码输入不会显示在终端，命令也不接受密码参数；不要把密码写在命令、Compose、
+`.env` 或文档中。继续创建其他账号时重复执行同一命令。使用下面的命令确认账号：
+
+```bash
+docker compose exec platform python -m app.cli.list_users
+```
+
+列表不会显示密码哈希或会话令牌。账号位于持久化目录的
+`system/platform.sqlite`；重新创建容器不会删除账号，但换用全新持久化目录时必须
+重新创建。详细说明见项目根目录 `how_use.md`。
 
 ### 1. 查找本机的可信内网地址
 

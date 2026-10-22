@@ -6,8 +6,9 @@
 
 ## 当前集成开发基线
 
-当前双方已经把原 `hs_docker` 与 `lxp_docker_v2` 的有效功能合并到
-`integration/hs-lxp-v2`，本目录 `HKC_Data_Platform_merge` 是当前共同工作区。
+当前双方已经把原 `hs_docker` 与 `lxp_docker_v2` 的有效功能合并；下一阶段开发
+分支是 `integration/hs-v2.1`，本目录 `HKC_Data_Platform_merge` 是当前共同工作区。
+上一阶段稳定回退点是 `integration/hs-lxp-v2`。
 在使用者明确完成验收并合入 `main` 前，旧 `main`、`hs_docker`、
 `lxp_docker_v2` 与 `feat/platform-v2` 只作为历史参考，不能用于覆盖当前目录。
 
@@ -40,7 +41,7 @@ HKC_Data_Platform_merge/
 │   │   ├── training/           # 模型训练与评估接口，首期只保留框架
 │   │   ├── robots/             # 机器人管理
 │   │   ├── system/             # 系统管理
-│   │   ├── semantics/          # 数据定义占位模块，后续按真实数据结构实现
+│   │   ├── semantics/          # LeRobot v3 结构参考与平台受控词表
 │   │   ├── export/             # 独立导出占位页，真实业务尚未实现
 │   │   ├── models/             # v1 未注册页面，等待归并
 │   │   └── logs/               # v1 未注册页面，等待归并
@@ -172,7 +173,31 @@ docker compose -f compose.yaml -f compose.dev.yaml up --build
 
 默认端口只绑定 `127.0.0.1`。需要让可信局域网中的其他机器临时访问时，不要直接
 修改 `compose.yaml`，请按 `deploy/README.md` 使用
-`deploy/compose.lan.yaml` 覆盖配置。当前没有登录鉴权，禁止开放到公网。
+`deploy/compose.lan.yaml` 覆盖配置。当前已有基础登录与服务端会话，但没有
+HTTPS，仍禁止开放到公网。
+
+机器人管理页 `/robots/` 使用同一个平台 SQLite 保存独立机器人档案，为每条记录
+分配 `RB000001` 形式编号，支持新增、编辑、停用、恢复、搜索和状态筛选。该页面
+不预置演示机器人，也不会自动连接或控制真实设备。它只按 `robot_type` 显示同类型
+数据集数量；现阶段没有改变 DS 数据集结构或建立机器人实例外键。
+
+数据定义页 `/semantics/` 展示平台实际读取的 LeRobot v3 文件层级，并使用同一个
+SQLite 维护场景、任务、动作和对象四类受控词表。每条记录分配 `SD000001` 形式
+编号，支持新增、编辑、筛选、停用和恢复，不提供永久删除。机器编码创建后固定；
+当前词表不会自动修改已有数据集、Episode task 或 Subtask 标注。
+
+全新数据库没有默认用户。容器健康启动后，由管理员交互创建首个账号：
+
+```bash
+docker compose exec platform \
+  python -m app.cli.create_user --username <用户名>
+```
+
+密码使用 scrypt 哈希保存，浏览器 Cookie 只携带随机会话令牌；SQLite 只保存该
+令牌的摘要。命令只允许隐藏式交互输入密码，不提供密码参数。管理员可以执行
+`docker compose exec platform python -m app.cli.list_users` 检查账号摘要；该输出
+不包含密码哈希或会话令牌。完整说明见 `how_use.md`，真实用户名和密码不得提交
+Git 或写入文档。
 
 容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`；默认情况下
 `./storage` 会挂载到 `/data`。修改 Python 或模板后，开发覆盖配置中的

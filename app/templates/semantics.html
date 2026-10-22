@@ -1,75 +1,154 @@
 {% extends "base.html" %}
 {% block page_title %}数据定义{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="/static/css/semantics.css?v=20261022a">
+{% endblock %}
 {% block content %}
-
-<!-- 顶部标题 -->
-<div class="card" style="padding:18px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+<div class="semantic-wrap" id="semantic-page">
+  <section class="semantic-hero">
     <div>
-        <div style="font-size:17px;font-weight:700;color:#1a3c5e;">
-            📖 统一语义层 · 完整字段
-            <span style="font-size:12px;font-weight:400;color:#2b7de9;background:#eef3ff;padding:2px 10px;border-radius:12px;margin-left:8px;">跨本体数据互通的核心抽象</span>
-        </div>
-        <div class="text-muted" style="margin-top:6px;">剥离本体专属信息，只保留任务级抽象描述</div>
+      <span class="semantic-eyebrow">DATA CONTRACT</span>
+      <h2>数据结构与语义词表</h2>
+      <p>以平台实际支持的 LeRobot v3 为结构基线，统一维护场景、任务、动作和对象名称。词表不会自动改写已有数据集。</p>
     </div>
-    <div style="font-size:13px;color:#722ed1;background:#f9f0ff;padding:6px 14px;border-radius:16px;">
-        ⚡ 8个核心字段 + Episode结构
-    </div>
-</div>
+    <button class="semantic-button" type="button" id="semantic-create">+ 新建定义</button>
+  </section>
 
-<!-- 8 个核心字段 -->
-<div class="card">
-    <table class="table">
-        <thead>
-            <tr>
-                <th style="width:15%;">字段</th>
-                <th style="width:47%;">说明</th>
-                <th style="width:38%;">举例</th>
-            </tr>
-        </thead>
+  <div class="semantic-stats" aria-label="数据定义统计">
+    <div><strong>{{ counts.all }}</strong><span>全部定义</span></div>
+    <div><strong>{{ counts.active }}</strong><span>启用</span></div>
+    <div><strong>{{ counts.inactive }}</strong><span>已停用</span></div>
+    <div><strong>LeRobot v3</strong><span>当前结构基线</span></div>
+  </div>
+
+  <section class="semantic-panel semantic-reference">
+    <div class="semantic-section-head">
+      <div>
+        <span class="semantic-eyebrow">STRUCTURE REFERENCE</span>
+        <h3>平台当前读取的真实结构</h3>
+      </div>
+      <span class="semantic-note">只读参考，不修改数据集文件</span>
+    </div>
+    <div class="semantic-table-scroll">
+      <table class="semantic-table semantic-structure-table">
+        <thead><tr><th>层级</th><th>真实路径</th><th>关键字段</th><th>平台解释</th></tr></thead>
         <tbody>
-            {% for f in fields %}
-            <tr>
-                <td><strong>{{ f.name }}</strong></td>
-                <td>{{ f.desc }}</td>
-                <td style="color:#5a6b85;">{{ f.example }}</td>
-            </tr>
-            {% endfor %}
+          {% for item in structure %}
+          <tr>
+            <td><strong>{{ item.level }}</strong></td>
+            <td><code>{{ item.path }}</code></td>
+            <td>{{ item.fields }}</td>
+            <td>{{ item.meaning }}</td>
+          </tr>
+          {% endfor %}
         </tbody>
-    </table>
+      </table>
+    </div>
+    <p class="semantic-callout">Episode 总体 task 仍保存在 LeRobot 核心任务关系中；执行结果和 Subtask 等扩展信息保存在 <code>meta/annotations/</code>，不会破坏官方格式。</p>
+  </section>
+
+  <section class="semantic-category-grid" aria-label="词表类别">
+    {% for key, item in categories.items() %}
+    <article>
+      <div><span>{{ item.label }}</span><strong>{{ counts.categories[key] }}</strong></div>
+      <p>{{ item.description }}</p>
+      <code>{{ item.example }}</code>
+    </article>
+    {% endfor %}
+  </section>
+
+  <section class="semantic-panel">
+    <div class="semantic-section-head semantic-vocabulary-head">
+      <div>
+        <span class="semantic-eyebrow">CONTROLLED VOCABULARY</span>
+        <h3>平台受控词表</h3>
+      </div>
+      <p>停用会保留历史定义；当前版本不自动替换数据集中的自由文本。</p>
+    </div>
+    <form class="semantic-toolbar" method="get" action="/semantics/">
+      <label><span>搜索</span><input name="q" value="{{ query }}" placeholder="编号、编码、名称、说明或示例"></label>
+      <label><span>类别</span>
+        <select name="category">
+          <option value="all" {% if category_filter == 'all' %}selected{% endif %}>全部类别</option>
+          {% for key, item in categories.items() %}<option value="{{ key }}" {% if category_filter == key %}selected{% endif %}>{{ item.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label><span>状态</span>
+        <select name="status">
+          <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部状态</option>
+          {% for value, label in status_labels.items() %}<option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <button class="semantic-button semantic-button-secondary" type="submit">筛选</button>
+      {% if query or category_filter != 'all' or status_filter != 'all' %}<a href="/semantics/">清除条件</a>{% endif %}
+    </form>
+
+    <div id="semantic-feedback" class="semantic-feedback" role="status" hidden></div>
+    <div class="semantic-table-scroll">
+      <table class="semantic-table semantic-definition-table">
+        <thead><tr><th>编号 / 名称</th><th>类别</th><th>机器编码</th><th>说明 / 示例</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
+        <tbody>
+          {% for item in definitions %}
+          <tr>
+            <td><strong>{{ item.id }} · {{ item.name }}</strong><small>更新于 {{ item.updated_at|local_datetime }}</small></td>
+            <td><span class="semantic-category semantic-category-{{ item.category }}">{{ item.category_label }}</span></td>
+            <td><code>{{ item.code }}</code></td>
+            <td>
+              <span>{{ item.description or '未填写说明' }}</span>
+              <div class="semantic-examples">{% for example in item.examples %}<span>{{ example }}</span>{% else %}<small>暂无示例</small>{% endfor %}</div>
+            </td>
+            <td>{{ item.sort_order }}</td>
+            <td><span class="semantic-status semantic-status-{{ item.status }}">{{ item.status_label }}</span></td>
+            <td><div class="semantic-actions">
+              <button type="button" data-semantic-edit="{{ item.id }}">编辑</button>
+              {% if item.status == 'inactive' %}
+              <button type="button" data-semantic-activate="{{ item.id }}">恢复</button>
+              {% else %}
+              <button class="semantic-action-danger" type="button" data-semantic-deactivate="{{ item.id }}">停用</button>
+              {% endif %}
+            </div></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="7" class="semantic-empty">当前条件下没有数据定义。可以先建立场景、任务、动作或对象词条。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </div>
 
-<!-- Episode 文件结构 -->
-<div class="card">
-    <div style="font-size:15px;font-weight:700;color:#1a3c5e;margin-bottom:12px;">
-        📁 Episode 文件结构
-        <span style="font-size:12px;font-weight:400;color:#8896ab;background:#f0f2f5;padding:2px 10px;border-radius:12px;margin-left:8px;">结构化 + 非结构化 + 元信息</span>
+<dialog class="semantic-dialog" id="semantic-dialog">
+  <form id="semantic-form">
+    <div class="semantic-dialog-head">
+      <div><span class="semantic-eyebrow">VOCABULARY ITEM</span><h3 id="semantic-dialog-title">新建定义</h3></div>
+      <button type="button" id="semantic-dialog-close" aria-label="关闭">×</button>
     </div>
-
-    <div style="background:#f7f9fc;border-radius:8px;padding:18px 22px;font-family:Consolas,Monaco,monospace;font-size:13.5px;line-height:2;color:#1a2b4c;border:1px solid #e9edf4;">
-        <div style="font-weight:700;">episode_0001/</div>
-        {% for ef in episode_files %}
-        <div>
-            &nbsp;&nbsp;├── <span style="color:#2b7de9;">{{ ef.name }}</span>
-            <span style="color:#8896ab;font-family:'Microsoft YaHei',sans-serif;">&nbsp;&nbsp;# {{ ef.desc }}</span>
-        </div>
-        {% endfor %}
+    <input type="hidden" id="semantic-id">
+    <div class="semantic-form-grid">
+      <label>类别
+        <select id="semantic-category" required>
+          {% for key, item in categories.items() %}<option value="{{ key }}">{{ item.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>机器编码<input id="semantic-code" maxlength="64" pattern="[a-z][a-z0-9_]*" placeholder="例如 pick_and_place" required></label>
+      <label>显示名称<input id="semantic-name" maxlength="100" placeholder="例如 拾取并放置" required></label>
+      <label>排序值<input id="semantic-sort" type="number" min="0" max="9999" value="100" required></label>
+      <label class="semantic-form-wide">说明<textarea id="semantic-description" rows="3" maxlength="1000" placeholder="说明这个词条什么时候使用"></textarea></label>
+      <label class="semantic-form-wide">示例<textarea id="semantic-examples" rows="4" placeholder="每行一条，或使用英文逗号分隔；最多 20 条"></textarea></label>
+      <label>状态
+        <select id="semantic-status" required><option value="active">启用</option><option value="inactive">已停用</option></select>
+      </label>
     </div>
-
-    <div style="margin-top:14px;font-size:13px;color:#5a6b85;background:#fffbe6;border-left:3px solid #faad14;padding:10px 14px;border-radius:4px;">
-        💡 <strong>核心原则：</strong>结构化数据用 Parquet，非结构化数据用 MP4，元信息用 JSON。既紧凑，又便于训练时快速读取。
+    <p class="semantic-form-note">机器编码用于未来 API 和数据映射，创建后不能修改。新建词条不会自动改写 Raw/Derived 数据集。</p>
+    <div class="semantic-dialog-actions">
+      <button class="semantic-button semantic-button-secondary" type="button" id="semantic-cancel">取消</button>
+      <button class="semantic-button" type="submit" id="semantic-save">保存定义</button>
     </div>
-</div>
+  </form>
+</dialog>
 
-<!-- 核心价值 -->
-<div class="card" style="background:linear-gradient(135deg,#f0f7ff 0%,#f9f0ff 100%);border-left:4px solid #2b7de9;">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
-        <div style="font-size:14px;font-weight:700;color:#1a3c5e;">
-            🎯 核心价值：把“本体专属”信息剥离，只保留“任务级”抽象描述
-        </div>
-        <div style="font-size:13px;color:#2b7de9;background:#fff;padding:6px 14px;border-radius:16px;border:1px solid #d6e4ff;">
-            让不同机器人采集的数据能被同一套模型理解
-        </div>
-    </div>
-</div>
-
+<script id="semantic-records-json" type="application/json">{{ definitions|tojson }}</script>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/semantics.js?v=20261022a"></script>
 {% endblock %}

@@ -33,7 +33,8 @@
   映射、来源关系、质检任务和人工审核等管理元数据。
 - 当前真实数据格式以 LeRobot v3 为准。不要假定 LeRobot v2、ROS bag、MCAP、
   HDF5 或 RLDS 已经实现。
-- 当前没有登录鉴权和 HTTPS，只能开放到可信内网，禁止宣称可安全暴露到公网。
+- 当前已有 SQLite 用户、scrypt 密码哈希和服务端 Cookie 会话保护，但没有 HTTPS；
+  仍只能开放到可信内网，禁止宣称可安全暴露到公网。
 - 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。不同模型的训练环境继续使用
   独立镜像，不塞入平台容器。
 
@@ -41,6 +42,8 @@
 
 已连接真实文件或 SQLite 的功能：
 
+- `auth`：无默认账号的用户表、密码哈希、服务端会话、登录、退出和全站访问保护；
+- `robots`：独立机器人档案、稳定 RB 编号、新增/编辑、停用/恢复及同类型数据集统计；
 - `ingestion`：单个 LeRobot v3 ZIP 上传、批量包装接口、安全解压、Raw 入库和
   自动分配 DS 编号；
 - `datasets`：统一 DS 登记、Raw/Derived 列表、详情、显示信息、重新扫描、视频
@@ -57,11 +60,11 @@
 
 - `export` 独立页面仍使用演示常量，不是真实导出任务；
 - `conversion` 尚未实现；
-- 模型训练与评估、系统管理以及部分工作台/机器人页面仍属于框架或演示；
+- 模型训练与评估、系统管理以及部分工作台页面仍属于框架或演示；
 - 独立情景管理页面和 `/scenes/` 路由已按产品决定移除；未来场景分类归入数据
   定义，不重新建立独立情景管理模块；
-- `semantics` 目前仍是遗留“数据定义”占位路由；使用者已决定后续按当前真实
-  数据结构重新实现，本步骤尚未开始该功能。
+- `semantics`：真实 LeRobot v3 结构参考，以及带稳定 SD 编号的场景、任务、动作、
+  对象受控词表；当前不自动改写已有数据集或标注。
 
 Codex 不得因为页面能够打开就声称功能已完成。判断标准是：是否读取真实数据、
 是否有后端行为、是否有测试以及是否通过人工验收。
@@ -96,6 +99,9 @@ tests/                      自动化测试，结构尽量对应业务模块
 业务模块固定放置：
 
 - `app/modules/datasets/`：统一数据集登记、列表、详情与报告管理；
+- `app/modules/auth/`：登录/退出路由、Cookie 会话与全站访问保护；
+- `app/modules/robots/`：独立机器人档案，不连接或控制真实机器人；
+- `app/modules/semantics/`：LeRobot v3 结构参考和平台受控词表；
 - `app/modules/ingestion/`：ZIP 上传、校验和 Raw 入库；
 - `app/modules/annotation/`：Episode/task/Subtask 标注与发布；
 - `app/modules/processing/`：Episode 处理及 Derived 构建；
@@ -137,6 +143,8 @@ tests/                      自动化测试，结构尽量对应业务模块
 
 - 不得提交 `.env`、Token、密码、公司 VLM 地址、真实数据集、SQLite、报告、模型、
   导出包、缓存或日志。
+- 用户必须通过 `python -m app.cli.create_user` 在部署机交互创建；不得在源码、
+  Compose、文档或测试中加入默认账号及真实密码。
 - `.env.example` 只保存公开占位值；换设备时从它新建 `.env`。
 - `compose.yaml` 默认只绑定 `127.0.0.1:8000`；
   `deploy/compose.lan.yaml` 才负责可信局域网绑定；`compose.dev.yaml` 只增加源码热
