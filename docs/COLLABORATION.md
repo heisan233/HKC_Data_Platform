@@ -7,14 +7,15 @@
 架构规则以根目录 `AGENTS.md` 为准。本文件后面的按人分工与交接内容包含历史
 背景，不得用它覆盖当前集成源码。
 
-> 当前开发基线是 `integration/hs-lxp-v2`。`hs_docker`、`lxp_docker_v2` 与旧
-> `main` 只供查阅历史，直到使用者明确完成主分支切换。新 Codex 必须先读取
-> `AGENTS.md` 和 `docs/CODEX_CURRENT_STATE.md`。
+> 当前下一阶段开发分支是 `integration/hs-v2.1`，它从已验证的
+> `integration/hs-lxp-v2` 创建。`hs_docker`、`lxp_docker_v2` 与旧 `main` 只供
+> 查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
+> `docs/CODEX_CURRENT_STATE.md`。
 
 ## 一、项目当前状态
 
-- 当前集成工作位于 `integration/hs-lxp-v2`，基线来自 `main`，已合并双方功能；
-  验收完成前不直接覆盖 `main`。
+- 当前下一阶段开发工作位于 `integration/hs-v2.1`；它继承已经合并双方功能并
+  验证通过的 `integration/hs-lxp-v2`，验收完成前不直接覆盖 `main`。
 - Web 技术栈为 FastAPI、Uvicorn 和 Jinja2。
 - 原始数据上传、数据管理、质检、Episode/task/Subtask 标注和 Episode 数据处理
   已使用真实 LeRobot v3 文件及统一 DS 编号；其他预留模块仍可能只有框架页面。
@@ -28,14 +29,15 @@
 
 | 分支 | 当前用途 | 规则 |
 | --- | --- | --- |
-| `integration/hs-lxp-v2` | 双方已经合并且可运行的当前基线 | 新任务从这里开始；未授权不得覆盖 `main` |
+| `integration/hs-v2.1` | 下一阶段集成开发 | 登录、机器人管理、数据定义和工作台逐步开发验收 |
+| `integration/hs-lxp-v2` | 双方已经合并且可运行的稳定基线 | 保留为上一阶段回退点；未授权不得覆盖 `main` |
 | `main` | 未来验收后的稳定目标 | 当前仍落后于集成分支，不作为新功能起点 |
 | `hs_docker` | Heisan 合并前历史 | 只读参考，不把旧目录覆盖回集成分支 |
 | `lxp_docker_v2` | LXP 合并前历史 | 只读参考，不继续作为独立事实来源 |
 | `feat/platform-v2` | 最初目录重构历史 | 只读参考 |
 
-双方开始新任务前先获取最新 `integration/hs-lxp-v2`。如需并行开发，从这一基线
-创建范围明确的功能分支；完成后先提交并验证，再由双方审查集成。不要让两个
+本阶段双方开始新任务前先获取最新 `integration/hs-v2.1`。如需并行开发，从这一
+分支创建范围明确的功能分支；完成后先提交并验证，再由双方审查集成。不要让两个
 Codex 同时修改同一个共享文件，也不要让它们直接修改 `main`。
 
 ## 三、合并前历史分工：Heisan
@@ -211,6 +213,34 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-22
+
+开发者/分支：Heisan / `integration/hs-v2.1`
+
+完成内容：从已验证的 `integration/hs-lxp-v2` 创建下一阶段开发分支
+`integration/hs-v2.1`；按产品决定移除独立情景管理，包括 `/scenes/` 路由、全局
+导航入口、演示模块和模板。机器人管理继续保留；未来场景分类归入数据定义，不再
+建立独立情景管理模块。新增回归测试，明确 `/scenes/` 应返回 HTTP 404，并同步
+当前状态和项目目录说明。
+
+主要修改文件：`app/main.py`、`app/templates/base.html`、
+`tests/integration/test_pages.py`、`AGENTS.md`、`readme.md`、
+`docs/CODEX_CURRENT_STATE.md`、`docs/COLLABORATION.md`；删除
+`app/modules/scenes/` 和 `app/templates/scenes.html`。
+
+执行的验证：在最终集成镜像中以只读源码挂载运行 Ruff 0.16.8，全仓库
+`app tests` 检查通过；pytest 9.1.1 完整运行 48 项全部通过。保留一条来自
+Starlette/AnyIO 的既有上游弃用警告。
+
+未完成或已知问题：本步骤没有实现登录、真实机器人管理、数据定义或工作台；
+这些功能将在 `integration/hs-v2.1` 后续分步完成。代码尚未提交或推送。
+
+是否修改共享文件：是，删除路由注册并修改全局导航；没有修改 SQLite 表结构、
+数据集接口、Docker/Compose、真实数据或运行容器。
+
+下一步建议：审查本次删除差异后，再实现最小登录功能；登录接入时为 Docker 增加
+不受鉴权保护的 `/healthz`，并避免同时修改同事正在维护的数据管理页面。
 
 日期：2026-10-22
 

@@ -8,10 +8,11 @@
 
 ## 1. 从哪个版本开始工作
 
-当前共同基线：
+当前下一阶段开发分支：
 
 ```text
-分支：integration/hs-lxp-v2
+分支：integration/hs-v2.1
+来源：integration/hs-lxp-v2（已验证的上一阶段稳定基线）
 目录：HKC_Data_Platform_merge
 ```
 
@@ -59,9 +60,12 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
 | `/export/` | `export` | 目前只有演示常量，不能视为真实导出 |
 | `/training/` | `training` | 框架页面，未接入训练任务 |
-| `/robots/`、`/scenes/` | 对应模块 | 保留页面，暂未作为本轮重点实现 |
-| `/semantics/` | `semantics` | 遗留数据定义占位页，等待产品决定删除 |
+| `/robots/` | `robots` | 保留页面，真实管理功能尚待实现 |
+| `/semantics/` | `semantics` | 现为占位页，后续按当前真实数据结构重新实现 |
 | `/system/` | `system` | 框架页面 |
+
+独立情景管理页面已经按产品决定删除；`/scenes/` 当前应返回 HTTP 404。未来如果
+需要维护场景分类，统一纳入数据定义，不恢复独立情景管理模块。
 
 ## 3. 数据集生命周期
 

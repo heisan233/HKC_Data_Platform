@@ -39,9 +39,8 @@ HKC_Data_Platform_merge/
 │   │   ├── conversion/         # 数据集格式转换，当前尚未实现
 │   │   ├── training/           # 模型训练与评估接口，首期只保留框架
 │   │   ├── robots/             # 机器人管理
-│   │   ├── scenes/             # 情景管理
 │   │   ├── system/             # 系统管理
-│   │   ├── semantics/          # 遗留数据定义占位模块，等待删除决策
+│   │   ├── semantics/          # 数据定义占位模块，后续按真实数据结构实现
 │   │   ├── export/             # 独立导出占位页，真实业务尚未实现
 │   │   ├── models/             # v1 未注册页面，等待归并
 │   │   └── logs/               # v1 未注册页面，等待归并
@@ -538,7 +537,7 @@ return templates.TemplateResponse(
 
 Starlette 会把 `request` 放入模板上下文，因此不必再在 `context` 中重复传入。
 
-已更新以下全部 13 个路由文件：
+已更新以下全部 12 个现存路由文件：
 
 ```text
 routers/annotation.py
@@ -550,7 +549,6 @@ routers/models.py
 routers/preprocess.py
 routers/qc.py
 routers/robots.py
-routers/scenes.py
 routers/semantics.py
 routers/system.py
 routers/training.py
@@ -566,7 +564,6 @@ routers/training.py
 | `/dashboard/` | 工作台 | 200 |
 | `/semantics/` | 数据定义 | 200 |
 | `/robots/` | 机器人管理 | 200 |
-| `/scenes/` | 情景管理 | 200 |
 | `/data/` | 数据管理 | 200 |
 | `/preprocess/` | 数据预处理 | 200 |
 | `/qc/` | 数据质检 | 200 |
@@ -574,6 +571,9 @@ routers/training.py
 | `/export/` | 数据集导出 | 200 |
 | `/training/` | 模型训练 | 200 |
 | `/system/` | 系统管理 | 200 |
+
+独立情景管理已在 `integration/hs-v2.1` 删除，`/scenes/` 应返回 404；未来的场景
+分类归入数据定义。
 
 该验证确认已注册页面能返回并渲染 HTML，不代表页面按钮对应的业务功能已经实现。
 

@@ -18,7 +18,6 @@ from app.modules.ingestion import router as ingestion_router
 from app.modules.processing import router as processing_router
 from app.modules.quality import router as quality_router
 from app.modules.robots import router as robots_router
-from app.modules.scenes import router as scenes_router
 from app.modules.semantics import router as semantics_router
 from app.modules.system import router as system_router
 from app.modules.training import router as training_router
@@ -51,11 +50,6 @@ def create_app() -> FastAPI:
         robots_router.router,
         prefix="/robots",
         tags=["机器人管理"],
-    )
-    application.include_router(
-        scenes_router.router,
-        prefix="/scenes",
-        tags=["情景管理"],
     )
     application.include_router(
         datasets_router.router,
