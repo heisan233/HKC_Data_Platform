@@ -201,6 +201,22 @@ data_root = settings.data_root
 
 日期：2026-10-22
 
+开发者/分支：Codex / `integration/hs-lxp-v2.5`
+
+完成内容：只读盘点服务器 `z2g9` 的硬件、CUDA/LeRobot Conda 环境、VLA 策略导入与依赖、Docker 镜像/容器及宿主机挂载路径，并整理为根目录 `服务器配置.md`。明确区分模型代码可导入、GPU 基础运算可用与完整训练尚未验证。
+
+主要修改文件：`服务器配置.md`、`docs/COLLABORATION.md`。
+
+执行的验证：通过 SSH 读取系统、GPU、Python 包与 Docker 信息；PyTorch CUDA 张量运算成功；`lerobot-train --help` 可启动；逐个导入七类 VLA 模型模块；核对 Docker 容器挂载、Compose 目录及磁盘空间；文档完成后执行 `git diff --check`。
+
+未完成或已知问题：未下载基础权重、未用真实数据集运行训练。现有 Conda 环境有用户级包覆盖和依赖冲突；文档记录的是检查时快照，后续部署前需重新核实。
+
+是否修改共享文件：未修改 AGENTS.md 所列易冲突的应用或部署共享文件；仅新增盘点文档并更新本交接记录。
+
+下一步建议：先修复或重建训练环境，以 SmolVLA 和小型 LeRobot v3 数据集运行短步数训练；正式平台部署前设计独立训练执行器及 GPU 资源、数据路径映射。
+
+日期：2026-10-22
+
 开发者/分支：LXP / `integration/hs-lxp-v2.5`
 
 完成内容：按最新要求，转换结果不再进入数据集登记流程，也不分配新的 DS 编号。Raw/Derived 的既有 DS 登记方式保持不变；已完成的转换结果以 CV 任务编号关联 `converted/<CV 编号>/`，在 `/data/` 的独立“格式转换结果”区域展示。导出接口接受 Derived DS 或转换 CV 编号，压缩包仍写入 `storage/exports/`。已有的旧版 `converted_datasets` 表及文件保留，但不再用于新结果的登记、查询或展示。
