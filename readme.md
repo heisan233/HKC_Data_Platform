@@ -40,7 +40,7 @@ HKC_Data_Platform_v2/
 │   │   ├── scenes/             # 情景管理
 │   │   ├── system/             # 系统管理
 │   │   ├── semantics/          # v1 数据定义兼容模块，后续从导航移除
-│   │   ├── export/             # v1 导出兼容模块，后续并入 datasets
+│   │   ├── export/             # /export 页面与转换 API 入口
 │   │   ├── models/             # v1 未注册页面，等待归并
 │   │   └── logs/               # v1 未注册页面，等待归并
 │   ├── templates/              # Jinja2 HTML 模板
@@ -66,8 +66,8 @@ HKC_Data_Platform_v2/
 
 原始数据集上传、数据管理、Episode/task/Subtask 标注、Episode 数据处理
 和数据质检已经读写真实 LeRobot v3 文件。数据管理扫描真实存储目录，
-并通过 SQLite 分配 DS 编号；尚未实现的转换、导出和训练等页面仍可能使用
-演示常量。
+并通过 SQLite 分配 DS 编号；转换已接入真实 Derived 数据，打包导出结果保存到 `storage/exports/`，
+训练等页面仍可能使用演示常量。
 
 ### `modules` 与页面、按钮的关系
 
@@ -337,14 +337,34 @@ VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.pa
 为通过时须填写理由。报告首页显示三部分结论，点击后进入各自的双列详细结果；
 报告仅记录检查结果，不自动修改原始数据。
 
+### 数据格式转换与导出
+
+访问 `/export/`，先选择转换方案，再从已登记的 Derived 数据集选择来源 DS 编号。
+目前开放 LeRobot v3.0 → HDF5。页面展示进度；完成后结果以 CV 任务编号关联
+`converted/` 目录，在数据管理页的“格式转换结果”区域单独展示，不参与 DS 登记。
+页面提供“导出数据集”按钮：可选择已登记的 Derived 来源或转换结果，生成包含完整目录的 `tar.gz` 并下载；转换结果包包含
+`manifest.json` 和全部 `chunk_*.hdf5`。
+每个 HDF5 文件最多包含 10 个 Episode。来源只读，任务临时目录位于
+`storage/staging/conversion/`，成功结果位于 `storage/converted/<CV 编号>/`，
+导出时先在 `storage/staging/export/` 打包，再原子发布到 `storage/exports/`；相同文件快照复用已有压缩包。
+任务状态与结果管理元数据位于 SQLite 的 `storage/system/platform.sqlite`；旧 JSON 任务记录首次访问时复制入库并保留原文件。视频/图像帧转换为 JPEG，
+`meta/annotations/` 旁路标注作为元数据文件保存到 HDF5。
+
+接口为 `GET /export/api/profiles`、`GET /export/api/datasets`、`GET /export/api/exportable-datasets`、`POST /export/api/conversions`
+（JSON：`{"profile_id":"lerobot-v3-hdf5","source_dataset_id":"DS000001"}`）、`GET /export/api/conversions`、
+`GET /export/api/conversions/{task_id}` 和
+`GET /export/conversions/{task_id}/files/{filename}`，以及完整打包下载
+`GET /export/archive/{dataset_id}`（Derived 使用 DS 编号，转换结果使用 CV 编号）。
+
 ### 当前尚未完成
 
 - `ingestion` 已实现独立 ZIP 上传页；质检页批量上传已复用同一校验服务。
-- 机器人 HTTP 上传、`conversion` 与真实数据导出仍待实现。
+- 机器人 HTTP 上传仍待实现；格式转换读取已登记的 Derived 数据集，打包导出接受 Derived 的 DS 编号或转换结果的 CV 编号。
 - `app/db/` 已供数据集登记使用；`migrations/` 仍为后续结构升级预留。
 - 数据管理、质检、标注和数据处理已统一使用 DS 编号访问登记层。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
-- `semantics` 和独立 `export` 路由为迁移兼容而保留，后续按产品方案调整导航。
+- `/export/` 已提供已登记 Derived 数据集的 LeRobot v3.0 → HDF5 格式转换与
+  Derived/Converted 完整数据集打包下载。`semantics` 路由仍为迁移兼容而保留。
 
 ## 附录：v1 原型历史记录
 
@@ -569,7 +589,7 @@ routers/training.py
 | `/preprocess/` | 数据预处理 | 200 |
 | `/qc/` | 数据质检 | 200 |
 | `/annotation/` | 数据标注 | 200 |
-| `/export/` | 数据集导出 | 200 |
+| `/export/` | 格式转换与导出 | 200 |
 | `/training/` | 模型训练 | 200 |
 | `/system/` | 系统管理 | 200 |
 

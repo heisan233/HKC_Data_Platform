@@ -24,7 +24,7 @@ def robot_type_label(info: dict) -> str:
 
 def directory(root: Path, area: str, name: str) -> Path | None:
     """Resolve one direct child without following links outside its storage area."""
-    if area not in STORAGE_AREAS and area != "qc":
+    if area not in STORAGE_AREAS and area not in {"converted", "qc"}:
         return None
     if not name or name in {".", ".."} or Path(name).name != name or name.startswith("."):
         return None

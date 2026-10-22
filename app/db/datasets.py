@@ -98,6 +98,14 @@ class DatasetRepository:
             db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS datasets_location_idx
                 ON datasets(storage_area, storage_relpath)""")
             highest = db.execute("SELECT COALESCE(MAX(seq), 0) FROM datasets").fetchone()[0]
+            # Preserve numbers previously assigned to converted results without
+            # creating or writing that retired table on fresh installations.
+            legacy = db.execute("""SELECT 1 FROM sqlite_master
+                WHERE type='table' AND name='converted_datasets'""").fetchone()
+            if legacy:
+                highest = max(highest, db.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM converted_datasets"
+                ).fetchone()[0])
             current = db.execute("SELECT COALESCE(MAX(seq), 0) FROM dataset_numbers").fetchone()[0]
             if highest > current:
                 db.execute("INSERT INTO dataset_numbers(seq) VALUES (?)", (highest,))
@@ -105,13 +113,12 @@ class DatasetRepository:
     def list(self, storage_area: str | None = None) -> list[dict]:
         self.initialize()
         with self.connection() as db:
-            if storage_area is None:
-                rows = db.execute("SELECT * FROM datasets ORDER BY seq DESC").fetchall()
-            else:
-                rows = db.execute(
-                    "SELECT * FROM datasets WHERE storage_area=? ORDER BY seq DESC",
-                    (_area(storage_area),),
-                ).fetchall()
+            area = _area(storage_area) if storage_area else None
+            rows = db.execute(
+                "SELECT * FROM datasets ORDER BY seq DESC" if area is None else
+                "SELECT * FROM datasets WHERE storage_area=? ORDER BY seq DESC",
+                () if area is None else (area,),
+            ).fetchall()
         return [self._row(row) for row in rows]
 
     def get(self, dataset_id: str) -> dict | None:
@@ -122,10 +129,11 @@ class DatasetRepository:
 
     def by_location(self, storage_area: str, storage_relpath: str) -> dict | None:
         self.initialize()
+        area = _area(storage_area)
         with self.connection() as db:
             row = db.execute(
                 "SELECT * FROM datasets WHERE storage_area=? AND storage_relpath=?",
-                (_area(storage_area), _child_name(storage_relpath)),
+                (area, _child_name(storage_relpath)),
             ).fetchone()
         return self._row(row) if row else None
 

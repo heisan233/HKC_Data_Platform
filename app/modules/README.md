@@ -43,7 +43,7 @@ HTML/JavaScript 按钮
 压缩包安全检查和最低目录结构检查，然后写入 `storage/raw/` 并自动登记 DS 编号。
 单文件与质检页批量上传复用同一服务。这只是“上传入库”而不是完整数据质检。
 
-`datasets` 通过 `app/db/datasets.py` 管理统一 DS 编号到 Raw/Derived 真实目录的
+`datasets` 通过 `app/db/datasets.py` 管理统一 DS 编号到 Raw/Derived/Converted 真实目录的
 映射；只在数据管理页展示尚未登记的 Raw 目录，不会自动迁移旧文件。`quality` 的 `service.py` 负责方案版本、任务快照和统一
 报告，`robot_rules.py` 与 `vlm.py` 分别执行机器人专项与视频规则，
 Doctor 由服务层调用。数据集登记、质检任务和人工复核历史保存在
@@ -68,4 +68,11 @@ Pandas DataFrame 的 `task` 索引，`task_index` 是普通列；Episode 帧数�
 `data/chunk_index`、`data/file_index` 时从 frame Parquet 的 `episode_index`
 自动反查文件位置；派生输出会补齐当前标准字段，不修改原始数据。
 
-`conversion` 尚未实现；其他仍使用演示常量的模块不应视为已完成业务功能。
+`conversion` 目前提供 LeRobot v3.0 → HDF5 方案，页面按方案选择组织，便于后续增加
+其他转换器。服务通过统一 DS 编号读取已登记的 Derived 来源、校验文件清单并记录
+指纹，单线程后台生成最多每文件 10 个 Episode 的 HDF5；完成后将临时目录原子
+发布到 `converted/<CV 编号>/`，转换结果在数据管理页单独展示，不分配 DS 编号。转换任务使用独立 CV 编号，状态
+写入 SQLite；已有 `system/conversion-jobs/` JSON 记录在首次访问时复制入库，原文件
+保留。`/export/` 页面提供进度和数据集导出按钮，不提供转换结果详情入口。`export`
+服务可将已登记的 Derived 数据集或按 CV 编号定位的转换结果打包到 `storage/exports/`，再供浏览器
+下载。视频帧会转换成 JPEG，旁路标注元数据保存在 HDF5 元数据区。
