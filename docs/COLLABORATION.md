@@ -107,11 +107,12 @@ Codex 同时修改同一个共享文件，也不要让它们直接修改 `main`�
 
 - 页面与 API 归 `hs_docker` 维护，路由前缀为 `/preprocess/`。
 - 支持 Episode 筛除、按比例或编号拆分、结构完全兼容的数据集合并、完整顺序
-  重排，以及精确重复检测与去重。
+  重排、精确重复检测与去重，以及指定相机视频画面裁剪。
 - 所有输出先写入 `storage/staging/processing/`，校验后进入
   `storage/derived/`；源数据集不可原地修改。
 - 处理后重新映射 Episode、frame、全局 index、task index 和旁路标注；视频按
-  Episode 边界重新编码为独立 H.264 MP4。
+  Episode 边界重新编码为独立 H.264 MP4。画面裁剪对所选相机全部 Episode 使用
+  同一像素裁剪框，并同步更新 LeRobot v3 feature 的 shape 和视频宽高元数据。
 - 任务记录写入 `storage/system/processing-jobs/`，派生版本登记到
   `storage/system/dataset-versions/`，同时由 SQLite 统一登记层分配 DS 编号。
 - 精确重复判定只比较标准化 frame Parquet 指纹，不代表视频视觉相似度检测。
@@ -196,7 +197,7 @@ data_root = settings.data_root
 - 路由负责参数和响应，文件操作放入 service。
 - 上传文件名、压缩包内部路径和浏览器传来的路径都不可信。
 - 不提交真实数据、账号、密码、Token、`.env` 或其他运行状态。
-- 当前无鉴权，局域网访问不等于可以部署到公网。
+- 当前已有登录会话保护，但没有 HTTPS；局域网访问不等于可以部署到公网。
 
 ## 六、每次交接的固定格式
 
@@ -214,6 +215,39 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-22
+
+开发者/分支：Heisan / `integration/hs-v2.1`
+
+完成内容：按产品命名将导航和接口文档中的“数据预处理”统一改为“数据处理”，
+保留已有 `/preprocess/` 地址以避免破坏链接；在现有不可变派生处理链路中新增
+视频画面裁剪。使用者可选择相机和预览 Episode，直接在真实视频上移动裁剪框，
+或拖动四角、四边调整范围；切换 Episode 时保留同一裁剪框，精确像素坐标仍可在
+折叠设置中校准。裁剪框应用到该相机全部 Episode，其他相机保持原尺寸。输出重新
+编码为 H.264，并同步更新 LeRobot v3 feature 的 `shape`、`video.width` 与
+`video.height`。
+
+主要修改文件：`app/modules/processing/`、`app/templates/preprocess.html`、
+`app/static/css/processing.css`、`app/static/js/processing.js`、公共导航、
+`tests/integration/test_processing.py` 及当前状态与项目说明。
+
+执行的验证：数据处理专项测试使用真实合成 MP4，确认预览接口支持 HTTP Range、
+8×6 视频裁剪为 4×4、帧数保持、元数据同步、源视频不变，并确认越界裁剪安全失败
+且不留下 Derived 半成品；页面测试确认八个拖拽手柄完整渲染。全仓库 Ruff 检查
+通过，全部 `70 passed`，仅保留 1 条既有 Starlette/AnyIO 上游弃用警告。当前运行
+容器 `/healthz` 返回 200。
+
+未完成或已知问题：第一版一次任务只裁剪一个相机，且同一裁剪框应用于该相机的
+全部 Episode；不提供逐帧变化裁剪框、画面缩放或旋转。视频重编码耗时和磁盘占用
+随数据规模增长，任务仍在 Web 进程后台执行，容器重启不能续跑。内置验收浏览器
+无法路由到开发机私有网段，最终拖拽手感仍需使用者在本机浏览器人工确认。
+
+是否修改共享文件：修改公共导航、应用路由标签和文档；未修改 SQLite 表、DS 编号
+规则、上传、标注、质检或机器人模块，也没有新增 Python 依赖。
+
+下一步建议：使用真实小型数据集切换多个 Episode、拖动四角和整体移动裁剪框，
+再发布派生 DS 并播放结果；大规模使用前评估独立 Worker 和任务续跑。
 
 日期：2026-10-22
 

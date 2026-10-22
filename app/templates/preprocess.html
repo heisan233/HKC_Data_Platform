@@ -2,7 +2,7 @@
 {% block page_title %}数据处理{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="{{ url_for('static', path='/css/processing.css') }}?v=20261021-1">
+<link rel="stylesheet" href="{{ url_for('static', path='/css/processing.css') }}?v=20261022-2">
 {% endblock %}
 
 {% block content %}
@@ -10,7 +10,7 @@
     <div>
         <p class="processing-eyebrow">LEROBOT V3 · IMMUTABLE DERIVED DATASETS</p>
         <h2>数据处理工作台</h2>
-        <p>筛除、拆分、合并、重排或去重 Episode。所有操作只读取源数据，并生成新的派生数据集。</p>
+        <p>筛除、拆分、合并、重排、去重 Episode，或裁剪视频画面。所有操作只读取源数据，并生成新的派生数据集。</p>
     </div>
     <div class="safety-chip">🔒 原始数据不会被修改</div>
 </section>
@@ -54,6 +54,10 @@
             <label class="operation-card">
                 <input type="radio" name="operation" value="deduplicate">
                 <strong>重复检测与去重</strong><span>保留每组中编号最小的 Episode</span>
+            </label>
+            <label class="operation-card">
+                <input type="radio" name="operation" value="video_crop">
+                <strong>视频画面裁剪</strong><span>裁剪指定相机的画面区域</span>
             </label>
         </div>
 
@@ -102,6 +106,53 @@
             <div id="duplicate-report" class="duplicate-report">尚未扫描。</div>
         </div>
 
+        <div id="panel-video_crop" class="operation-config" hidden>
+            <h4>裁剪视频画面</h4>
+            <p class="config-help">在真实视频画面上拖动裁剪框。裁剪参数会应用到所选相机的全部 Episode，其他相机保持原尺寸。</p>
+            <div class="field-grid crop-source-fields">
+                <label>相机视频<select id="crop-video-key" class="processing-input"></select></label>
+                <label>预览 Episode<select id="crop-episode" class="processing-input"></select></label>
+            </div>
+            <div class="crop-preview-shell">
+                <div id="crop-preview-empty" class="crop-preview-empty">请选择包含视频的数据集。</div>
+                <div id="crop-stage" class="crop-stage" hidden>
+                    <video id="crop-video" muted playsinline preload="metadata"></video>
+                    <div id="crop-overlay" class="crop-overlay" aria-label="视频裁剪区域">
+                        <div id="crop-selection" class="crop-selection">
+                            <span id="crop-size-badge" class="crop-size-badge"></span>
+                            <i data-crop-handle="nw" aria-hidden="true"></i>
+                            <i data-crop-handle="n" aria-hidden="true"></i>
+                            <i data-crop-handle="ne" aria-hidden="true"></i>
+                            <i data-crop-handle="e" aria-hidden="true"></i>
+                            <i data-crop-handle="se" aria-hidden="true"></i>
+                            <i data-crop-handle="s" aria-hidden="true"></i>
+                            <i data-crop-handle="sw" aria-hidden="true"></i>
+                            <i data-crop-handle="w" aria-hidden="true"></i>
+                        </div>
+                    </div>
+                </div>
+                <div id="crop-playback" class="crop-playback" hidden>
+                    <button id="crop-play-toggle" type="button" class="secondary-button">播放</button>
+                    <input id="crop-timeline" type="range" min="0" max="0" value="0" step="0.01" aria-label="视频预览进度">
+                    <output id="crop-time">0.00 / 0.00s</output>
+                </div>
+            </div>
+            <div class="crop-summary-row">
+                <p id="crop-source-size" class="config-help">请选择带视频的数据集。</p>
+                <button id="crop-reset" type="button" class="text-button">重置为完整画面</button>
+            </div>
+            <details class="crop-advanced">
+                <summary>精确坐标与输出尺寸</summary>
+                <div class="field-grid crop-fields">
+                    <label>左边 X（像素）<input id="crop-x" class="processing-input" type="number" min="0" step="1" value="0"></label>
+                    <label>顶部 Y（像素）<input id="crop-y" class="processing-input" type="number" min="0" step="1" value="0"></label>
+                    <label>输出宽度（偶数）<input id="crop-width" class="processing-input" type="number" min="2" step="2"></label>
+                    <label>输出高度（偶数）<input id="crop-height" class="processing-input" type="number" min="2" step="2"></label>
+                </div>
+            </details>
+            <p class="crop-note">拖动框内可移动区域；拖动四角或四边可调整范围。当前输出只裁剪、不拉伸，宽高自动保持为 H.264 可编码的偶数。</p>
+        </div>
+
         <div class="release-box">
             <h4>派生版本信息</h4>
             <label class="processing-label" for="version-name">版本名称</label>
@@ -125,5 +176,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', path='/js/processing.js') }}?v=20261021-1" defer></script>
+<script src="{{ url_for('static', path='/js/processing.js') }}?v=20261022-2" defer></script>
 {% endblock %}

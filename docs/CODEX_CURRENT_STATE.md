@@ -59,7 +59,7 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/data/reports/` | `datasets` | 真实质检报告和回收站 |
 | `/ingestion/` | `ingestion` | 真实 LeRobot v3 ZIP 单个/批量上传 |
 | `/annotation/` | `annotation` | 真实 Episode/task/Subtask 标注 |
-| `/preprocess/` | `processing` | 真实 Episode 处理和派生版本生成 |
+| `/preprocess/` | `processing` | 真实数据处理、视频画面裁剪和派生版本生成 |
 | `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
 | `/export/` | `export` | 目前只有演示常量，不能视为真实导出 |
 | `/training/` | `training` | 框架页面，未接入训练任务 |
@@ -114,8 +114,10 @@ Raw/Derived 源 DS
 对象/结果。额外标注保存在派生数据集 `meta/annotations/`，不会破坏 LeRobot v3
 核心字段。
 
-处理已支持筛除、拆分、合并、重排和精确去重。合并/重排必须同步所有 Episode、
-frame、task、index、旁路标注和视频映射。
+处理已支持筛除、拆分、合并、重排、精确去重和指定相机视频画面裁剪。合并/重排
+必须同步所有 Episode、frame、task、index、旁路标注和视频映射；画面裁剪页面
+提供真实 Episode 视频预览、八向拖拽裁剪框和精确像素坐标，对该相机的全部
+Episode 重新编码 H.264，并同步更新 LeRobot v3 feature 宽高。
 
 ### 质检与报告
 

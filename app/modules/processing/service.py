@@ -18,6 +18,7 @@ from fractions import Fraction
 from pathlib import Path, PurePosixPath
 from string import Formatter
 from typing import Any
+from urllib.parse import quote
 from uuid import uuid4
 
 import numpy as np
@@ -29,7 +30,7 @@ from pyarrow import ipc
 
 from app.db.datasets import DatasetRepository
 from app.modules.datasets import service as datasets_service
-from app.modules.processing.schemas import ProcessingJobRequest
+from app.modules.processing.schemas import ProcessingJobRequest, VideoCropSpec
 
 DATASET_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 SPLIT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$")
@@ -456,14 +457,40 @@ def get_dataset_workspace(data_root: Path, dataset_id: str) -> dict[str, Any]:
     episodes = []
     for row in state.episode_rows:
         length = _episode_length(row)
+        episode_index = int(row["episode_index"])
+        videos: list[dict[str, Any]] = []
+        for video_key in _video_keys(state.info):
+            try:
+                _, start, end = _video_source_path(state, row, video_key)
+            except ProcessingError:
+                continue
+            videos.append(
+                {
+                    "camera": video_key,
+                    "start": start,
+                    "end": end,
+                    "url": (
+                        f"/preprocess/api/datasets/{quote(state.ref.dataset_id, safe='')}"
+                        f"/episodes/{episode_index}/video?camera={quote(video_key, safe='')}"
+                    ),
+                }
+            )
         episodes.append(
             {
-                "episode_index": int(row["episode_index"]),
+                "episode_index": episode_index,
                 "length": length,
                 "duration_seconds": round(length / fps, 3) if fps else None,
                 "task": _episode_task(row, state),
+                "videos": videos,
             }
         )
+    video_features: list[dict[str, Any]] = []
+    features = state.info.get("features")
+    if isinstance(features, dict):
+        for key in _video_keys(state.info):
+            feature = features.get(key)
+            width, height = _feature_video_dimensions(feature)
+            video_features.append({"key": key, "width": width, "height": height})
     return {
         "dataset": {
             "dataset_id": state.ref.dataset_id,
@@ -473,6 +500,7 @@ def get_dataset_workspace(data_root: Path, dataset_id: str) -> dict[str, Any]:
             "fps": state.info.get("fps"),
             "robot_type": state.info.get("robot_type") or "未声明",
             "video_keys": _video_keys(state.info),
+            "video_features": video_features,
         },
         "episodes": episodes,
     }
@@ -519,6 +547,48 @@ def _video_keys(info: dict[str, Any]) -> list[str]:
         for key, value in features.items()
         if isinstance(value, dict) and value.get("dtype") == "video"
     ]
+
+
+def _feature_video_dimensions(feature: Any) -> tuple[int | None, int | None]:
+    """从官方 LeRobot v3 feature 描述读取宽高。"""
+
+    if not isinstance(feature, dict):
+        return None, None
+    video_info = feature.get("info")
+    if isinstance(video_info, dict):
+        width = video_info.get("video.width")
+        height = video_info.get("video.height")
+        if width is not None and height is not None:
+            return int(width), int(height)
+    shape = feature.get("shape")
+    names = feature.get("names")
+    if not isinstance(shape, list) or len(shape) < 2:
+        return None, None
+    if isinstance(names, list) and "width" in names and "height" in names:
+        return int(shape[names.index("width")]), int(shape[names.index("height")])
+    return int(shape[1]), int(shape[0])
+
+
+def _set_feature_video_dimensions(feature: Any, *, width: int, height: int) -> None:
+    """同步 LeRobot v3 视频 feature 的 shape 与 video.info 尺寸。"""
+
+    if not isinstance(feature, dict):
+        return
+    shape = feature.get("shape")
+    names = feature.get("names")
+    if isinstance(shape, list) and len(shape) >= 2:
+        shape = list(shape)
+        if isinstance(names, list) and "width" in names and "height" in names:
+            shape[names.index("width")] = width
+            shape[names.index("height")] = height
+        else:
+            shape[0] = height
+            shape[1] = width
+        feature["shape"] = shape
+    video_info = feature.setdefault("info", {})
+    if isinstance(video_info, dict):
+        video_info["video.width"] = width
+        video_info["video.height"] = height
 
 
 def _replace_column(table: pa.Table, name: str, values: Any) -> pa.Table:
@@ -609,6 +679,24 @@ def _video_source_path(
     return source, start, end
 
 
+def resolve_episode_video(
+    data_root: Path,
+    dataset_id: str,
+    episode_index: int,
+    camera: str,
+) -> Path:
+    """解析处理工作台的视频预览文件，路径始终限制在已登记数据集内。"""
+
+    state = _load_state(resolve_dataset(data_root, dataset_id))
+    if camera not in _video_keys(state.info):
+        raise ProcessingError("请求的相机不存在。")
+    row = state.episode_by_index.get(episode_index)
+    if row is None:
+        raise ProcessingError("请求的 Episode 不存在。")
+    source, _, _ = _video_source_path(state, row, camera)
+    return source
+
+
 def _slice_video(
     source: Path,
     destination: Path,
@@ -617,7 +705,8 @@ def _slice_video(
     end: float,
     fps: float,
     expected_frames: int,
-) -> None:
+    crop: VideoCropSpec | None = None,
+) -> tuple[int, int]:
     """把共享视频中的一个 Episode 精确重编码为独立 MP4。"""
 
     try:
@@ -633,6 +722,13 @@ def _slice_video(
             input_stream = input_container.streams.video[0]
             width = int(input_stream.codec_context.width)
             height = int(input_stream.codec_context.height)
+            output_width = crop.width if crop else width
+            output_height = crop.height if crop else height
+            if crop and (crop.x + crop.width > width or crop.y + crop.height > height):
+                raise ProcessingError(
+                    f"裁剪区域超出视频尺寸：原视频 {width}×{height}，"
+                    f"裁剪框 x={crop.x}, y={crop.y}, {crop.width}×{crop.height}。"
+                )
             if input_stream.time_base is not None:
                 seek_offset = max(0, int(start / float(input_stream.time_base)))
                 input_container.seek(
@@ -644,8 +740,8 @@ def _slice_video(
 
             with av.open(str(temporary), mode="w", format="mp4") as output_container:
                 output_stream = output_container.add_stream("libx264", rate=rate)
-                output_stream.width = width
-                output_stream.height = height
+                output_stream.width = output_width
+                output_stream.height = output_height
                 output_stream.pix_fmt = "yuv420p"
                 written = 0
                 tolerance = 0.5 / fps
@@ -661,7 +757,20 @@ def _slice_video(
                         break
                     if written >= expected_frames:
                         break
-                    output_frame = frame.reformat(width=width, height=height, format="yuv420p")
+                    if crop:
+                        image = frame.to_ndarray(format="rgb24")
+                        cropped = image[
+                            crop.y : crop.y + crop.height,
+                            crop.x : crop.x + crop.width,
+                        ]
+                        output_frame = av.VideoFrame.from_ndarray(cropped, format="rgb24")
+                        output_frame = output_frame.reformat(format="yuv420p")
+                    else:
+                        output_frame = frame.reformat(
+                            width=width,
+                            height=height,
+                            format="yuv420p",
+                        )
                     output_frame.pts = written
                     output_frame.time_base = Fraction(1, 1) / rate
                     for packet in output_stream.encode(output_frame):
@@ -674,6 +783,7 @@ def _slice_video(
                 f"视频片段应包含 {expected_frames} 帧，实际解码到 {written} 帧。"
             )
         temporary.replace(destination)
+        return output_width, output_height
     except ProcessingError:
         temporary.unlink(missing_ok=True)
         raise
@@ -816,6 +926,7 @@ def _build_dataset(
     destination: Path,
     selections: list[EpisodeSelection],
     dataset_id: str,
+    video_crop: VideoCropSpec | None = None,
 ) -> dict[str, Any]:
     if not selections:
         raise ProcessingError("处理结果不能是空数据集。")
@@ -844,6 +955,8 @@ def _build_dataset(
     if fps <= 0:
         raise ProcessingError("数据集 FPS 必须大于 0。")
     video_keys = _video_keys(base.info)
+    if video_crop and video_crop.video_key not in video_keys:
+        raise ProcessingError(f"数据集不存在视频特征 {video_crop.video_key}。")
 
     writer = pq.ParquetWriter(data_path, base.data_schema, compression="snappy")
     try:
@@ -896,6 +1009,7 @@ def _build_dataset(
                     end=end,
                     fps=fps,
                     expected_frames=length,
+                    crop=video_crop if video_crop and video_crop.video_key == video_key else None,
                 )
                 row[f"videos/{video_key}/chunk_index"] = 0
                 row[f"videos/{video_key}/file_index"] = new_index
@@ -929,6 +1043,12 @@ def _build_dataset(
             feature = features.get(video_key)
             if not isinstance(feature, dict):
                 continue
+            if video_crop and video_crop.video_key == video_key:
+                _set_feature_video_dimensions(
+                    feature,
+                    width=video_crop.width,
+                    height=video_crop.height,
+                )
             video_info = feature.setdefault("info", {})
             if isinstance(video_info, dict):
                 video_info["video.codec"] = "h264"
@@ -1033,6 +1153,8 @@ def _operation_outputs(
 
     state = states[0]
     all_indexes = [int(row["episode_index"]) for row in state.episode_rows]
+    if operation == "video_crop":
+        return [("cropped", _selection(state, all_indexes))]
     if operation == "filter":
         removed = set(request.episode_indices)
         invalid = removed - set(all_indexes)
@@ -1174,7 +1296,7 @@ def _write_version_record(
 ) -> None:
     dataset_id = str(output["dataset_id"])
     version_name = str(job["version_name"])
-    if label not in {"filtered", "merged", "reordered", "deduplicated"}:
+    if label not in {"filtered", "merged", "reordered", "deduplicated", "cropped"}:
         version_name = f"{version_name} / {label}"
     _write_json_atomic(
         data_root / "system" / "dataset-versions" / f"{dataset_id}.json",
@@ -1234,6 +1356,7 @@ def run_job(data_root: Path, job_id: str) -> None:
                 destination=destination,
                 selections=selections,
                 dataset_id=storage_name,
+                video_crop=request.video_crop,
             )
             result["storage_name"] = storage_name
             result["label"] = label
@@ -1250,7 +1373,7 @@ def run_job(data_root: Path, job_id: str) -> None:
             source.replace(final)
             moved_paths.append(final)
             display_name = str(record["version_name"])
-            if label not in {"filtered", "merged", "reordered", "deduplicated"}:
+            if label not in {"filtered", "merged", "reordered", "deduplicated", "cropped"}:
                 display_name = f"{display_name} / {label}"
             registered = datasets_service.register_dataset(
                 data_root,

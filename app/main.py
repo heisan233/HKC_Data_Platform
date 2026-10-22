@@ -69,7 +69,7 @@ def create_app() -> FastAPI:
     application.include_router(
         processing_router.router,
         prefix="/preprocess",
-        tags=["数据预处理"],
+        tags=["数据处理"],
     )
     application.include_router(
         quality_router.router,

@@ -284,7 +284,7 @@ GET  /annotation/api/datasets/{dataset_id}/episodes/{episode_index}/video?camera
 POST /annotation/api/publish
 ```
 
-### Episode 数据处理（第一版）
+### 数据处理
 
 访问：
 
@@ -300,7 +300,15 @@ LeRobot v3 数据集，提供以下操作：
 3. 合并 FPS、机器人类型、features 及 Parquet schema 完全兼容的数据集；
 4. 按给定的完整排列重排 Episode；
 5. 根据去除全局 `index` 和 `episode_index` 后的 frame Parquet SHA-256 指纹检测
-   精确重复 Episode，并保留每组编号最小的一个。
+   精确重复 Episode，并保留每组编号最小的一个；
+6. 对指定相机的全部 Episode 使用统一像素区域裁剪画面，其他相机保持原尺寸。
+
+视频画面裁剪直接预览所选相机的真实 Episode 视频。裁剪框可整体移动，四角和
+四边均可拖动调整；切换 Episode 时保留同一裁剪框，便于确认它适用于整套数据。
+页面会把显示坐标换算为原始视频像素，精确 `X/Y/宽/高` 保留在折叠设置中。输出
+宽高必须为偶数且裁剪框不能超出源视频；平台会重新编码 H.264，并同步更新
+`meta/info.json` 中该视频 feature 的 `shape`、`video.width` 和 `video.height`。
+当前功能只裁剪、不拉伸画面，源数据集始终保持不变。
 
 读取端同时兼容平台早期生成的 v3 Episode 元数据：如果只有 `num_frames/task`，
 且缺少 `data/chunk_index`、`data/file_index`，平台会根据各 frame Parquet 中的
@@ -590,7 +598,7 @@ routers/training.py
 | `/semantics/` | 数据定义 | 200 |
 | `/robots/` | 机器人管理 | 200 |
 | `/data/` | 数据管理 | 200 |
-| `/preprocess/` | 数据预处理 | 200 |
+| `/preprocess/` | 数据处理 | 200 |
 | `/qc/` | 数据质检 | 200 |
 | `/annotation/` | 数据标注 | 200 |
 | `/export/` | 数据集导出 | 200 |

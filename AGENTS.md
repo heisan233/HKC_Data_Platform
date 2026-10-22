@@ -50,8 +50,8 @@
   访问、质检状态和报告管理；
 - `annotation`：真实 Episode/task/Subtask 读取、视频播放、标注以及完整派生数据集
   发布；
-- `processing`：Episode 筛除、拆分、兼容数据集合并、重排、精确重复检测和去重，
-  所有结果生成新的 Derived DS；
+- `processing`：Episode 筛除、拆分、兼容数据集合并、重排、精确重复检测、去重和
+  指定相机视频画面裁剪，所有结果生成新的 Derived DS；
 - `quality`：版本化质检方案、Doctor、机器人规则、VLM 调用、任务历史、人工审核、
   隐藏/恢复和 JSON 报告；
 - 报告回收站：报告只能移入 `storage/trash/reports/` 并恢复，不允许永久删除。
