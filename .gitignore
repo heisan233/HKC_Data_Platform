@@ -43,3 +43,6 @@ htmlcov/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+#tips
+tips.txt

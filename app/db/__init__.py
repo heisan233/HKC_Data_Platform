@@ -1,6 +1,7 @@
-"""未来的数据库访问代码预留目录。
+"""平台 SQLite 管理元数据的访问层。
 
-当前版本只使用文件夹保存数据集，程序没有连接 SQLite、PostgreSQL 或其他
-数据库，也不依赖本目录。这里不能放数据集或数据库文件；如果将来启用数据库，
-这里才会放连接、表模型和查询代码，真正的数据文件仍应放在 ``storage/``。
+``datasets.py`` 维护稳定 DS 编号与 Raw/Derived 真实目录的映射，``quality.py``
+维护质检方案、任务和人工审核。真正的数据库文件位于
+``storage/system/platform.sqlite``，大型数据集仍保存在 ``storage/raw`` 与
+``storage/derived``，不能放进本 Python 包或 SQLite。
 """

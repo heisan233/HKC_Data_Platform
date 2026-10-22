@@ -1,16 +1,18 @@
 # HKC 数采平台：环境配置与修改记录
 
-> 双人协作开发前，请先阅读根目录 `AGENTS.md` 和
-> `docs/COLLABORATION.md`。其中记录了分支分工、目录边界、当前任务、验收标准
-> 和 Codex 交接方式。
+> 双人协作开发前，请先阅读根目录 `AGENTS.md`、
+> `docs/CODEX_CURRENT_STATE.md` 和 `docs/COLLABORATION.md`。前两份是合并后的
+> 当前规则与事实，后一份保留交接记录。
 
-## Platform v2 开发基线
+## 当前集成开发基线
 
-本目录是通过 Git worktree 从 `origin/main` 创建的独立开发工作区，对应分支为
-`feat/platform-v2`。Git worktree 不是项目内部的代码目录结构，而是同一个 Git
-仓库的另一个检出目录：旧的 `HKC_Data_Platform` 可以继续保留在
-`hs_docker`，本目录则用于 Platform v2 的重构开发。两个目录共享 Git 历史，
-但工作区文件和当前分支相互独立。
+当前双方已经把原 `hs_docker` 与 `lxp_docker_v2` 的有效功能合并到
+`integration/hs-lxp-v2`，本目录 `HKC_Data_Platform_merge` 是当前共同工作区。
+在使用者明确完成验收并合入 `main` 前，旧 `main`、`hs_docker`、
+`lxp_docker_v2` 与 `feat/platform-v2` 只作为历史参考，不能用于覆盖当前目录。
+
+本目录仍是 Git worktree：它是同一仓库的独立检出目录，不是项目代码内部的一层
+结构。其他 worktree 可以保留，但每个目录有自己的当前分支和未提交文件。
 
 Platform v2 已完成第一轮目录迁移。现有演示页面被保留，但入口、路由、模板和
 静态资源已经移入 `app/`。后续功能应继续遵守下面的实际目录结构，避免重新在
@@ -21,7 +23,7 @@ Platform v2 已完成第一轮目录迁移。现有演示页面被保留，但�
 `migrations/` 仍是后续数据库结构升级预留目录。
 
 ```text
-HKC_Data_Platform_v2/
+HKC_Data_Platform_merge/
 ├── app/
 │   ├── main.py                 # FastAPI 应用入口，只负责组装应用和注册路由
 │   ├── web.py                  # 多个页面共享的 Jinja2 模板对象
@@ -29,18 +31,18 @@ HKC_Data_Platform_v2/
 │   ├── db/                     # 数据集登记 SQLite 访问代码
 │   ├── modules/                # 按业务能力组织代码，不与 HTML 严格一一对应
 │   │   ├── dashboard/          # 工作台
-│   │   ├── datasets/           # 数据集目录、详情、版本和导出
+│   │   ├── datasets/           # DS 登记、列表、详情、状态和报告
 │   │   ├── ingestion/          # 网页上传和机器人 HTTP 上传
 │   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
 │   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
 │   │   ├── annotation/         # Episode/task/Subtask 标注与派生发布
-│   │   ├── conversion/         # 数据集格式转换
+│   │   ├── conversion/         # 数据集格式转换，当前尚未实现
 │   │   ├── training/           # 模型训练与评估接口，首期只保留框架
 │   │   ├── robots/             # 机器人管理
 │   │   ├── scenes/             # 情景管理
 │   │   ├── system/             # 系统管理
-│   │   ├── semantics/          # v1 数据定义兼容模块，后续从导航移除
-│   │   ├── export/             # v1 导出兼容模块，后续并入 datasets
+│   │   ├── semantics/          # 遗留数据定义占位模块，等待删除决策
+│   │   ├── export/             # 独立导出占位页，真实业务尚未实现
 │   │   ├── models/             # v1 未注册页面，等待归并
 │   │   └── logs/               # v1 未注册页面，等待归并
 │   ├── templates/              # Jinja2 HTML 模板

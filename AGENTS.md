@@ -1,118 +1,177 @@
-# HKC 数采平台 Codex 协作规则
+# HKC 数采平台 Codex 开发规则
 
-本文件供参与本仓库开发的 Codex/ChatGPT 阅读。开始修改前，必须完整阅读本文件、
-`docs/COLLABORATION.md`、`readme.md` 和所负责模块内的 README。
+本文件是本仓库内所有 Codex/ChatGPT 的强制入口。开始修改前，必须依次完整阅读：
 
-## 当前共同基线
+1. `AGENTS.md`（本文件）；
+2. `docs/CODEX_CURRENT_STATE.md`（当前集成状态与目录说明）；
+3. `docs/COLLABORATION.md`（历史交接记录）；
+4. 所负责模块的 README 和测试。
 
-- `main` 是双方共同的结构基线和最终集成分支。
-- `hs_docker` 由 Heisan 使用，当前负责局域网访问、部署配置、原始数据集上传、
-  Episode/task/Subtask 数据标注和 Episode 数据处理。
-- `lxp_docker` 由 LXP 使用，当前负责数据管理页面与数据导出。
-- 两个开发分支开始任务前都必须基于最新 `main`；不要把旧分支目录整体复制回
-  新结构。
-- 未经使用者明确同意，Codex 不得删除分支、强制推送、重置历史或直接修改
-  `main`。
+如果旧聊天、旧分支或旧文档与当前工作区冲突，以当前分支源码、测试、本文件和
+`docs/CODEX_CURRENT_STATE.md` 为准。不要根据旧对话猜测项目状态。
 
-## 已确定的架构约束
+## 1. 当前共同基线
 
-1. 大型数据集和运行结果使用普通文件夹保存；SQLite 只保存 DS 编号映射、展示
-   信息、质检任务和人工审核等管理元数据，不保存 VLA 数据内容。
-2. 宿主机 `storage/` 挂载到容器 `/data`。业务代码通过
-   `app.core.config.settings.data_root` 获取根目录，禁止写死个人绝对路径。
-3. 原始数据集放在 `storage/raw/`，不得原地修改；派生结果放入 `derived/`。质检
-   结论由 SQLite 状态和 `reports/qc/` 报告表达，不复制完整数据集，也不使用
-   `detected/`。
-4. 当前不允许永久删除数据集或报告。报告移除后进入 `storage/trash/reports/`，
-   必须保留恢复能力，且不得删除对应质检任务和人工审核记录。
-5. 首期仍是一个应用镜像、一个应用容器，网页/API 与基础自检暂时同容器运行。
-6. `router.py` 只处理 HTTP 输入输出；扫描、导出、检查等实际功能放入同一业务
-   模块的 `service.py` 或明确的子模块。
-7. 真实数据集、模型、报告、密钥、Token、`.env` 和运行状态不得提交 Git。
+- 当前双方共同可运行基线是 `integration/hs-lxp-v2`，它已经合并 Heisan 与 LXP
+  两套实现。
+- 在使用者明确完成验收并将它合入 `main` 之前，`main` 不是当前功能基线。
+- `hs_docker`、`lxp_docker_v2`、`feat/platform-v2` 和更早分支只用于查看历史，
+  不得把其中的目录或文件整批覆盖回当前集成分支。
+- 开始工作前必须执行 `git status --short --branch` 和 `git log -1 --oneline`；
+  发现他人未提交修改时必须保留，不能重置、清理或覆盖。
+- 未经使用者明确授权，不得删除分支、强制推送、改写历史、直接合并到 `main`，
+  也不得提交或推送代码。
 
-## 依赖与部署规则
+## 2. 当前产品与技术事实
 
-- `pyproject.toml` 是 Python 直接依赖的唯一声明来源；应用代码直接导入的第三方包
-  必须在此固定版本。不要再维护一份容易漂移的 `requirements.txt`。
-- `Dockerfile` 只安装 Python 运行依赖和确实需要的系统包；当前 FFmpeg 用于视频
-  截取/重编码。不得在镜像中安装 CUDA、ROS 或训练模型依赖，VLA 训练环境继续
-  使用各自独立镜像。
-- 应用容器保持非 root 运行。部署时 `APP_UID`、`APP_GID` 应与持久化目录所有者
-  匹配；宿主机数据目录由 `HKC_STORAGE_PATH` 指定，容器内始终为 `/data`。
-- `compose.yaml` 是单容器、安全本机默认配置；`compose.dev.yaml` 只增加源码热
-  重载；`deploy/compose.lan.yaml` 只负责可信局域网端口绑定。不得把临时测试端口
-  或个人 IP 写进通用 Compose 文件。
-- `.env.example` 只保存公开占位值和安全默认值，不得出现真实公司地址、Token、
-  密码或个人绝对路径。实际 `.env` 不提交 Git。
-- 依赖或镜像变化至少验证 `docker compose config`、全新镜像构建、`pip check`、
-  健康检查和关键页面；Compose 覆盖必须分别验证默认、开发和局域网组合。
+- 技术栈：Python 3.11、FastAPI、Uvicorn、Jinja2、原生 JavaScript/CSS。
+- 当前部署形态：一个应用镜像、一个应用容器。网页/API、SQLite 登记和基础质检
+  暂时在同一容器中运行；没有 PostgreSQL、Redis 或独立 Worker。
+- 大型 VLA 数据集始终保存在普通文件夹中。SQLite 只保存稳定 DS 编号、真实目录
+  映射、来源关系、质检任务和人工审核等管理元数据。
+- 当前真实数据格式以 LeRobot v3 为准。不要假定 LeRobot v2、ROS bag、MCAP、
+  HDF5 或 RLDS 已经实现。
+- 当前没有登录鉴权和 HTTPS，只能开放到可信内网，禁止宣称可安全暴露到公网。
+- 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。不同模型的训练环境继续使用
+  独立镜像，不塞入平台容器。
 
-## 文件放置规则
+## 3. 已完成与未完成边界
 
-- FastAPI 入口和路由注册：`app/main.py`
-- 数据集管理业务：`app/modules/datasets/`
-- 上传业务：`app/modules/ingestion/`
-- 数据导出业务：`app/modules/export/`
-- Episode/task/Subtask 标注业务：`app/modules/annotation/`
-- Episode 筛除、拆分、合并、重排和去重：`app/modules/processing/`
-- 质检业务：`app/modules/quality/`
-- HTML：`app/templates/`
-- CSS、JavaScript、图片：`app/static/`
-- 部署和网络覆盖配置：`deploy/`
-- 测试：`tests/`，尽量与 `app/modules/` 的结构对应
+已连接真实文件或 SQLite 的功能：
 
-禁止重新在项目根目录创建 `data_catalog.py`、`data_management.py`、
-`dataset_store.py` 等业务文件。旧 `lxp_docker` 中的实现只能作为行为和界面参考，
-必须迁移进上述新结构。
+- `ingestion`：单个 LeRobot v3 ZIP 上传、批量包装接口、安全解压、Raw 入库和
+  自动分配 DS 编号；
+- `datasets`：统一 DS 登记、Raw/Derived 列表、详情、显示信息、重新扫描、视频
+  访问、质检状态和报告管理；
+- `annotation`：真实 Episode/task/Subtask 读取、视频播放、标注以及完整派生数据集
+  发布；
+- `processing`：Episode 筛除、拆分、兼容数据集合并、重排、精确重复检测和去重，
+  所有结果生成新的 Derived DS；
+- `quality`：版本化质检方案、Doctor、机器人规则、VLM 调用、任务历史、人工审核、
+  隐藏/恢复和 JSON 报告；
+- 报告回收站：报告只能移入 `storage/trash/reports/` 并恢复，不允许永久删除。
 
-## 分工边界
+仍是占位或未完整实现的功能：
 
-### Heisan / `hs_docker`
+- `export` 独立页面仍使用演示常量，不是真实导出任务；
+- `conversion` 尚未实现；
+- 模型训练与评估、系统管理以及部分工作台/机器人/情景页面仍属于框架或演示；
+- `semantics` 是遗留“数据定义”占位路由，不应继续扩展，是否删除由使用者决定。
 
-- 让本机平台能够被可信局域网内其他机器访问。
-- 实现完整 LeRobot v3 ZIP 的网页/API 上传、安全检查和原始区入库。
-- 默认的本机安全访问方式应继续保留；局域网开放优先通过 `deploy/` 下的独立
-  Compose 覆盖配置实现。
-- 当前没有登录鉴权，因此不得配置或宣称为公网可安全访问。
-- 负责相应 Docker、Compose、端口、防火墙和部署说明。
-- 上传临时内容放入 `storage/staging/`；通过校验后才能进入 `storage/raw/`，
-  不得修改已经入库的原始数据。
-- 维护 `/annotation/` 的 LeRobot v3 Episode/task/Subtask 标注功能。正式发布必须创建
-  `storage/derived/` 下的完整派生副本，并同步任务表、Episode 元数据和 frame
-  数据中的 task 索引；Episode 执行结果和 Subtask 时间段保存在
-  `meta/annotations/` 平台旁路文件中，不得原地修改 `raw/` 或既有派生版本。
-- 维护 `/preprocess/` 的 LeRobot v3 Episode 处理功能。筛除、拆分、合并、重排和
-  去重都必须生成 `storage/derived/` 下的完整派生数据集；处理任务先写入
-  `storage/staging/processing/`，不得原地修改任何源数据集。
+Codex 不得因为页面能够打开就声称功能已完成。判断标准是：是否读取真实数据、
+是否有后端行为、是否有测试以及是否通过人工验收。
 
-### LXP / `lxp_docker`
+## 4. 目录与职责
 
-- 以最新 `main` 的目录结构为基础开发。
-- 将数据管理界面调整为旧 `lxp_docker` 的样貌，并迁移仍符合当前需求的功能。
-- 增加数据导出；导出结果写入 `storage/exports/`，不得修改原始数据。
-- 数据管理页可以链接到 `/ingestion/`，但上传校验和入库代码由 `hs_docker`
-  维护；如需调整上传接口，先在协作文档中同步。
-- 不得把旧版 SQLite 表结构、永久清除、根目录业务文件或旧 Worker 耦合原样迁回；
-  数据管理须使用当前统一登记层。
-- 数据来源必须适配当前文件夹存储方案。
+```text
+app/
+├── main.py                 FastAPI 入口，只注册路由和静态目录
+├── web.py                  共享 Jinja2 模板对象
+├── core/                   路径、配置等跨模块基础能力
+├── db/                     SQLite 访问代码，不存放数据库文件
+├── modules/                按业务能力组织 Python 代码
+├── templates/              Jinja2 HTML 模板
+└── static/                 CSS、JavaScript 和网页图片
 
-## 容易冲突的共享文件
+storage/                    宿主机运行数据；真实内容不提交 Git
+├── raw/                    上传后不可原地修改的原始数据集
+├── derived/                标注或处理生成的完整派生数据集
+├── staging/                上传、标注、处理时的临时内容
+├── reports/qc/             质检 JSON 报告
+├── trash/reports/          可恢复的报告回收站
+├── exports/                未来的真实导出产物
+└── system/                 SQLite、上传记录、版本和任务记录
 
-修改下列文件前，应先在 `docs/COLLABORATION.md` 的交接记录中说明并通知另一方：
+deploy/                     局域网 Compose 覆盖和部署说明
+docs/                       架构、协作和当前状态文档
+migrations/                 未来 SQLite 表结构升级脚本，不是旧数据仓库
+tests/                      自动化测试，结构尽量对应业务模块
+```
 
-- `app/main.py`
-- `app/templates/base.html`
-- `app/core/config.py` 与 `app/core/paths.py`
-- `compose.yaml`、`compose.dev.yaml`、`Dockerfile`
-- `pyproject.toml`
-- `.gitignore`、`.dockerignore`
+业务模块固定放置：
 
-不要为了整理代码顺手修改对方负责范围内的文件。
+- `app/modules/datasets/`：统一数据集登记、列表、详情与报告管理；
+- `app/modules/ingestion/`：ZIP 上传、校验和 Raw 入库；
+- `app/modules/annotation/`：Episode/task/Subtask 标注与发布；
+- `app/modules/processing/`：Episode 处理及 Derived 构建；
+- `app/modules/quality/`：质检方案、规则、VLM、任务和报告；
+- `app/modules/export/`：未来真实导出功能；
+- `app/modules/conversion/`：未来格式转换。
 
-## 最低验证要求
+禁止在项目根目录重新创建 `data_catalog.py`、`data_management.py`、
+`dataset_store.py` 或其他业务 Python 文件。
 
-- 修改前确认当前分支和工作区状态。
-- Python 改动至少完成语法/导入检查和相关页面或 API 验证。
-- Docker 配置改动必须运行 `docker compose config`。
-- 不得用真实业务数据作为提交到 Git 的测试样本。
-- 完成任务后更新 `docs/COLLABORATION.md` 的交接记录，列出改动、验证和未完成项。
+## 5. 模块内部规则
+
+- `router.py`：HTTP 参数、状态码、页面/API 响应；不得堆放复杂文件处理。
+- `service.py`：业务流程、文件扫描、构建、校验和外部调用。
+- `schemas.py`：Pydantic 请求/响应结构。
+- `app/db/*.py`：SQLite 表初始化和查询。
+- `templates/` 决定页面结构，`static/js/` 负责浏览器交互；业务数据必须通过模块
+  API 获得，不能只在 JavaScript 中伪造。
+- 共享 LeRobot v3 元数据读取逻辑优先放在
+  `app/modules/datasets/lerobot_v3.py`，不要在标注、处理、质检中各写一套。
+
+## 6. 数据与 DS 编号规则
+
+- 浏览器/API 对数据集使用 `DS000001` 形式的稳定编号，不直接暴露真实目录作为
+  主标识。
+- SQLite 文件位于 `storage/system/platform.sqlite`，映射 DS 编号到
+  `raw/<目录>` 或 `derived/<目录>`；数据集字节不写入 SQLite。
+- 业务代码通过 `app.core.config.settings.data_root` 取得数据根目录，禁止写死
+  `/home/...`、项目绝对路径或宿主机的 `storage/`。
+- 容器内数据根目录始终是 `/data`；宿主机由 `HKC_STORAGE_PATH` 映射。
+- `raw/` 不得原地修改。标注、筛除、拆分、合并、重排和去重必须在
+  `staging/` 生成完整副本，校验后移入 `derived/` 并登记新 DS 编号。
+- 合并或重排时必须同步 Episode 元数据、frame Parquet、全局 `index`、
+  `episode_index`、task 索引、旁路标注以及必要的视频映射。
+- `detected/` 已废止。质检状态由 SQLite 与 `reports/qc/` 表达，不复制完整数据集。
+- 当前不允许永久删除数据集或报告。
+
+## 7. Git、密钥与配置
+
+- 不得提交 `.env`、Token、密码、公司 VLM 地址、真实数据集、SQLite、报告、模型、
+  导出包、缓存或日志。
+- `.env.example` 只保存公开占位值；换设备时从它新建 `.env`。
+- `compose.yaml` 默认只绑定 `127.0.0.1:8000`；
+  `deploy/compose.lan.yaml` 才负责可信局域网绑定；`compose.dev.yaml` 只增加源码热
+  重载。
+- 个人 IP、代理和临时镜像源不能写入通用 Compose 文件。
+- `pyproject.toml` 是 Python 直接依赖的唯一来源，不再维护第二份
+  `requirements.txt`。
+- 应用容器保持非 root。`APP_UID`、`APP_GID` 应与持久化目录所有者匹配。
+
+## 8. 当前维护边界
+
+合并后双方都基于同一套代码工作，但默认维护边界仍用于减少冲突：
+
+- Heisan：上传、标注、Episode 处理、Docker/Compose、局域网与服务器部署；
+- LXP：数据管理页面、数据集详情、报告展示以及后续真实导出；
+- 共同评审：`app/db/`、统一 DS 接口、质检状态、`app/main.py`、`base.html`、
+  `pyproject.toml`、Docker/Compose 和存储规范。
+
+跨边界修改不是禁止，但必须先说明原因、接口影响和验证方式。不要为了格式化或
+整理顺手修改对方模块。
+
+## 9. 容易冲突的共享文件
+
+修改下列文件前先检查另一位开发者的工作，并在交接记录中说明：
+
+- `app/main.py`、`app/web.py`；
+- `app/templates/base.html`；
+- `app/core/config.py`、`app/core/paths.py`；
+- `app/db/`；
+- `compose.yaml`、`compose.dev.yaml`、`deploy/compose.lan.yaml`、`Dockerfile`；
+- `pyproject.toml`、`.gitignore`、`.dockerignore`；
+- `storage/README.md` 和统一 DS/LeRobot 读取代码。
+
+## 10. 最低验证与交接
+
+- Python 改动至少运行相关测试和 Ruff 检查；共享逻辑改动运行完整测试。
+- Docker 配置改动必须验证默认、开发和局域网三种 Compose 组合。
+- 测试必须使用隔离的临时 `HKC_DATA_ROOT`，不得修改真实 `storage/`。
+- 不得用真实业务数据作为 Git 测试样本。
+- 完成后更新 `docs/COLLABORATION.md` 顶部交接记录，写清改动、验证、已知问题和
+  是否修改共享接口。
+- 汇报时区分“代码已写”“自动化测试通过”“本机人工验证通过”“服务器验收通过”，
+  不得把其中一种说成全部完成。
