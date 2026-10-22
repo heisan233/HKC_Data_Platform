@@ -264,10 +264,12 @@ HKC_LAN_BIND_ADDRESS=192.168.123.45 \
 如果只改一个业务模块，可先运行其相关测试；修改 DB、共享 LeRobot 读取、配置或
 Compose 时必须运行完整测试。测试使用临时目录，绝不能指向真实 `storage/`。
 
-2026-10-22 的 `integration/hs-v2.1` 工作树基线已完成上述验证：Ruff 0.16.8
-全部通过，pytest 9.1.1 为 `66 passed`（另有 1 条 Starlette/AnyIO 上游弃用
-警告）；默认、开发和局域网三种 Compose 配置均通过解析。当前开发容器健康，
-但正式生产镜像仍需在提交前重新构建并执行不挂载源码的验收。
+2026-10-22 的 `integration/hs-v2.1` 功能冻结基线已完成上述验证：Ruff 0.16.8
+全部通过，pytest 9.1.1 为 `70 passed`（另有 1 条 Starlette/AnyIO 上游弃用
+警告）；8 个 JavaScript 文件与默认、开发、局域网三种 Compose 配置均通过检查。
+当前开发容器健康，受控重启后 SQLite 和用户记录保持不变。详细结果见
+`docs/LOCAL_ACCEPTANCE_2026-10-22.md`。正式生产镜像仍需在下一次代码合并完成后
+重新构建，并执行不挂载源码的验收。
 
 结束时报告：
 
