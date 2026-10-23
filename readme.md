@@ -25,7 +25,7 @@ Platform v2 已完成目录迁移，并已接入登录、上传、数据管理�
 `migrations/` 仍是后续数据库结构升级预留目录。
 
 ```text
-HKC_Data_Platform_merge/
+HKC_Data_Platform_v3.0/
 ├── app/
 │   ├── main.py                 # FastAPI 应用入口，只负责组装应用和注册路由
 │   ├── web.py                  # 多个页面共享的 Jinja2 模板对象

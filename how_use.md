@@ -13,7 +13,7 @@
 ## 一、同事第一次拉取并构建集成分支
 
 本节适用于同事在另一台 Ubuntu 电脑或服务器上第一次部署
-`integration/hs-v2.1`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
+`integration/hs-lxp-v3.0`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
 SQLite、报告、模型或其他 `storage/` 运行数据。
 
 ### Git 会带来什么
@@ -48,6 +48,7 @@ Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设�
 | 变量 | 用途 | 修改后需要什么操作 |
 | --- | --- | --- |
 | `HKC_STORAGE_PATH` | 宿主机持久化目录 | 重新创建容器，并确认目标磁盘已挂载 |
+| `HKC_IMAGE` | Compose 使用的应用镜像标签 | 重新创建容器；离线部署保持 `hkc-data-platform:v3.0-server` |
 | `APP_UID`、`APP_GID` | 构建镜像内的非 root 用户 | 必须重新构建镜像；对已加载的离线镜像无效 |
 | `PIP_INDEX_URL`、`PIP_DEFAULT_TIMEOUT` | 构建时下载 Python 包 | 只在重新构建镜像时使用 |
 | `HKC_LAN_BIND_ADDRESS` | 绑定当前设备的可信内网 IPv4 | 使用局域网覆盖配置重新创建容器 |
@@ -62,7 +63,7 @@ Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设�
 同事开始拉取前，分支负责人必须先在当前开发机完成代码审查、提交和推送：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_merge
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0
 git status --short --branch
 git log -3 --oneline --decorate
 ```
@@ -70,7 +71,7 @@ git log -3 --oneline --decorate
 只有工作区修改已经提交，并且执行以下命令成功后，另一台机器才能取得最新版本：
 
 ```bash
-git push origin integration/hs-v2.1
+git push origin integration/hs-lxp-v3.0
 ```
 
 不要为了推送而执行 `git reset`、`git clean` 或强制覆盖远程分支。需要提交哪些
@@ -94,11 +95,11 @@ mkdir -p ~/vscode_project/HKC
 cd ~/vscode_project/HKC
 
 git clone \
-  --branch integration/hs-v2.1 \
+  --branch integration/hs-lxp-v3.0 \
   https://github.com/heisan233/HKC_Data_Platform.git \
-  HKC_Data_Platform_merge
+  HKC_Data_Platform_v3.0
 
-cd HKC_Data_Platform_merge
+cd HKC_Data_Platform_v3.0
 git status --short --branch
 git log -1 --oneline --decorate
 ```
@@ -106,16 +107,16 @@ git log -1 --oneline --decorate
 如果同事电脑上已经有这个仓库，不要再次克隆。在工作区没有未提交修改的前提下：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_merge
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0
 git fetch origin
-git switch integration/hs-v2.1
-git pull --ff-only origin integration/hs-v2.1
+git switch integration/hs-lxp-v3.0
+git pull --ff-only origin integration/hs-lxp-v3.0
 ```
 
 如果本地还没有同名分支，则使用：
 
 ```bash
-git switch --track origin/integration/hs-v2.1
+git switch --track origin/integration/hs-lxp-v3.0
 ```
 
 `--ff-only` 会在本地与远程已经分叉时停止，避免自动制造意外合并。遇到这种情况先
@@ -195,35 +196,29 @@ PIP_DEFAULT_TIMEOUT=120
 把镜像压缩包和 `.sha256` 文件放在服务器额外硬盘后，先进入文件所在目录校验：
 
 ```bash
-sha256sum --check hkc-data-platform-v2-20261021-amd64.tar.gz.sha256
+sha256sum --check hkc-data-platform-v3.0-server-amd64.tar.gz.sha256
 ```
 
 只有结果显示“成功”后才导入：
 
 ```bash
-gzip -dc hkc-data-platform-v2-20261021-amd64.tar.gz | docker load
+docker load --input hkc-data-platform-v3.0-server-amd64.tar.gz
 ```
 
 当前离线包中的正式标签是：
 
 ```text
-hkc-data-platform:v2-20261021
+hkc-data-platform:v3.0-server
 ```
 
 该离线镜像已经固定为 `linux/amd64` 和 UID/GID `1000:1000`。服务器的持久化目录
 必须允许 `1000:1000` 写入；单独修改 `.env` 中的 `APP_UID/APP_GID` 不会改变已经
 构建完成的镜像。UID/GID 不匹配时应重新构建镜像，不要让应用容器改成 root。
 
-项目 `compose.yaml` 默认使用 `hkc-data-platform:v2`，因此导入后需要建立部署标签：
+项目 `compose.yaml` 默认使用同一标签，因此导入后不需要再次 `docker tag`。确认镜像存在：
 
 ```bash
-docker tag hkc-data-platform:v2-20261021 hkc-data-platform:v2
-```
-
-确认镜像存在：
-
-```bash
-docker image inspect hkc-data-platform:v2 \
+docker image inspect hkc-data-platform:v3.0-server \
   --format 'ID={{.Id}} OS={{.Os}} ARCH={{.Architecture}} USER={{.Config.User}}'
 ```
 
@@ -237,7 +232,7 @@ docker compose \
   up -d --no-build --force-recreate --wait
 ```
 
-注意：把 366 MB 压缩包放到额外硬盘，并不表示 Docker 解压后的镜像也在额外
+注意：把约 378 MB 压缩包放到额外硬盘，并不表示 Docker 解压后的镜像也在额外
 硬盘。执行 `docker load` 前必须确认 Docker/Containerd 的实际数据目录有足够空间；
 不要手工移动 `/var/lib/docker` 或 `/var/lib/containerd`。
 
@@ -340,7 +335,7 @@ docker run --rm \
   --workdir /workspace \
   --env HKC_DATA_ROOT=/tmp/hkc-test-data \
   --env PIP_INDEX_URL=https://pypi.org/simple \
-  hkc-data-platform:v2 \
+  hkc-data-platform:v3.0-server \
   sh -lc '
     python -m pip install --user --no-cache-dir pytest==9.1.1 ruff==0.16.8 &&
     /home/appuser/.local/bin/ruff check --no-cache app tests &&
@@ -348,7 +343,7 @@ docker run --rm \
   '
 ```
 
-当前 `integration/hs-v2.1` 基线的预期结果是 Ruff 全部通过、pytest `66 passed`。一条来自
+当前 `integration/hs-lxp-v3.0` 基线的预期结果是 Ruff 全部通过、pytest `76 passed`。一条来自
 Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取项目 `.env`；
 如果官方 PyPI 较慢，可将测试命令中的地址明确替换成前述中科大地址。
 
@@ -359,7 +354,7 @@ Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取
 ```bash
 git status --short --branch
 git fetch origin
-git pull --ff-only origin integration/hs-v2.1
+git pull --ff-only origin integration/hs-lxp-v3.0
 ```
 
 普通 Python/HTML/CSS 修改在开发模式下通常会热重载；如果更新包含 Dockerfile、
@@ -377,7 +372,7 @@ docker compose \
 打开终端，进入包含 `compose.yaml` 的项目根目录：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_merge
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0
 ```
 
 确认位置正确：
@@ -671,7 +666,7 @@ docker compose \
 如果只是 IP 改变，按下面执行即可：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_merge
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0
 
 ip -br -4 address show
 

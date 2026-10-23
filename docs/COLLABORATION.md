@@ -219,6 +219,37 @@ data_root = settings.data_root
 
 ### 当前交接记录
 
+日期：2026-10-23
+
+开发者/分支：Heisan / `integration/hs-lxp-v3.0`
+
+完成内容：生成并验收 `linux/amd64` 服务器部署镜像
+`hkc-data-platform:v3.0-server`。基础镜像复用本机上次从 DaoCloud 获取、同时带有
+官方标签的 Python 3.11 slim 缓存；Python 依赖使用中科大镜像源构建。Compose
+默认镜像改为可由 `HKC_IMAGE` 覆盖的 v3.0 标签，离线导入和服务器 `--no-build`
+步骤已更新。最终 gzip、SHA-256 和说明文件位于项目外的 `docker-images/`。
+
+主要修改文件：`compose.yaml`、`.env.example`、`how_use.md`、
+`deploy/README.md`、`readme.md`、本交接记录；镜像产物不进入 Git。
+
+执行的验证：镜像为 `linux/amd64`、Python 3.11.17、非 root uid/gid 1000；
+`pip check`、h5py/Pillow/核心依赖导入、FFmpeg 和 lerobot-doctor 通过。一次性只读
+源码容器中 Ruff 0.16.8 全部通过，pytest 9.1.1 为 `76 passed`，仅 1 条上游弃用
+警告。三种 Compose 解析通过；不挂载源码的生产式容器 healthy，健康接口 200、
+未登录页面 303、API 401、静态资源 200、`/data` 可写。最终压缩包已通过 gzip、
+SHA-256 和 `docker load` 验证。
+
+未完成或已知问题：尚未复制到目标服务器，也未在服务器实际额外硬盘和局域网地址
+上启动。镜像固定 uid/gid 1000；目标持久化目录必须允许 1000:1000 写入。首次大
+数据转换/导出仍需在服务器确认磁盘空间和处理时间。
+
+是否修改共享文件：修改 Compose 默认镜像标签与公开环境变量模板；不修改应用
+业务、SQLite 表、DS/CV 编号或真实数据。
+
+下一步建议：审查并提交本轮部署配置和文档，推送 v3.0 分支；随后把镜像包、
+校验文件、同提交项目目录和服务器自己的 `.env` 送到目标机，使用 `--no-build`
+完成服务器验收。
+
 日期：2026-10-22
 
 开发者/分支：Heisan + LXP / `integration/hs-lxp-v3.0`

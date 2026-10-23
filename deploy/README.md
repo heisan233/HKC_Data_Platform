@@ -102,7 +102,7 @@ docker compose \
   up -d --build --wait
 ```
 
-内网服务器不挂载源码，只运行镜像中的代码：
+内网服务器不挂载源码。服务器可联网构建时运行：
 
 ```bash
 docker compose \
@@ -110,6 +110,19 @@ docker compose \
   -f deploy/compose.lan.yaml \
   up -d --build --wait
 ```
+
+如果服务器已经通过 `docker load` 导入 `hkc-data-platform:v3.0-server`，则不要重新
+联网构建，使用：
+
+```bash
+docker compose \
+  -f compose.yaml \
+  -f deploy/compose.lan.yaml \
+  up -d --no-build --force-recreate --wait
+```
+
+`compose.yaml` 默认使用 `hkc-data-platform:v3.0-server`；如需使用其他受控标签，只在
+部署机 `.env` 中设置 `HKC_IMAGE`。
 
 在另一台同网段机器的浏览器中访问：
 
