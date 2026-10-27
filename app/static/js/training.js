@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const api = '/training/api';
-  const state = {tab: 'tasks', step: 0, catalog: null, checked: null, selectedDS: '', selectedModel: 'xvla', preset: 'standard', executor: 'primary', runtimeId: '', name: '', taskId: null, detailData: null, showDeleted: false, purgingTaskId: null, custom: false, customParams: {}, detailTab: 'metrics', lossLog: true, logsPinned: false, logBefore: 0, logSize: 0, detailLoading: false, tasksLoading: false, detailRequest: 0};
+  const state = {tab: 'tasks', step: 0, catalog: null, checked: null, selectedDS: '', selectedModel: 'xvla', preset: 'standard', executor: 'primary', runtimeId: '', name: '', taskId: null, detailData: null, showDeleted: false, purgingTaskId: null, custom: false, customParams: {}, detailTab: 'metrics', lossLog: true, logsPinned: false, logBefore: 0, logSize: 0, detailLoading: false, tasksLoading: false, detailRequest: 0, evalEpisode: null, evalTraceCache: {}, evalTraceRequest: 0};
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const label = {QUEUED:'排队',PREPARING:'准备环境',RUNNING:'训练',EVALUATING:'评估',PACKAGING:'打包',COMPLETED:'已完成',FAILED:'失败',CANCELED:'已取消',INTERRUPTED:'中断'};
@@ -54,14 +54,20 @@
     const frameText = Number.isFinite(frames) && frames >= 0 ? `${frames} 帧` : '帧数未记录';
     const episodes = ids.length ? `${ids.length} 个 Episode` : 'Episode 未记录';
     const smokePassed = evaluation.checkpoint_smoke_test === true;
+    const actionEpisodes = Array.isArray(evaluation.action_episodes) ? evaluation.action_episodes : [];
+    const actionMAE = metricNumber(evaluation.metrics?.action_mae);
+    const dimensions = Array.isArray(evaluation.metrics?.action_mae_per_dimension) ? evaluation.metrics.action_mae_per_dimension : [];
     const cameraMap = evaluation.camera_rename_map && typeof evaluation.camera_rename_map === 'object'
       ? Object.entries(evaluation.camera_rename_map) : [];
     return `<div class="train-eval-summary">
       <div class="train-eval-primary"><span>离线验证前向损失</span><strong>${loss === null ? '—' : loss}</strong><small>在未参与训练的 Episode 上计算</small></div>
+      <div class="train-eval-check"><span>动作平均绝对误差 MAE</span><strong>${actionMAE ?? '—'}</strong><small>与示教动作逐帧比较</small></div>
       <div class="train-eval-check"><span>模型加载与推理检查</span><strong class="${smokePassed ? 'train-ok' : 'train-error'}">${smokePassed ? '已通过' : '未通过'}</strong><small>checkpoint 冒烟测试</small></div>
       <div class="train-eval-check"><span>验证数据</span><strong>${esc(episodes)}</strong><small>${esc(frameText)}</small></div>
     </div>
-    <p class="train-eval-caution">当前只评估最终 checkpoint，因此这里是一次最终结果，不是训练期间的验证曲线。离线前向损失不是动作 MAE，也不代表真实机器人任务成功率。</p>
+    ${dimensions.length ? `<div class="train-action-mae"><h4>各动作维度 MAE</h4><div>${dimensions.map((item) => `<span>维度 ${esc(Number(item.index) + 1)} <strong>${esc(metricNumber(item.mae) ?? '—')}</strong></span>`).join('')}</div></div>` : '<p class="train-muted">此任务尚无逐维动作误差；旧任务不会补造评估数据。</p>'}
+    <p class="train-eval-caution">评估仅使用任务固定留出的 Episode 和最终 checkpoint。动作 MAE 是离线示教对比，不代表机器人任务成功率。</p>
+    ${actionEpisodes.length ? `<div class="train-action-panel"><div class="train-action-head"><div><h4>示教动作与模型预测</h4><p>实线是真值，虚线是预测；所有维度共用纵轴。</p></div><label>留出 Episode <select id="train-eval-episode">${actionEpisodes.map((row) => `<option value="${esc(row.episode_id)}" ${Number(state.evalEpisode) === Number(row.episode_id) ? 'selected' : ''}>Episode ${esc(row.episode_id)} · ${esc(row.frames)} 帧</option>`).join('')}</select></label></div><div id="train-action-chart" class="train-action-chart"><p class="train-muted">读取动作曲线中…</p></div><div id="train-action-legend" class="train-action-legend"></div><p class="train-note">曲线最多抽样显示 800 个点；各维 MAE 使用全部留出帧计算。预测逐帧使用示教观测，不构成真实机器人闭环测试。</p></div>` : ''}
     <details class="train-eval-details"><summary>查看评估说明与技术信息</summary>
       <dl><div><dt>验证 Episode</dt><dd>${ids.length ? esc(ids.join('、')) : '未记录'}</dd></div>
       <div><dt>指标定义</dt><dd>${esc(evaluation.metric_definition || '留出 Episode 的平均前向损失')}</dd></div>
@@ -112,6 +118,84 @@
   }
   function chartCard(title, raw, key, color, options = {}) {
     return `<article class="train-chart-card"><div class="train-chart-heading"><h3>${esc(title)}</h3><span>${esc(options.subtitle || '真实采集')}</span></div>${chartSvg(raw, key, title, color, options)}</article>`;
+  }
+  function actionColor(index, total) {
+    return `hsl(${Math.round((index * 360 / Math.max(total, 1) + 202) % 360)}, 68%, 43%)`;
+  }
+  function drawActionTrace(trace) {
+    const holder = $('train-action-chart');
+    const legend = $('train-action-legend');
+    if (!holder || !legend) return;
+    const points = (trace.points || []).filter((row) => Number.isFinite(Number(row.frame)) && Array.isArray(row.truth) && Array.isArray(row.prediction));
+    const dimensions = trace.action_mae_per_dimension || [];
+    if (!points.length || !dimensions.length) {
+      holder.innerHTML = '<p class="train-muted">此 Episode 没有可绘制的动作数据。</p>';
+      legend.innerHTML = '';
+      return;
+    }
+    holder.innerHTML = '<canvas class="train-action-canvas" role="img" aria-label="各动作维度的示教真值实线与模型预测虚线，共用纵轴"></canvas>';
+    const canvas = holder.querySelector('canvas');
+    const width = Math.max(320, holder.clientWidth - 2);
+    const height = 340;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
+    canvas.style.height = `${height}px`;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(ratio, ratio);
+    const values = points.flatMap((row) => [...row.truth, ...row.prediction].map(Number)).filter(Number.isFinite);
+    if (!values.length) return;
+    let low = Math.min(...values), high = Math.max(...values);
+    const padding = (high - low || 1) * 0.08; low -= padding; high += padding;
+    const left = 58, right = width - 18, top = 20, bottom = height - 39;
+    const first = Number(points[0].frame), last = Number(points[points.length - 1].frame);
+    const x = (frame) => left + (Number(frame) - first) / Math.max(1, last - first) * (right - left);
+    const y = (value) => bottom - (Number(value) - low) / (high - low) * (bottom - top);
+    ctx.font = '11px sans-serif'; ctx.textBaseline = 'middle';
+    for (let tick = 0; tick <= 4; tick++) {
+      const place = top + tick * (bottom - top) / 4;
+      ctx.beginPath(); ctx.moveTo(left, place); ctx.lineTo(right, place);
+      ctx.strokeStyle = '#e4ecf2'; ctx.lineWidth = 1; ctx.setLineDash([]); ctx.stroke();
+      ctx.fillStyle = '#71869a'; ctx.textAlign = 'right';
+      ctx.fillText(compactNumber(high - tick * (high - low) / 4), left - 7, place);
+    }
+    ctx.fillStyle = '#71869a'; ctx.textAlign = 'left'; ctx.fillText(`帧 ${first}`, left, height - 17);
+    ctx.textAlign = 'right'; ctx.fillText(`帧 ${last}`, right, height - 17);
+    for (let index = 0; index < dimensions.length; index++) {
+      const color = actionColor(index, dimensions.length);
+      for (const [field, dashed] of [['truth', false], ['prediction', true]]) {
+        ctx.beginPath(); ctx.setLineDash(dashed ? [6, 5] : []);
+        ctx.lineWidth = dashed ? 1.6 : 2.1; ctx.strokeStyle = color;
+        points.forEach((row, pointIndex) => {
+          const value = Number(row[field][index]);
+          if (!Number.isFinite(value)) return;
+          if (pointIndex === 0) ctx.moveTo(x(row.frame), y(value));
+          else ctx.lineTo(x(row.frame), y(value));
+        });
+        ctx.stroke();
+      }
+    }
+    ctx.setLineDash([]);
+    legend.innerHTML = dimensions.map((item, index) => `<span><i style="background:${actionColor(index, dimensions.length)}"></i>维度 ${esc(Number(item.index) + 1)} · MAE ${esc(metricNumber(item.mae) ?? '—')}</span>`).join('');
+  }
+  async function loadEpisodeTrace() {
+    const evaluation = state.detailData?.evaluation;
+    const episodes = Array.isArray(evaluation?.action_episodes) ? evaluation.action_episodes : [];
+    const selector = $('train-eval-episode');
+    if (!episodes.length || !selector || state.detailTab !== 'evaluation') return;
+    if (!episodes.some((row) => Number(row.episode_id) === Number(state.evalEpisode))) state.evalEpisode = Number(episodes[0].episode_id);
+    selector.value = String(state.evalEpisode);
+    const taskId = state.taskId, episodeId = state.evalEpisode;
+    const key = `${taskId}/${episodeId}`;
+    const requestId = ++state.evalTraceRequest;
+    if (state.evalTraceCache[key]) {drawActionTrace(state.evalTraceCache[key]); return;}
+    try {
+      const trace = await request(`/tasks/${encodeURIComponent(taskId)}/evaluation/episodes/${encodeURIComponent(episodeId)}`);
+      state.evalTraceCache[key] = trace;
+      if (requestId === state.evalTraceRequest && state.taskId === taskId && Number(state.evalEpisode) === episodeId && state.detailTab === 'evaluation') drawActionTrace(trace);
+    } catch (err) {
+      if (requestId === state.evalTraceRequest && $('train-action-chart')) $('train-action-chart').innerHTML = `<p class="train-error">曲线读取失败：${esc(err.message)}</p>`;
+    }
   }
   function show(tab) {
     state.tab = tab; message('');
@@ -237,6 +321,7 @@
       button.classList.toggle('active', active);
       button.setAttribute('aria-selected', String(active));
     });
+    if (tab === 'evaluation' && state.detailData) loadEpisodeTrace();
   }
   function renderTaskDetail(task) {
     state.detailData = task;
@@ -270,6 +355,8 @@
     const evaluationOpen = $('train-detail-evaluation').querySelector('details')?.open || false;
     $('train-detail-evaluation').innerHTML = `<div class="train-card"><h3>离线评估</h3>${evaluationView(task.evaluation)}<div class="train-grid"><div>训练 Episode<br><strong>${esc(task.split?.train_episode_ids?.length ?? '—')}</strong></div><div>验证 Episode<br><strong>${esc(task.split?.validation_episode_ids?.length ?? '—')}</strong><small>不参与训练</small></div><div>所用 checkpoint<br><strong>最终 checkpoint</strong><small>当前没有训练过程中的多点验证</small></div></div></div>`;
     if (evaluationOpen && $('train-detail-evaluation').querySelector('details')) $('train-detail-evaluation').querySelector('details').open = true;
+    $('train-eval-episode')?.addEventListener('change', (event) => {state.evalEpisode = Number(event.target.value); loadEpisodeTrace();});
+    if (state.detailTab === 'evaluation') loadEpisodeTrace();
     if (!state.logsPinned) {
       $('train-log-text').textContent = task.logs || '暂无日志';
       state.logBefore = task.log_start || 0;
@@ -298,7 +385,7 @@
   async function openTask(id) {
     const changed = state.taskId !== id;
     state.taskId = id;
-    if (changed) {state.detailRequest++; state.detailLoading = false; state.detailTab = 'metrics'; state.logsPinned = false; state.logBefore = 0; state.logSize = 0;}
+    if (changed) {state.detailRequest++; state.evalTraceRequest++; state.detailLoading = false; state.detailTab = 'metrics'; state.logsPinned = false; state.logBefore = 0; state.logSize = 0; state.evalEpisode = null; state.evalTraceCache = {};}
     show('detail');
     $('train-detail-body').innerHTML = `<div id="train-detail-summary" class="train-card"></div><nav id="train-detail-tabs" class="train-detail-tabs" aria-label="任务详情"><button data-detail-tab="overview">任务概览</button><button data-detail-tab="metrics">训练指标</button><button data-detail-tab="params">训练参数</button><button data-detail-tab="evaluation">离线评估</button><button data-detail-tab="logs">执行日志</button></nav><section id="train-detail-overview"></section><section id="train-detail-metrics"></section><section id="train-detail-params"></section><section id="train-detail-evaluation"></section><section id="train-detail-logs"><div class="train-card"><div class="train-log-head"><h3>执行日志</h3><div><button id="train-older-logs" class="btn" hidden>查看更早日志</button><button id="train-latest-logs" class="btn" hidden>回到最新日志</button></div></div><pre id="train-log-text" class="train-log">读取中…</pre></div></section>`;
     $('train-detail-tabs').addEventListener('click', (event) => {const button=event.target.closest('[data-detail-tab]');if(button)selectDetailTab(button.dataset.detailTab);});

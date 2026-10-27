@@ -8,6 +8,7 @@ control. Missing executor capability is reported, never simulated.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import random
 from pathlib import Path
@@ -463,6 +464,33 @@ def get_task(root: Path, task_id: str) -> dict:
         task["log_start"] = 0
         task["log_size"] = 0
     return task
+
+
+def evaluation_episode_trace(root: Path, task_id: str, episode_id: int) -> dict:
+    """Read only chart data produced for a completed task's fixed validation split."""
+    task = TrainingRepository(root).get(task_id)
+    if task is None or task["deleted_at"] is not None:
+        raise TrainingError("训练任务不存在", 404)
+    evaluation = task.get("evaluation") or {}
+    if task["status"] != "COMPLETED" or not isinstance(evaluation, dict):
+        raise TrainingError("任务尚未完成动作评估", 404)
+    summaries = evaluation.get("action_episodes") or []
+    if not any(isinstance(row, dict) and row.get("episode_id") == episode_id
+               for row in summaries):
+        raise TrainingError("此 Episode 没有动作评估曲线", 404)
+    path = datasets.safe_file(
+        root, f"training-runs/{task_id}/action-traces/episode-{episode_id}.json"
+    )
+    if path is None or path.stat().st_size > 4 * 1024 * 1024:
+        raise TrainingError("动作评估曲线不存在或超出读取限制", 404)
+    try:
+        trace = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise TrainingError("动作评估曲线无法读取", 503) from exc
+    if not isinstance(trace, dict) or trace.get("episode_id") != episode_id \
+            or not isinstance(trace.get("points"), list):
+        raise TrainingError("动作评估曲线内容无效", 503)
+    return trace
 
 
 def get_task_logs(root: Path, task_id: str, before: int | None = None) -> dict:

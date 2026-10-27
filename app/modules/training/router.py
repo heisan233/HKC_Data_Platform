@@ -93,6 +93,14 @@ def task_detail(task_id: str) -> dict:
         raise _error(exc) from exc
 
 
+@router.get("/api/tasks/{task_id}/evaluation/episodes/{episode_id}")
+def evaluation_episode(task_id: str, episode_id: int) -> dict:
+    try:
+        return service.evaluation_episode_trace(settings.data_root, task_id, episode_id)
+    except service.TrainingError as exc:
+        raise _error(exc) from exc
+
+
 @router.get("/api/tasks/{task_id}/logs")
 def task_logs(task_id: str, before: int | None = None) -> dict:
     try:

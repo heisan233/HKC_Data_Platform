@@ -448,6 +448,14 @@ def package_model(job: dict, checkpoint: Path, result_file: Path,
     if has_stats:
         files.append((stats, "dataset_stats.json"))
     files.append((result_file, "evaluation.json"))
+    for row in evaluation.get("action_episodes", []):
+        episode_id = row.get("episode_id")
+        if type(episode_id) is not int or episode_id < 0:
+            raise RuntimeError("动作评估 Episode 编号无效")
+        trace = result_file.parent / "action-traces" / f"episode-{episode_id}.json"
+        if not trace.is_file() or trace.is_symlink():
+            raise RuntimeError(f"动作评估曲线缺失：Episode {episode_id}")
+        files.append((trace, f"action-traces/episode-{episode_id}.json"))
     checksums = {name: sha256_file(path) for path, name in files}
     manifest = {
         "task_id": job_id, "dataset": job["dataset"], "split": job["split"],

@@ -220,10 +220,14 @@ def test_model_package_contains_tokenizer_stats_and_checksums(tmp_path, monkeypa
     (folder / "meta" / "stats.json").write_text("{}")
     result_file = tmp_path / "evaluation.json"
     result_file.write_text('{"checkpoint_smoke_test": true}')
+    trace_dir = tmp_path / "action-traces"
+    trace_dir.mkdir()
+    (trace_dir / "episode-1.json").write_text('{"episode_id": 1, "points": []}')
     (agent.JOBS / payload["id"]).mkdir(parents=True)
 
     artifact = agent.package_model(payload, checkpoint, result_file, folder,
-                                   {"checkpoint_smoke_test": True})
+                                   {"checkpoint_smoke_test": True,
+                                    "action_episodes": [{"episode_id": 1}]})
     package = root / artifact["package_relpath"]
     assert artifact["sha256"] == agent.sha256_file(package)
     with tarfile.open(package) as archive:
@@ -231,7 +235,7 @@ def test_model_package_contains_tokenizer_stats_and_checksums(tmp_path, monkeypa
         assert {"pretrained_model/model.safetensors", "pretrained_model/config.json",
                 "pretrained_model/policy_preprocessor.json", "tokenizer/vocab.json",
                 "tokenizer/merges.txt", "dataset_stats.json", "evaluation.json",
-                "manifest.json"} <= names
+                "action-traces/episode-1.json", "manifest.json"} <= names
         manifest = json.load(archive.extractfile("manifest.json"))
         assert manifest["files_sha256"]["tokenizer/vocab.json"] == agent.sha256_file(
             agent.TOKENIZER / "vocab.json")

@@ -223,6 +223,67 @@ data_root = settings.data_root
 
 日期：2026-10-27
 
+开发者/分支：Codex / `integration/hs-lxp-v3.0.1`，同步修复服务器 v3.0
+
+完成内容：释放 GPU 后提交 `TR000007` 真实短任务，发现 X-VLA 内部 20 维补齐动作与
+数据集 14 维动作直接比较导致离线评估失败；按 checkpoint 声明的动作维度裁去补齐
+尾部再做后处理，并增加维度匹配回归测试。复测 `TR000008` 完成训练、固定留出
+Episode 0 的 399 帧前向损失/14 维动作 MAE、曲线生成和约 3.0 GB 模型包校验；
+平台模型版本列表和曲线读取均已返回真实结果。`TR000007` 失败记录保留用于溯源。
+
+主要修改文件：`deploy/training_evaluate.py`、`deploy/training_action_metrics.py`、
+`tests/integration/test_training_action_metrics.py`、本交接与状态/执行器文档；修正
+部分既有 Python 文件误设的可执行位，以满足 Ruff 检查。
+
+执行的验证：隔离临时容器中 Ruff 全部通过、pytest `108 passed`；训练页面
+JavaScript 语法和 `git diff --check` 通过；服务器 `TR000008` 状态为
+`COMPLETED`，评估报告含 399 帧、14 维 MAE，模型包 SHA-256 校验通过；
+真实登录后的任务/曲线 API 均返回 200，曲线含 399 个采样点；模型下载端点
+`Range: bytes=0-0` 返回 206 和正确的包大小，随后已退出测试会话。
+
+未完成或已知问题：短任务仅验证技术闭环，不评判模型质量；真实浏览器视觉交互和
+下载按钮的浏览器视觉交互尚待人工验收。当前服务器没有恢复此前主动关闭的
+Fish Speech、ZipVoice 和 RobotVision 推理服务；VLM 服务仍关闭，训练 Conda
+环境未修改。模型包约 3 GB，
+真实数据和训练任务记录均保留。
+
+是否修改共享文件：只调整 `app/db/training.py` 的误设可执行位，不改 SQLite 结构、
+DS 接口、Compose、平台镜像或训练 Conda 环境。
+
+下一步建议：使用者登录服务器页面查看 `TR000008` 的评估曲线并试下载模型包；
+完成界面人工验收后再决定是否提交/推送当前分支。
+
+日期：2026-10-27
+
+开发者/分支：Codex / `integration/hs-lxp-v3.0.1`，同步到服务器 v3.0
+
+完成内容：最终 checkpoint 对固定留出 Episode 同时计算全帧前向损失与逐维动作 MAE；
+每条 Episode 保存抽样曲线、模型包包含曲线文件；任务详情显示检查结果、各维误差与
+真值实线/预测虚线 Canvas，支持切换留出 Episode。旧任务不补造新指标。
+
+主要修改文件：`deploy/training_evaluate.py`、`deploy/training_action_metrics.py`、
+`deploy/training_agent.py`、`app/modules/training/{router,service}.py`、训练页面 JS/CSS、
+训练测试与模块/状态文档。
+
+执行的验证：本地 Python/JavaScript 语法与 `git diff --check` 通过；服务器隔离容器
+中路由、指标和授权读取冒烟检查通过；现有 LeRobot 环境中用模拟数据验证多 Episode
+损失/MAE 聚合与策略重置。使用隔离测试工具运行全套 `107 passed`；新镜像经 Compose
+重建后健康，执行器在线且无排队任务。Ruff 因工具不可用未运行。
+
+未完成或已知问题：服务器空闲显存约 14.8 GB，低于当前训练所需的约 17.6 GB；
+未运行真实 GPU 训练/评估，新任务的完整闭环需释放资源后人工验收。旧任务只显示
+既有前向损失，不自动补算动作曲线。服务器旧源文件归档为
+`HKC_Data_Platform_v3.0-eval-prechange-20261027.tar.gz`，旧镜像保留
+`hkc-data-platform:v3.0-server-pre-eval-20261027` 标签。
+
+是否修改共享文件：是，新增训练 Episode 曲线 API；不改 DS/SQLite 结构、Compose、
+训练 Conda 环境或原始数据集。
+
+下一步建议：显存满足要求后提交一条短训练任务，验收最终报告与图表；补跑完整
+pytest/Ruff。本轮未提交或推送本地分支。
+
+日期：2026-10-27
+
 开发者/分支：LXP + Codex / `integration/hs-lxp-v3.0.1`
 
 完成内容：核对从服务器 v3.0 复制的训练页面、任务/模型版本 API、SQLite 元数据、

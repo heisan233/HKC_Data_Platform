@@ -235,9 +235,13 @@ Dockerfile 安装。
 - PostgreSQL、Redis 或任务队列。
 
 训练执行器使用 `deploy/training_agent.py`，部署细节见
-`deploy/TRAINING_EXECUTOR.md`。平台镜像仍不安装训练依赖。当前离线评估只包含最终
-checkpoint 冒烟测试和留出 Episode 平均前向损失，不是动作 MAE 或真实机器人任务
-成功率。平台代码与隔离自动化测试已接入本分支；本地分支尚未完成真实 GPU 训练验收。
+`deploy/TRAINING_EXECUTOR.md`。平台镜像仍不安装训练依赖。最终 checkpoint 的
+离线评估包含加载/推理冒烟测试、全部固定留出 Episode 的平均前向损失和逐维动作
+MAE；任务详情可切换留出 Episode 查看示教动作实线与预测虚线。旧任务没有动作
+曲线时明确显示缺失，不补造数据。这些指标不是真实机器人任务成功率。
+2026-10-27 在服务器用 DS000004 的固定留出 Episode 完成 100-step 闭环验收：
+`TR000008` 经训练、全帧离线评估和模型包校验后为 `COMPLETED`；短任务指标只验证
+功能连通性，不代表模型质量或机器人任务成功率。网页视觉交互仍待使用者确认。
 
 ## 7. 同事 Codex 的默认工作范围
 

@@ -161,6 +161,36 @@ def test_retry_preserves_editable_values_without_rejecting_fixed_workers(tmp_pat
     assert captured["retry_of"] == old["id"]
 
 
+def test_evaluation_trace_only_exposes_registered_heldout_episode(tmp_path, monkeypatch):
+    dataset_id = _dataset(tmp_path, monkeypatch)
+    repo = TrainingRepository(tmp_path)
+    task = repo.create(
+        name="动作评估", dataset_id=dataset_id, model_id="xvla",
+        model_version="xvla-base@test", preset="standard", executor_id="primary",
+        snapshot={}, split={"validation_episode_ids": [5]}, parameters={},
+    )
+    repo.update(task["id"], status="COMPLETED", evaluation={
+        "checkpoint_smoke_test": True,
+        "action_episodes": [{"episode_id": 5, "frames": 1}],
+    })
+    trace_path = tmp_path / "training-runs" / task["id"] / "action-traces" / "episode-5.json"
+    trace_path.parent.mkdir(parents=True)
+    trace_path.write_text(json.dumps({"episode_id": 5, "points": [
+        {"frame": 0, "truth": [1.0], "prediction": [1.2]},
+    ]}), encoding="utf-8")
+    assert training.evaluation_episode_trace(tmp_path, task["id"], 5)["points"][0]["truth"] == [1.0]
+    monkeypatch.setattr(training_router, "settings", Settings(data_root=tmp_path))
+    client = TestClient(app)
+    url = f"/training/api/tasks/{task['id']}/evaluation/episodes/5"
+    assert client.get(url).json()["points"][0]["prediction"] == [1.2]
+    with pytest.raises(training.TrainingError, match="没有动作评估"):
+        training.evaluation_episode_trace(tmp_path, task["id"], 6)
+    repo.archive(task["id"], "tester")
+    with pytest.raises(training.TrainingError, match="不存在"):
+        training.evaluation_episode_trace(tmp_path, task["id"], 5)
+    assert client.get(url).status_code == 404
+
+
 def test_vlm_button_pauses_and_resumes_vlm_quality_queue(tmp_path, monkeypatch):
     monkeypatch.setenv("HKC_TRAINING_OPERATORS", "operator")
     monkeypatch.setattr(training, "environment", lambda _root: {
