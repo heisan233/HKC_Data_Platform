@@ -480,6 +480,25 @@ def test_vlm_connection_failure_returns_immediately(tmp_path: Path, monkeypatch)
     assert result["results"][-1]["episodes"] == []
 
 
+def test_vlm_pause_keeps_queued_tasks_and_blocks_new_claims(platform):
+    client, root = platform
+    _dataset(root / "raw" / "sample")
+    assert client.post("/data/api/register", json={"folders": ["sample"]}).status_code == 200
+    plan = client.post("/qc/api/plans/from-dataset/DS000001").json()
+    repo = service.initialize(root)
+    snapshot = plan["config"]
+    snapshot["vlm"]["rules"][0]["enabled"] = True
+    assert repo.pause_vlm() == []
+    assert repo.vlm_paused() is True
+    queued = repo.create_task("DS000001", plan, snapshot, "fingerprint")
+    assert repo.claim_task(queued["id"]) is False
+    assert repo.get_task(queued["id"])["status"] == "QUEUED"
+    repo.resume_vlm()
+    assert repo.claim_task(queued["id"]) is True
+    assert repo.pause_vlm() == [queued["id"]]
+    assert repo.vlm_paused() is True
+
+
 def test_installed_doctor_and_real_video_clip(tmp_path: Path):
     from app.modules.quality.catalog import default_config
 

@@ -11,8 +11,29 @@
   本地开发时叠加。
 - `deploy/compose.lan.yaml`：把默认 `127.0.0.1` 端口替换成指定可信内网 IPv4；
   本地开发和内网服务器都可以叠加。
+- `compose.server.yaml`：服务器 v3.0 当前实际使用的覆盖配置；内网 18000 端口、
+  训练执行器通信目录只读挂载和训练操作员环境变量。默认宿主路径属于当前服务器，
+  换服务器时通过 `HKC_TRAINING_AGENT_SOCKET_DIR` 指向新服务器的执行器通信目录。
 
-不要复制出第二套 Dockerfile，也不要为数据管理、质检再启动重复平台容器。
+主 `Dockerfile` 构建当前源码时会包含训练页面/API，但不会安装训练依赖。
+`deploy/Dockerfile.training-overlay` 是服务器既有旧镜像的代码叠加方案，并非第二个
+训练环境；新构建完整平台镜像时不必使用它。不要为数据管理、质检再启动重复平台容器。
+
+服务器使用 `compose.yaml`、`compose.server.yaml` 和自己的 `.env`，训练执行器是
+独立的宿主机进程，不由 Compose 创建。运行命令、Conda 环境、基座模型及受控 VLM
+权限见 `deploy/TRAINING_EXECUTOR.md`。不要把服务器的 `.env`、socket 令牌或模型
+权重复制进 Git。
+
+服务器已导入匹配镜像且宿主执行器已启动时，在项目根目录执行：
+
+```bash
+docker compose --env-file .env -p hkc-vla \
+  -f compose.yaml -f compose.server.yaml \
+  up -d --no-build --force-recreate --wait
+```
+
+`--force-recreate` 会让新增挂载和环境变量生效；普通 `restart` 不会加载这些配置。
+这条命令不安装或修改宿主 LeRobot/Conda 环境。
 
 ## 首次准备 `.env` 和持久化目录
 

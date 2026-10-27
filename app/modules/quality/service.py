@@ -93,6 +93,13 @@ def _submit_task(root: Path, task_id: str) -> None:
         _fail_unhandled(root, task_id, exc)
 
 
+def resume_queued_tasks(root: Path) -> None:
+    """Re-submit durable queued tasks after the VLM gate has been reopened."""
+    repo = initialize(root)
+    for task_id in repo.queued_task_ids():
+        _submit_task(root, task_id)
+
+
 def _text(value: object, label: str, limit: int = 100) -> str:
     if not isinstance(value, str) or not 1 <= len(value.strip()) <= limit:
         raise HTTPException(400, f"{label}须为 1–{limit} 个字符")
@@ -313,6 +320,8 @@ def create_task(root: Path, dataset_id: str, plan_id: str, plan_version: int,
     ]):
         raise HTTPException(400, "至少启用一项检查")
     task = repo.create_task(dataset_id, plan, snapshot, raw_fingerprint(folder))
+    if repo.vlm_paused() and repo.uses_vlm(snapshot):
+        task = repo.set_task(task["id"], phase="waiting_vlm")
     save_report(root, task, {
         "schema_version": 1, "task_id": task["id"], "dataset_id": dataset_id,
         "plan_id": plan_id, "plan_version": plan["version"],
@@ -361,6 +370,8 @@ def rerun_task(root: Path, previous_id: str) -> dict:
         raise HTTPException(409, "数据集文件已变化，请选择当前方案新建质检任务")
     task = repo.create_task(previous["dataset_id"], plan, previous["snapshot"],
                             previous["raw_fingerprint"])
+    if repo.vlm_paused() and repo.uses_vlm(previous["snapshot"]):
+        task = repo.set_task(task["id"], phase="waiting_vlm")
     save_report(root, task, {
         "schema_version": 1, "task_id": task["id"], "dataset_id": task["dataset_id"],
         "plan_id": plan["id"], "plan_version": plan["version"],

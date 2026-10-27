@@ -1,6 +1,6 @@
 # 合并后项目现状（供同事 Codex 接手）
 
-更新日期：2026-10-22
+更新日期：2026-10-27
 
 这份文档只描述当前集成代码，不描述旧分支设想。每次新会话先读取根目录
 `AGENTS.md`，再读本文件。若本文件与源码或测试不一致，先停止修改并把差异告诉
@@ -11,9 +11,9 @@
 当前集成开发分支：
 
 ```text
-分支：integration/hs-lxp-v3.0
-来源：integration/hs-v2.1 + integration/hs-lxp-v2.5
-目录：HKC_Data_Platform_v3.0
+分支：integration/hs-lxp-v3.0.1
+来源：integration/hs-lxp-v3.0 + 服务器 v3.0 模型训练代码
+目录：HKC_Data_Platform_v2（本地工作区）
 ```
 
 开始任务时先确认：
@@ -62,7 +62,7 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/preprocess/` | `processing` | 真实数据处理、视频画面裁剪和派生版本生成 |
 | `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
 | `/export/` | `conversion`、`export` | Derived DS 转换 HDF5、CV 任务及完整打包下载 |
-| `/training/` | `training` | 框架页面，未接入训练任务 |
+| `/training/` | `training` | 已接入真实 DS、SQLite 任务、宿主执行器、离线评估与模型包；执行器离线时不可提交训练 |
 | `/robots/` | `robots` | 独立 SQLite 机器人档案、新增/编辑、停用/恢复和筛选 |
 | `/semantics/` | `semantics` | 真实 LeRobot v3 结构参考和 SQLite 受控词表 |
 | `/system/` | `system` | 框架页面 |
@@ -170,6 +170,7 @@ SQLite 访问代码：
 - `app/db/datasets.py`：DS 编号、Raw/Derived 位置、名称、机器人类型、标签和来源；
 - `app/db/conversions.py`：CV 转换任务、进度、状态和结果文件清单；
 - `app/db/quality.py`：质检方案版本、任务、状态和人工审核；
+- `app/db/training.py`：TR 任务编号、固定快照、状态、评估和模型包引用；
 - `app/db/users.py`：用户、scrypt 密码哈希和服务端登录会话；
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
 - `app/db/semantics.py`：稳定 SD 编号和场景/任务/动作/对象受控词表；
@@ -210,6 +211,9 @@ Subtask 动作或对象，也不与机器人档案建立外键。后续接入上
 - `compose.dev.yaml`：挂载 `app/` 并启用 Uvicorn `--reload`；
 - `deploy/compose.lan.yaml`：把 8000 端口绑定到
   `HKC_LAN_BIND_ADDRESS`，供可信内网访问；
+- `compose.server.yaml`：与服务器 v3.0 保持一致，发布内网 18000 端口、只读挂载
+  宿主训练执行器的 Unix socket/令牌目录，并配置训练操作员；默认路径指向该服务器，
+  换机时须通过 `HKC_TRAINING_AGENT_SOCKET_DIR` 覆盖；
 - `.env.example`：可提交的公开模板；
 - `.env`：每台设备单独创建，包含本地目录、IP 和 VLM 配置，不提交 Git；
 - `how_use.md`：换设备、构建、离线镜像、局域网和 VLM 使用说明。
@@ -227,10 +231,13 @@ Dockerfile 安装。
 
 - CUDA/cuDNN；
 - ROS/ROS 2；
-- SmolVLA、X-VLA 等训练依赖；
+- SmolVLA、X-VLA 等训练依赖；X-VLA 首期使用独立宿主执行器和已有 LeRobot Conda 环境；
 - PostgreSQL、Redis 或任务队列。
 
-若功能需要上述环境，先提出架构方案，不要直接把它们装进现有镜像。
+训练执行器使用 `deploy/training_agent.py`，部署细节见
+`deploy/TRAINING_EXECUTOR.md`。平台镜像仍不安装训练依赖。当前离线评估只包含最终
+checkpoint 冒烟测试和留出 Episode 平均前向损失，不是动作 MAE 或真实机器人任务
+成功率。平台代码与隔离自动化测试已接入本分支；本地分支尚未完成真实 GPU 训练验收。
 
 ## 7. 同事 Codex 的默认工作范围
 

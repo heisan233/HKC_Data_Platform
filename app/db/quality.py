@@ -70,6 +70,11 @@ class QualityRepository(DatasetRepository):
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (task_id) REFERENCES qc_tasks(id)
                 );
+                CREATE TABLE IF NOT EXISTS qc_runtime_control (
+                    id INTEGER PRIMARY KEY CHECK (id=1),
+                    vlm_paused INTEGER NOT NULL DEFAULT 0
+                );
+                INSERT OR IGNORE INTO qc_runtime_control(id,vlm_paused) VALUES (1,0);
             """)
             columns = {row["name"] for row in db.execute("PRAGMA table_info(qc_plans)")}
             if "archived_at" not in columns:
@@ -236,12 +241,49 @@ class QualityRepository(DatasetRepository):
 
     def claim_task(self, task_id: str) -> bool:
         """Only one worker may move a queued task into execution."""
+        self.initialize()
         timestamp = _now()
         with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT status,snapshot_json FROM qc_tasks WHERE id=?",
+                             (task_id,)).fetchone()
+            if row is None or row["status"] != "QUEUED":
+                return False
+            paused = db.execute("SELECT vlm_paused FROM qc_runtime_control WHERE id=1").fetchone()[0]
+            if paused and self.uses_vlm(json.loads(row["snapshot_json"])):
+                return False
             cursor = db.execute("""UPDATE qc_tasks
                 SET status='RUNNING',phase='doctor',started_at=?,updated_at=?
                 WHERE id=? AND status='QUEUED'""", (timestamp, timestamp, task_id))
         return cursor.rowcount == 1
+
+    @staticmethod
+    def uses_vlm(snapshot: dict) -> bool:
+        return any(row.get("enabled") is True for row in snapshot.get("vlm", {}).get("rules", []))
+
+    def vlm_paused(self) -> bool:
+        self.initialize()
+        with self.connection() as db:
+            return bool(db.execute(
+                "SELECT vlm_paused FROM qc_runtime_control WHERE id=1"
+            ).fetchone()[0])
+
+    def pause_vlm(self) -> list[str]:
+        """Block future VLM task claims, then report already running VLM tasks."""
+        self.initialize()
+        with self.connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("UPDATE qc_runtime_control SET vlm_paused=1 WHERE id=1")
+            rows = db.execute(
+                "SELECT id,snapshot_json FROM qc_tasks WHERE status='RUNNING'"
+            ).fetchall()
+        return [row["id"] for row in rows
+                if self.uses_vlm(json.loads(row["snapshot_json"]))]
+
+    def resume_vlm(self) -> None:
+        self.initialize()
+        with self.connection() as db:
+            db.execute("UPDATE qc_runtime_control SET vlm_paused=0 WHERE id=1")
 
     def review(self, task_id: str, decision: str, reason: str) -> dict | None:
         timestamp = _now()

@@ -1,21 +1,21 @@
 # HKC 数采平台协作与 Codex 交接文档
 
-更新日期：2026-10-22
+更新日期：2026-10-27
 
 这是一份双方开发者和双方 Codex 共用的交接记录。合并后的当前结构、已完成与
 未完成功能、数据生命周期和接手步骤已经集中到 `docs/CODEX_CURRENT_STATE.md`；
 架构规则以根目录 `AGENTS.md` 为准。本文件后面的按人分工与交接内容包含历史
 背景，不得用它覆盖当前集成源码。
 
-> 当前集成分支是 `integration/hs-lxp-v3.0`，它从已验证的
-> `integration/hs-v2.1` 创建并合入 `integration/hs-lxp-v2.5`。历史分支只供
+> 当前训练集成分支是 `integration/hs-lxp-v3.0.1`，来源为
+> `integration/hs-lxp-v3.0` 与服务器 v3.0 的训练代码。历史分支只供
 > 查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
 
 ## 一、项目当前状态
 
-- 当前集成工作位于 `integration/hs-lxp-v3.0`，以 `integration/hs-v2.1` 为基线，
-  合入同事的 `integration/hs-lxp-v2.5`；
+- 当前训练集成工作位于 `integration/hs-lxp-v3.0.1`，继承
+  `integration/hs-lxp-v3.0` 的 v2.1 + v2.5 基线；
   验收完成前不直接覆盖 `main`。
 - Web 技术栈为 FastAPI、Uvicorn 和 Jinja2。
 - 原始数据上传、数据管理、质检、Episode/task/Subtask 标注和 Episode 数据处理
@@ -23,7 +23,8 @@
 - 数据集与运行结果采用文件夹存储，宿主机目录为 `storage/`，容器内为 `/data`。
 - SQLite 保存 DS 编号映射、展示信息、质检任务和人工审核记录；大型数据文件仍
   保存在普通目录，`migrations/` 保留给未来表结构升级。
-- 当前为单应用容器，没有 PostgreSQL、Redis 或独立 Worker 容器。
+- 当前为单应用容器，没有 PostgreSQL、Redis 或独立 Worker 容器；训练执行器
+  运行在宿主机 LeRobot 环境中。
 - 当前已有 SQLite 用户、密码哈希和服务端会话保护，但尚无 HTTPS；任何网络开放
   仍只能面向可信内网。
 
@@ -31,7 +32,8 @@
 
 | 分支 | 当前用途 | 规则 |
 | --- | --- | --- |
-| `integration/hs-lxp-v3.0` | 当前合并与验收分支 | 集成 v2.1 与 v2.5；验收前不覆盖 `main` |
+| `integration/hs-lxp-v3.0.1` | 当前训练集成分支 | 在 v3.0 基础上接入服务器训练代码；验收前不覆盖 `main` |
+| `integration/hs-lxp-v3.0` | 上一集成来源 | 集成 v2.1 与 v2.5，保留作训练接入前对照 |
 | `integration/hs-v2.1` | Heisan 来源分支 | 登录、机器人、数据定义、视频裁剪等已冻结能力 |
 | `integration/hs-lxp-v2.5` | LXP 来源分支 | 格式转换、导出和数据管理扩展 |
 | `integration/hs-lxp-v2` | 双方已经合并且可运行的稳定基线 | 保留为上一阶段回退点；未授权不得覆盖 `main` |
@@ -218,6 +220,38 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-10-27
+
+开发者/分支：LXP + Codex / `integration/hs-lxp-v3.0.1`
+
+完成内容：核对从服务器 v3.0 复制的训练页面、任务/模型版本 API、SQLite 元数据、
+X-VLA 宿主执行器、离线评估和测试；补入与服务器原文件逐字节一致的
+`compose.server.yaml`，并更新训练模块、存储和部署状态说明。主 `Dockerfile`、
+`compose.yaml` 与服务器备份一致，均未改动；服务器旧镜像的代码叠加方案保留在
+`deploy/Dockerfile.training-overlay`。没有复制 `.env`、令牌、SQLite、数据集或权重。
+后续在 `.env.example` 增加空白训练操作员配置和中文注释，不写入真实账号；新平台
+用户不会自动获得 VLM 服务启停权限。
+
+主要修改文件：服务器训练代码见当前工作区 18 项既有改动；本轮新增
+`compose.server.yaml`，更新 `.env.example`、`AGENTS.md`、`docs/CODEX_CURRENT_STATE.md`、
+`storage/README.md`、`deploy/README.md` 及本交接记录。
+
+执行的验证：训练代码合入后的隔离容器全套 pytest 为 `103 passed`，训练页面
+JavaScript 语法检查通过；本轮默认、开发、局域网和服务器四种 Compose 组合均通过
+`config --quiet`，服务器 Compose 文件逐字节比对一致，`git diff --check` 通过。
+新增 `.env.example` 项后再次验证默认与服务器 Compose 组合通过解析。
+本机缺少 Ruff，临时下载失败，因此未完成 Ruff 检查。
+
+未完成或已知问题：本地分支尚未用真实 GPU 执行训练/评估/下载验收；服务器部署仍
+依赖该服务器自己的 `.env`、宿主执行器和基座权重。服务器 Compose 默认通信目录
+是该服务器专用路径，迁移到新服务器须覆盖环境变量。尚未提交或推送。
+
+是否修改共享文件：是，新增服务器 Compose 覆盖，更新共同状态与存储文档；未改动
+主 Dockerfile、默认 Compose、应用入口、统一 DS 接口或真实数据。
+
+下一步建议：审查本分支未提交差异，补跑 Ruff；决定提交后，在目标服务器按当前
+Compose 和已有执行器做一次真实任务验收。
 
 日期：2026-10-23
 

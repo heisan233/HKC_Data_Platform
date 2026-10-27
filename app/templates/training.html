@@ -1,32 +1,20 @@
 {% extends "base.html" %}
 {% block page_title %}模型训练{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/training.css?v=training-purge-1">{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">🧠 训练任务、参数配置、指标监控、检查点管理</span></div>
-    <button class="btn btn-primary">+ 新建训练任务</button>
-</div>
-<div class="card">
-    <table class="table">
-        <tr><th>ID</th><th>任务名称</th><th>模型</th><th>数据集</th><th>状态</th><th>指标</th><th>开始</th><th>结束</th><th>操作</th></tr>
-        {% for t in tasks %}
-        <tr>
-            <td>{{ t.id }}</td>
-            <td><strong>{{ t.name }}</strong></td>
-            <td><span class="tag">{{ t.model }}</span></td>
-            <td>{{ t.dataset }}</td>
-            <td><span class="status-badge
-                {% if t.status == '已完成' %}status-done
-                {% elif t.status == '运行中' %}status-running
-                {% else %}status-paused{% endif %}">{{ t.status }}</span></td>
-            <td>{{ t.metric }}</td>
-            <td>{{ t.start }}</td>
-            <td>{{ t.end }}</td>
-            <td>
-                <button class="btn btn-primary btn-sm">查看</button>
-                <button class="btn btn-sm" style="background:#f0f0f0;">日志</button>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
+<section class="train-page">
+  <header class="train-header"><div><span class="train-eyebrow">MODEL WORKSPACE</span><h1>模型训练</h1><p>从已登记的 LeRobot v3 数据集创建训练任务，追踪评估结果并管理模型版本。</p></div><button id="train-new" class="btn btn-primary">＋ 新建训练任务</button></header>
+  <nav class="train-tabs" aria-label="模型训练功能"><button data-tab="tasks" class="active">训练任务</button><button data-tab="models">模型版本</button><button data-tab="environment">执行环境</button></nav>
+  <div id="train-message" role="alert" hidden></div>
+  <section id="train-tasks" class="train-panel">
+    <div class="train-subhead"><div><h2>训练任务</h2><p id="train-task-subtitle">查看训练进度、失败原因和指标摘要。</p></div><span id="train-list-updated" class="train-live-status" aria-live="polite">正在加载…</span></div>
+    <div class="train-filters"><select id="train-status"><option value="">全部状态</option><option value="QUEUED">排队</option><option value="PREPARING">准备环境</option><option value="RUNNING">训练</option><option value="EVALUATING">评估</option><option value="PACKAGING">打包</option><option value="COMPLETED">已完成</option><option value="FAILED">失败</option><option value="CANCELED">已取消</option><option value="INTERRUPTED">中断</option></select><select id="train-model-filter"><option value="">全部模型</option><option value="xvla">X-VLA</option></select><select id="train-dataset-filter"><option value="">全部数据集</option></select><button id="train-refresh" class="btn">刷新</button><button id="train-trash-toggle" class="btn" aria-pressed="false">回收站</button></div>
+    <div class="train-table-wrap"><table class="table train-table"><thead><tr><th>任务</th><th>来源 DS</th><th>模型 / 方式</th><th>阶段 / 状态</th><th>进度</th><th>指标摘要</th><th>开始时间</th><th></th></tr></thead><tbody id="train-task-rows"></tbody></table></div>
+  </section>
+  <section id="train-wizard" class="train-panel" hidden><div class="train-subhead"><div><h2>新建训练任务</h2><p>四步确认后提交；数据、参数和基座版本随任务固定。</p></div><button id="train-back-list" class="btn">返回列表</button></div><ol class="train-steps"><li><span class="train-step-number">01</span><span>选择数据</span></li><li><span class="train-step-number">02</span><span>选择模型</span></li><li><span class="train-step-number">03</span><span>Conda 环境</span></li><li><span class="train-step-number">04</span><span>确认提交</span></li></ol><div id="train-wizard-body" class="train-card"></div><div class="train-actions"><button id="train-prev" class="btn">上一步</button><button id="train-next" class="btn btn-primary">下一步</button></div></section>
+  <section id="train-detail" class="train-panel" hidden><div class="train-subhead"><div><h2 id="train-detail-title">任务详情</h2><span id="train-detail-updated" class="train-live-status" aria-live="polite">正在加载…</span></div><div><button id="train-detail-refresh" class="btn">刷新详情</button><button id="train-detail-back" class="btn">返回列表</button></div></div><div id="train-detail-body"></div></section>
+  <section id="train-models" class="train-panel" hidden><div class="train-subhead"><h2>模型版本与导出</h2></div><div id="train-model-rows"></div></section>
+  <section id="train-environment" class="train-panel" hidden><div class="train-subhead"><h2>执行环境</h2><p>地址、路径与凭据由管理员配置，不在训练表单填写。</p></div><div id="train-environment-body"></div></section>
+</section>
 {% endblock %}
+{% block scripts %}<script defer src="/static/js/training.js?v=training-purge-direct-1"></script>{% endblock %}

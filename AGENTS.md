@@ -12,7 +12,8 @@
 
 ## 1. 当前共同基线
 
-- 当前集成分支是 `integration/hs-lxp-v3.0`，它以已冻结验收的
+- `integration/hs-lxp-v3.0.1` 是当前模型训练集成分支，来源于
+  `integration/hs-lxp-v3.0`。后者以已冻结验收的
   `integration/hs-v2.1` 为基线，合入 LXP 的 `integration/hs-lxp-v2.5` 格式转换、
   导出和数据管理扩展。
 - `integration/hs-v2.1` 与 `integration/hs-lxp-v2.5` 是本轮两个来源分支，保留为
@@ -29,15 +30,17 @@
 
 - 技术栈：Python 3.11、FastAPI、Uvicorn、Jinja2、原生 JavaScript/CSS。
 - 当前部署形态：一个应用镜像、一个应用容器。网页/API、SQLite 登记和基础质检
-  暂时在同一容器中运行；没有 PostgreSQL、Redis 或独立 Worker。
+  暂时在同一容器中运行；没有 PostgreSQL、Redis 或独立 Docker Worker。
+  X-VLA 训练执行器是独立的宿主机进程。
 - 大型 VLA 数据集始终保存在普通文件夹中。SQLite 只保存稳定 DS 编号、真实目录
   映射、来源关系、质检任务和人工审核等管理元数据。
 - 当前真实数据集格式以 LeRobot v3 为准；已支持把已登记的 Derived DS 转换为
   HDF5。不要假定 LeRobot v2、ROS bag、MCAP 或 RLDS 已经实现。
 - 当前已有 SQLite 用户、scrypt 密码哈希和服务端 Cookie 会话保护，但没有 HTTPS；
   仍只能开放到可信内网，禁止宣称可安全暴露到公网。
-- 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。不同模型的训练环境继续使用
-  独立镜像，不塞入平台容器。
+- 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。首期 X-VLA 使用宿主机已有的
+  LeRobot Conda 环境，由独立训练执行器通过 Unix socket 与平台通信；以后新增
+  模型仍须保持训练环境与平台容器隔离。
 
 ## 3. 已完成与未完成边界
 
@@ -58,11 +61,13 @@
 - `conversion`：已登记 Derived DS 的 LeRobot v3 → HDF5 单线程后台转换，结果使用
   CV 编号保存在 `storage/converted/`，不进入 DS 登记表；
 - `export`：将 Derived DS 或已完成的 CV 转换结果打包到 `storage/exports/` 下载；
+- `training`：已登记 LeRobot v3 DS 训前校验、X-VLA 基座微调任务、训练指标、
+  留出 Episode 离线前向损失、模型包和任务回收站；实际训练依赖已配置的宿主执行器；
 - 报告回收站：报告只能移入 `storage/trash/reports/` 并恢复，不允许永久删除。
 
 仍是占位或未完整实现的功能：
 
-- 模型训练与评估、系统管理以及部分工作台页面仍属于框架或演示；
+- 系统管理以及部分工作台页面仍属于框架或演示；训练尚无真实机器人任务成功率评估；
 - 独立情景管理页面和 `/scenes/` 路由已按产品决定移除；未来场景分类归入数据
   定义，不重新建立独立情景管理模块；
 - `semantics`：真实 LeRobot v3 结构参考，以及带稳定 SD 编号的场景、任务、动作、
@@ -87,6 +92,8 @@ storage/                    宿主机运行数据；真实内容不提交 Git
 ├── raw/                    上传后不可原地修改的原始数据集
 ├── derived/                标注或处理生成的完整派生数据集
 ├── converted/              CV 编号管理的 HDF5 转换结果
+├── training-runs/          训练任务状态、日志与离线评估结果
+├── models/                 通过验证的模型包
 ├── staging/                上传、标注、处理、转换、导出时的临时内容
 ├── reports/qc/             质检 JSON 报告
 ├── trash/reports/          可恢复的报告回收站
@@ -111,6 +118,7 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `app/modules/quality/`：质检方案、规则、VLM、任务和报告；
 - `app/modules/export/`：Derived DS 与 CV 转换结果的安全打包和下载；
 - `app/modules/conversion/`：LeRobot v3 → HDF5 转换及 CV 任务管理。
+- `app/modules/training/`：训练任务、训前校验、执行器通信与模型包管理。
 
 禁止在项目根目录重新创建 `data_catalog.py`、`data_management.py`、
 `dataset_store.py` 或其他业务 Python 文件。
@@ -179,7 +187,8 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `app/templates/base.html`；
 - `app/core/config.py`、`app/core/paths.py`；
 - `app/db/`；
-- `compose.yaml`、`compose.dev.yaml`、`deploy/compose.lan.yaml`、`Dockerfile`；
+- `compose.yaml`、`compose.dev.yaml`、`compose.server.yaml`、
+  `deploy/compose.lan.yaml`、`Dockerfile`；
 - `pyproject.toml`、`.gitignore`、`.dockerignore`；
 - `storage/README.md` 和统一 DS/LeRobot 读取代码。
 

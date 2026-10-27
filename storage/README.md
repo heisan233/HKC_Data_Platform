@@ -42,15 +42,17 @@ HKC_STORAGE_PATH（默认 ./storage） -> 容器中的 /data
   状态由 SQLite 管理，不因通过质检而复制数据集。
 - `trash/reports/<DS 编号>/`：从页面移除的质检报告回收区；保存报告原文件和隐藏
   元数据（原路径、移入时间），支持页面恢复，不提供不可恢复的清理。
-- `models/`：模型定义、权重或发布包；首期暂不使用。
-- `training-runs/`：训练日志、指标和 checkpoint；首期暂不使用。
+- `models/`：通过验证的训练模型包；X-VLA 基座权重由宿主执行器另行配置，不放在此目录。
+- `training-runs/`：训练任务状态、日志与离线评估结果；临时 checkpoint 工作目录
+  由宿主执行器单独配置，不能放在不支持符号链接的 exFAT 数据盘上。
 - `system/`：平台运行状态。`platform.sqlite` 保存数据集登记、质检任务和人工
   审核记录；上传记录位于
   `system/upload-records/<upload_id>.json`；标注派生版本记录位于
   `system/dataset-versions/<dataset_id>.json`；数据处理任务记录位于
   `system/processing-jobs/<job_id>.json`，其派生版本仍登记到
   `system/dataset-versions/`。SQLite 和这些运行记录都不提交 Git。
-  格式转换任务记录保存在 `system/platform.sqlite`。旧版 `system/conversion-jobs/<CV 编号>.json` 在首次访问转换页时复制入库并原样保留。
+  格式转换和训练任务记录保存在 `system/platform.sqlite`。旧版
+  `system/conversion-jobs/<CV 编号>.json` 在首次访问转换页时复制入库并原样保留。
 
 不要把 Python、HTML、配置文件或 Dockerfile 放在此目录。测试用小样本应放在
 `tests/fixtures/`，并确认其许可和体积适合进入 Git。
