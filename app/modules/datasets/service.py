@@ -2,16 +2,22 @@
 
 import hashlib
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
+
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from app.db.dataset_robots import DatasetRobotRepository
 from app.db.datasets import STORAGE_AREAS, DatasetRepository
 
 MAX_METADATA_BYTES = 4 * 1024 * 1024
 MAX_LIST_FILES = 500
+MAX_CHART_POINTS = 2_000
 UNKNOWN_ROBOT_TYPE = "未声明"
+JOINT_FIELDS = ("observation.state", "action")
 
 
 def robot_type_label(info: dict) -> str:
@@ -245,6 +251,156 @@ def files_in(folder: Path, limit: int = MAX_LIST_FILES) -> list[dict]:
     return rows
 
 
+def _joint_field_definitions(info: dict) -> list[dict]:
+    features = info.get("features")
+    features = features if isinstance(features, dict) else {}
+    result = []
+    for name in JOINT_FIELDS:
+        feature = features.get(name)
+        if not isinstance(feature, dict):
+            continue
+        shape = feature.get("shape")
+        if not isinstance(shape, list) or len(shape) != 1:
+            continue
+        try:
+            width = int(shape[0])
+        except (TypeError, ValueError):
+            continue
+        dtype = str(feature.get("dtype") or "")
+        if width <= 0 or not dtype.startswith(("float", "int")):
+            continue
+        names = feature.get("names")
+        names = names if isinstance(names, list) else []
+        labels = [
+            str(names[index]).strip()
+            if index < len(names) and str(names[index]).strip()
+            else f"维度 {index}"
+            for index in range(width)
+        ]
+        result.append({"name": name, "dtype": dtype, "width": width, "names": labels})
+    return result
+
+
+def _episode_indices(folder: Path) -> list[int]:
+    indexes: set[int] = set()
+    try:
+        for path in sorted((folder / "meta" / "episodes").rglob("*.parquet")):
+            if not path.is_file() or "episode_index" not in pq.read_schema(path).names:
+                continue
+            values = pq.read_table(path, columns=["episode_index"])["episode_index"].to_pylist()
+            indexes.update(int(value) for value in values if value is not None)
+    except (OSError, pa.ArrowException, TypeError, ValueError) as exc:
+        raise ValueError("无法读取 Episode 索引。") from exc
+    return sorted(indexes)
+
+
+def _finite_number(value: object) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _chart_indexes(length: int) -> list[int]:
+    if length <= MAX_CHART_POINTS:
+        return list(range(length))
+    # Evenly retain the beginning/end and representative points in between.
+    last = length - 1
+    return sorted({round(index * last / (MAX_CHART_POINTS - 1))
+                   for index in range(MAX_CHART_POINTS)})
+
+
+def joint_series(root: Path, record: dict, episode_index: int, field_name: str) -> dict:
+    """Read one real Episode vector feature for a browser line chart."""
+
+    folder = directory(root, record["storage_area"], record["storage_relpath"])
+    if folder is None:
+        raise ValueError("数据集目录缺失或路径不安全。")
+    info, error = dataset_info(folder)
+    if error:
+        raise ValueError(error)
+    definitions = {item["name"]: item for item in _joint_field_definitions(info or {})}
+    definition = definitions.get(field_name)
+    if definition is None:
+        raise ValueError("该数据集没有可绘制的关节字段。")
+
+    tables: list[pa.Table] = []
+    try:
+        for path in sorted((folder / "data").rglob("*.parquet")):
+            if not path.is_file():
+                continue
+            schema = pq.read_schema(path)
+            if "episode_index" not in schema.names:
+                continue
+            columns = ["episode_index"]
+            for name in ("frame_index", "timestamp", field_name):
+                if name in schema.names:
+                    columns.append(name)
+            table = pq.read_table(
+                path,
+                columns=columns,
+                filters=[("episode_index", "=", episode_index)],
+            )
+            if table.num_rows == 0:
+                continue
+            if field_name not in table.column_names:
+                raise ValueError(f"Episode {episode_index} 的帧数据缺少 {field_name}。")
+            tables.append(table)
+    except (OSError, pa.ArrowException, TypeError, ValueError) as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f"无法读取 Episode {episode_index} 的关节数据。") from exc
+    if not tables:
+        raise ValueError(f"没有找到 Episode {episode_index} 的帧数据。")
+
+    table = pa.concat_tables(tables, promote_options="default")
+    rows = table.to_pylist()
+    rows.sort(key=lambda row: int(row.get("frame_index") or 0))
+    frame_indexes = [int(row.get("frame_index") or index) for index, row in enumerate(rows)]
+    if len(frame_indexes) != len(set(frame_indexes)):
+        raise ValueError(f"Episode {episode_index} 包含重复 frame_index。")
+
+    timestamps = [_finite_number(row.get("timestamp")) for row in rows]
+    if timestamps and all(value is not None for value in timestamps):
+        start = timestamps[0] or 0.0
+        seconds = [round(float(value) - start, 6) for value in timestamps]
+        time_source = "timestamp"
+    else:
+        fps = _finite_number((info or {}).get("fps"))
+        if fps is None or fps <= 0:
+            raise ValueError("数据缺少有效 timestamp，且 info.json 中没有有效 fps。")
+        start = frame_indexes[0]
+        seconds = [round((value - start) / fps, 6) for value in frame_indexes]
+        time_source = "frame_index/fps"
+
+    width = int(definition["width"])
+    values: list[list[float | None]] = []
+    for row in rows:
+        raw = row.get(field_name)
+        vector = list(raw) if isinstance(raw, (list, tuple)) else [raw]
+        if len(vector) != width:
+            raise ValueError(
+                f"{field_name} 声明为 {width} 维，但 Episode {episode_index} 中存在"
+                f" {len(vector)} 维数据。"
+            )
+        values.append([_finite_number(value) for value in vector])
+
+    selected = _chart_indexes(len(rows))
+    return {
+        "dataset_id": record["id"],
+        "episode_index": episode_index,
+        "field": definition,
+        "time_source": time_source,
+        "total_points": len(rows),
+        "sampled": len(selected) < len(rows),
+        "points": [
+            {"seconds": seconds[index], "values": values[index]}
+            for index in selected
+        ],
+    }
+
+
 def detail(root: Path, record: dict) -> dict:
     area = record["storage_area"]
     folder_name = record["storage_relpath"]
@@ -269,8 +425,24 @@ def detail(root: Path, record: dict) -> dict:
                 if safe_file(folder / "videos", relative):
                     videos.append({"name": file.name, "url": f"/data/datasets/{quote(record['id'])}/video/{quote(relative, safe='/')}"})
         cameras.append({"key": key, "videos": videos})
-    return {"folder": folder_name, "info": info, "stats": stats, "features": features,
-            "files": files_in(folder), "cameras": cameras, "size": size_label(folder_size(folder))}
+    try:
+        episode_indices = _episode_indices(folder)
+        episode_error = None
+    except ValueError as exc:
+        episode_indices = []
+        episode_error = str(exc)
+    return {
+        "folder": folder_name,
+        "info": info,
+        "stats": stats,
+        "features": features,
+        "files": files_in(folder),
+        "cameras": cameras,
+        "size": size_label(folder_size(folder)),
+        "joint_fields": _joint_field_definitions(info),
+        "episode_indices": episode_indices,
+        "episode_error": episode_error,
+    }
 
 
 def reports_for(root: Path, dataset_id: str) -> list[dict]:

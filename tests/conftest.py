@@ -15,6 +15,7 @@ from app.core.config import Settings
 from app.modules.auth import middleware as auth_middleware
 from app.modules.robots import router as robot_router
 from app.modules.semantics import router as semantics_router
+from app.modules.system import router as system_router
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +26,8 @@ def isolated_shared_services(
 ):
     monkeypatch.setattr(robot_router, "settings", Settings(data_root=tmp_path))
     monkeypatch.setattr(semantics_router, "settings", Settings(data_root=tmp_path))
+    monkeypatch.setattr(system_router, "settings", Settings(data_root=tmp_path))
+    monkeypatch.setattr(auth_middleware, "settings", Settings(data_root=tmp_path))
     if request.node.get_closest_marker("real_auth"):
         return
     monkeypatch.setattr(

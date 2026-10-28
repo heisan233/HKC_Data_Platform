@@ -1,5 +1,6 @@
 """Require an authenticated browser session for platform routes."""
 
+from time import perf_counter
 from urllib.parse import quote
 
 from fastapi import Request
@@ -8,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.core.config import settings
 from app.modules.auth import service
+from app.modules.system.service import write_request_log
 
 PUBLIC_PATHS = frozenset({"/login", "/healthz", "/static"})
 PUBLIC_PREFIXES = ("/static/",)
@@ -45,4 +47,25 @@ class LoginRequiredMiddleware(BaseHTTPMiddleware):
             return RedirectResponse(f"/login?next={quote(target, safe='')}", status_code=303)
 
         request.state.user = user
-        return await call_next(request)
+        started = perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            write_request_log(
+                settings.data_root,
+                username=str(user.get("username") or "unknown"),
+                method=request.method,
+                path=path,
+                status_code=500,
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+            raise
+        write_request_log(
+            settings.data_root,
+            username=str(user.get("username") or "unknown"),
+            method=request.method,
+            path=path,
+            status_code=response.status_code,
+            duration_ms=(perf_counter() - started) * 1000,
+        )
+        return response

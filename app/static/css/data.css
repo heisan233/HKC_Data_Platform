@@ -89,6 +89,17 @@
 .dm-camera label{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;font-size:11px;color:#8296a4}
 .dm-camera select{min-width:0;max-width:75%;padding:5px;border:1px solid #e1e8ed;border-radius:6px;background:#fff;color:#3c5e76}
 .dm-video-empty{display:grid;place-items:center;min-height:250px;color:#93a6b3}
+.dm-joint-toolbar{display:flex;align-items:end;gap:12px;flex-wrap:wrap;padding:16px 20px;border-bottom:1px solid #edf2f6;background:#fbfdfe}
+.dm-joint-toolbar label{display:grid;gap:6px;min-width:210px;color:#627b8e;font-size:11px;font-weight:700}
+.dm-joint-toolbar select{min-height:36px;padding:7px 10px;border:1px solid #dce6ed;border-radius:7px;background:#fff;color:#29475e;font:inherit;font-size:12px}
+.dm-joint-feedback{padding:11px 20px;color:#607b90;font-size:12px}
+.dm-joint-feedback.is-error{color:#b8473f;background:#fff6f4}
+.dm-joint-chart-wrap{position:relative;min-height:390px;margin:0 20px 12px;border:1px solid #e4edf3;border-radius:9px;background:#fff;overflow:hidden}
+.dm-joint-chart-wrap canvas{display:block;width:100%;height:390px}
+.dm-joint-legend{display:flex;flex-wrap:wrap;gap:8px 14px;padding:0 20px 18px}
+.dm-joint-legend label{display:flex;align-items:center;gap:6px;color:#496579;font-size:11px;cursor:pointer}
+.dm-joint-legend input{margin:0}
+.dm-joint-swatch{width:18px;height:3px;border-radius:3px}
 .dm-stat{display:inline-block;margin:2px 5px 2px 0;white-space:nowrap;color:#607c90}
 .dm-count{color:#879aa8;font-size:12px}
 .dm-episode-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px;padding:17px}
@@ -134,6 +145,10 @@
 .dm-search,.dm-search input{width:100%}
 .dm-camera label{flex-direction:column;align-items:flex-start}
 .dm-camera select{max-width:100%;width:100%}
+.dm-joint-toolbar label{width:100%;min-width:0}
+.dm-joint-toolbar .dm-button{width:100%}
+.dm-joint-chart-wrap{min-height:300px;margin-left:10px;margin-right:10px}
+.dm-joint-chart-wrap canvas{height:300px}
 .dm-summary-row{grid-template-columns:1fr}
 }
 .dm-section-title{margin:7px 0 12px}

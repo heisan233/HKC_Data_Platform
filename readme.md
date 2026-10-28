@@ -17,7 +17,7 @@ worktree。此前集成分支均保留为回退点。
 
 Platform v2 已完成目录迁移，并已接入登录、上传、数据管理、标注、处理、质检、
 机器人档案、数据定义、HDF5 转换、打包导出和 X-VLA 训练等真实功能；工作台和
-系统管理仍有明确的占位内容。所有入口、路由、模板和静态资源已经移入 `app/`。后续功能应继续遵守下面
+系统管理的真实脱敏访问日志。工作台仍有明确的占位内容。所有入口、路由、模板和静态资源已经移入 `app/`。后续功能应继续遵守下面
 的实际目录结构，避免重新在项目根目录堆放业务文件：
 
 数据集和运行结果保存在 `storage/`。数据管理使用 SQLite 登记编号及目录映射，
@@ -42,7 +42,7 @@ HKC_Data_Platform_v3.0.2/
 │   │   ├── training/           # X-VLA 训练、离线评估和模型包管理
 │   │   ├── robots/             # 机器人管理
 │   │   ├── system/             # 系统管理
-│   │   ├── semantics/          # LeRobot v3 结构参考与平台受控词表
+│   │   ├── semantics/          # LeRobot v3 Schema 扫描、字段定义与派生发布
 │   │   ├── export/             # /export 页面与转换 API 入口
 │   │   ├── models/             # v1 未注册页面，等待归并
 │   │   └── logs/               # v1 未注册页面，等待归并
@@ -185,10 +185,12 @@ HTTPS，仍禁止开放到公网。
 不一致允许关联但会告警，派生 DS 在来源关系唯一一致时自动继承。关系仅保存在
 SQLite，不修改数据集文件或 `meta/info.json`。
 
-数据定义页 `/semantics/` 展示平台实际读取的 LeRobot v3 文件层级，并使用同一个
-SQLite 维护场景、任务、动作和对象四类受控词表。每条记录分配 `SD000001` 形式
-编号，支持新增、编辑、筛选、停用和恢复，不提供永久删除。机器编码创建后固定；
-当前词表不会自动修改已有数据集、Episode task 或 Subtask 标注。
+数据定义页 `/semantics/` 是真实 LeRobot v3 Schema 编辑器。它扫描 `info.json`、
+Episode/frame Parquet，显示字段来源、dtype、shape、物理类型、完整率和训练可用
+状态。Episode 字段可使用统一值或统一空值；逐帧数值标量/向量可建立全空占位，
+也可从 CSV/Parquet 按 `episode_index + frame_index` 导入。每次修改都复制完整
+数据集并登记新的 Derived DS，Raw 和旧 Derived 不原地修改。核心字段禁止删除，
+其他官方 Feature 删除前需要醒目警告和二次确认。
 
 全新数据库没有默认用户。容器健康启动后，由管理员交互创建首个账号：
 
@@ -403,7 +405,8 @@ VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.pa
 - `app/db/` 已供数据集登记使用；`migrations/` 仍为后续结构升级预留。
 - 数据管理、质检、标注和数据处理已统一使用 DS 编号访问登记层。
 - PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
-- `semantics` 已实现真实 LeRobot v3 结构参考和 SQLite 受控词表。
+- `semantics` 已实现真实 LeRobot v3 Schema 扫描、Episode/逐帧字段增删、空值占位、
+  索引导入和 Derived 发布；第一版不新增图片、视频或深度媒体文件。
 - `/export/` 已提供已登记 Derived 数据集的 LeRobot v3.0 → HDF5 格式转换，以及
   Derived 数据集或转换结果的完整压缩包下载。
 
@@ -640,6 +643,10 @@ routers/training.py
 分类归入数据定义。
 
 该验证确认已注册页面能返回并渲染 HTML，不代表页面按钮对应的业务功能已经实现。
+
+系统管理页当前会展示真实登录访问记录，日志位于
+`storage/system/logs/platform.jsonl`。日志只记录用户、模块、HTTP 方法、纯路径、
+状态码和耗时，不记录查询参数、正文、Cookie、密码或 Token。
 
 ## 6. 当前限制与待补充内容
 

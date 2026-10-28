@@ -53,6 +53,8 @@ HKC_STORAGE_PATH（默认 ./storage） -> 容器中的 /data
   `system/dataset-versions/`。SQLite 和这些运行记录都不提交 Git。
   格式转换和训练任务记录保存在 `system/platform.sqlite`。旧版
   `system/conversion-jobs/<CV 编号>.json` 在首次访问转换页时复制入库并原样保留。
+  脱敏访问日志位于 `system/logs/platform.jsonl`，不记录请求查询参数、正文、
+  Cookie、密码或 Token。
 
 不要把 Python、HTML、配置文件或 Dockerfile 放在此目录。测试用小样本应放在
 `tests/fixtures/`，并确认其许可和体积适合进入 Git。

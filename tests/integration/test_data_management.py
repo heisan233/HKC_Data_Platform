@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from fastapi.testclient import TestClient
 
@@ -35,6 +37,46 @@ def dataset(root: Path, name: str, *, valid: bool = True) -> Path:
             "total_episodes": 7, "total_frames": 2647, "fps": 20,
             "features": {},
         }), encoding="utf-8")
+    return folder
+
+
+def dataset_with_joint_series(root: Path, name: str) -> Path:
+    folder = dataset(root, name)
+    info_path = folder / "meta" / "info.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    info["total_episodes"] = 2
+    info["total_frames"] = 5
+    info["fps"] = 20
+    info["features"] = {
+        "observation.state": {
+            "dtype": "float32",
+            "shape": [2],
+            "names": ["shoulder", "gripper"],
+        },
+        "action": {"dtype": "float32", "shape": [2]},
+    }
+    info_path.write_text(json.dumps(info), encoding="utf-8")
+    episode_path = folder / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+    episode_path.parent.mkdir(parents=True)
+    pq.write_table(pa.table({"episode_index": [0, 1], "length": [3, 2]}), episode_path)
+    data_path = folder / "data" / "chunk-000" / "file-000.parquet"
+    data_path.parent.mkdir(parents=True)
+    pq.write_table(
+        pa.table({
+            "episode_index": pa.array([0, 0, 0, 1, 1], type=pa.int64()),
+            "frame_index": pa.array([0, 1, 2, 0, 1], type=pa.int64()),
+            "timestamp": pa.array([5.0, 5.05, 5.1, 9.0, 9.05], type=pa.float32()),
+            "observation.state": pa.array(
+                [[1.0, 10.0], [2.0, 20.0], [3.0, 30.0], [4.0, 40.0], [5.0, 50.0]],
+                type=pa.list_(pa.float32(), 2),
+            ),
+            "action": pa.array(
+                [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6], [0.7, 0.8], [0.9, 1.0]],
+                type=pa.list_(pa.float32(), 2),
+            ),
+        }),
+        data_path,
+    )
     return folder
 
 
@@ -83,6 +125,51 @@ def test_dataset_pages_show_read_only_collecting_robot(platform):
         assert "RB000001" in response.text
         assert "一号采集臂" in response.text
     assert "关联关系只能在机器人管理页面修改" in detail.text
+
+
+def test_dataset_detail_reads_episode_joint_series(platform):
+    client, root = platform
+    dataset_with_joint_series(root, "joints")
+    client.post("/data/api/register", json={"folders": ["joints"]})
+
+    page = client.get("/data/raw/DS000001")
+    assert page.status_code == 200
+    assert "Episode 关节曲线" in page.text
+    assert "observation.state（2 维）" in page.text
+    assert "action（2 维）" in page.text
+    assert "Episode 0" in page.text
+    assert "Episode 1" in page.text
+
+    state = client.get(
+        "/data/api/datasets/DS000001/joint-series",
+        params={"episode_index": 0, "field_name": "observation.state"},
+    )
+    assert state.status_code == 200
+    body = state.json()
+    assert body["field"]["names"] == ["shoulder", "gripper"]
+    assert body["time_source"] == "timestamp"
+    assert body["total_points"] == 3
+    assert body["sampled"] is False
+    assert [point["seconds"] for point in body["points"]] == pytest.approx([0, 0.05, 0.1])
+    assert [point["values"] for point in body["points"]] == [
+        [1.0, 10.0], [2.0, 20.0], [3.0, 30.0],
+    ]
+
+    action = client.get(
+        "/data/api/datasets/DS000001/joint-series",
+        params={"episode_index": 1, "field_name": "action"},
+    )
+    assert action.status_code == 200
+    assert action.json()["field"]["names"] == ["维度 0", "维度 1"]
+    assert [point["seconds"] for point in action.json()["points"]] == pytest.approx([0, 0.05])
+    assert client.get(
+        "/data/api/datasets/DS000001/joint-series",
+        params={"episode_index": 99, "field_name": "action"},
+    ).status_code == 422
+    assert client.get(
+        "/data/api/datasets/DS000001/joint-series",
+        params={"episode_index": 0, "field_name": "forbidden"},
+    ).status_code == 422
 
 
 def test_folder_name_does_not_control_platform_sequence(platform):

@@ -10,8 +10,10 @@
 和恢复。它还负责把已登记 DS 关联、改绑或解除到具体机器人；数据管理页只读展示
 结果。关系只写入 SQLite，不回写 LeRobot 文件，类型不一致时允许保存但必须告警。
 
-`semantics` 是数据定义模块：页面准确说明当前 LeRobot v3 文件层级，并在 SQLite
-中维护场景、任务、动作和对象四类受控词表。词条有稳定 SD 编号，只能停用或恢复；
+`semantics` 是数据定义模块：读取已登记 DS 的 `info.json`、Episode Parquet 和
+frame Parquet，区分官方字段、核心字段及平台扩展字段。修改始终生成完整 Derived；
+Episode 自定义定义写入 `hkc_extensions.episode_features`，逐帧数值 Feature 同步
+写入 `info.json.features` 和所有 frame 分片，并显示空值完整率与训练可用状态。
 当前不强制修改已有数据集或标注。
 
 例如“数据管理”页面可能同时调用：
@@ -57,10 +59,17 @@ HTML/JavaScript 按钮
 单文件与质检页批量上传复用同一服务。这只是“上传入库”而不是完整数据质检。
 
 `datasets` 通过 `app/db/datasets.py` 管理统一 DS 编号到 Raw/Derived 真实目录的
-映射；只在数据管理页展示尚未登记的 Raw 目录，不会自动迁移旧文件。`quality` 的 `service.py` 负责方案版本、任务快照和统一
+映射；只在数据管理页展示尚未登记的 Raw 目录，不会自动迁移旧文件。数据集详情
+还会只读解析真实 frame Parquet，按 Episode 绘制 `observation.state` 和 `action`
+关节曲线；缺失关节名称时按“维度 N”显示，显示抽样不会改变源数据。`quality` 的 `service.py` 负责方案版本、任务快照和统一
 报告，`robot_rules.py` 与 `vlm.py` 分别执行机器人专项与视频规则，
 Doctor 由服务层调用。数据集登记、质检任务和人工复核历史保存在
 `storage/system/platform.sqlite`。
+
+`system` 提供只读系统管理日志页。认证中间件将已登录访问的用户、模块、HTTP
+方法、纯路径、状态码和耗时写入 `storage/system/logs/platform.jsonl`；不会记录
+查询参数、正文、Cookie 或认证秘密。该日志用于平台操作查看，不替代 Docker 或
+Uvicorn 的进程诊断日志。
 
 `annotation` 已实现真实 Episode/task/Subtask 标注：从 LeRobot v3 Parquet 读取
 任务表、Episode 和视频索引，网页播放真实相机视频，可修改总体 task、Episode
@@ -81,9 +90,10 @@ Pandas DataFrame 的 `task` 索引，`task_index` 是普通列；Episode 帧数�
 `data/chunk_index`、`data/file_index` 时从 frame Parquet 的 `episode_index`
 自动反查文件位置；派生输出会补齐当前标准字段，不修改原始数据。
 
-`semantics` 已替换旧占位页：结构参考使用平台实际读取的 `meta/info.json`、
-`meta/tasks.parquet`、Episode/frame Parquet、视频路径和旁路标注结构；受控词表
-通过 `app/db/semantics.py` 保存，不向 Raw/Derived 写入内容。
+`semantics` 已替换旧受控词表页面，成为真实 Schema 编辑器。第一版 Episode 字段
+支持 string/int64/float64/bool 统一值或统一空值；逐帧字段支持数值标量/向量全空
+占位，或从 CSV/Parquet 按 `episode_index + frame_index` 导入。核心索引禁止删除，
+其他官方 Feature 删除前需要二次确认。
 
 `conversion` 目前提供 LeRobot v3.0 → HDF5 方案，页面按方案选择组织，便于后续增加
 其他转换器。服务通过统一 DS 编号读取已登记的 Derived 来源、校验文件清单并记录

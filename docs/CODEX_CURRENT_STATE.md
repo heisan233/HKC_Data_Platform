@@ -55,7 +55,7 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/dashboard/` | `dashboard` | 工作台页面，部分展示内容仍偏框架 |
 | `/data/` | `datasets` | 真实 DS 数据集总览和质检状态 |
 | `/data/manage/` | `datasets` | 真实登记、信息修改与重新扫描 |
-| `/data/raw/` | `datasets` | Raw/Derived 数据集列表与详情入口 |
+| `/data/raw/` | `datasets` | Raw/Derived 列表、详情及 Episode 关节曲线 |
 | `/data/reports/` | `datasets` | 真实质检报告和回收站 |
 | `/ingestion/` | `ingestion` | 真实 LeRobot v3 ZIP 单个/批量上传 |
 | `/annotation/` | `annotation` | 真实 Episode/task/Subtask 标注 |
@@ -64,8 +64,8 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/export/` | `conversion`、`export` | Derived DS 转换 HDF5、CV 任务及完整打包下载 |
 | `/training/` | `training` | 已接入真实 DS、SQLite 任务、宿主执行器、离线评估与模型包；执行器离线时不可提交训练 |
 | `/robots/` | `robots` | SQLite 机器人档案、停用/恢复，以及 DS 关联、改绑和解除 |
-| `/semantics/` | `semantics` | 真实 LeRobot v3 结构参考和 SQLite 受控词表 |
-| `/system/` | `system` | 框架页面 |
+| `/semantics/` | `semantics` | 真实 LeRobot v3 Schema 扫描、字段增删、空值占位与索引导入 |
+| `/system/` | `system` | 真实、脱敏、持久化的访问日志与筛选 |
 
 独立情景管理页面已经按产品决定删除；`/scenes/` 当前应返回 HTTP 404。未来如果
 需要维护场景分类，统一纳入数据定义，不恢复独立情景管理模块。
@@ -178,7 +178,7 @@ SQLite 访问代码：
 - `app/db/users.py`：用户、scrypt 密码哈希和服务端登录会话；
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
 - `app/db/dataset_robots.py`：DS 与采集机器人的可选关系及派生继承；
-- `app/db/semantics.py`：稳定 SD 编号和场景/任务/动作/对象受控词表；
+- `app/db/semantics.py`：旧受控词表兼容保留；当前数据定义页不再读写；
 - 真实数据库：`storage/system/platform.sqlite`，被 Git 忽略。
 
 平台不提供默认账号。每台全新部署设备启动后，由管理员在容器中交互执行
@@ -205,13 +205,38 @@ DS，已有 DS 不自动迁移。关联、改绑和解除只在机器人管理�
 
 ### 数据定义边界
 
-`SD000001` 是平台受控词条编号。数据定义页维护场景、任务、动作和对象四类词表，
-机器编码创建后不可修改，词条没有永久删除接口，只能停用或恢复。页面同时展示
-平台实际读取的 LeRobot v3 数据集、任务、Episode、帧、视频和旁路标注结构。
+数据定义页是已登记 LeRobot v3 数据集的 Schema 编辑器，不再是 SQLite 受控词表。
+它读取 `info.json`、全部 Episode Parquet 与 frame Parquet，展示 dtype、shape、
+物理类型、来源、空值完整率和训练可用状态。
 
-词表当前只保存平台管理元数据，不写入 Raw/Derived，不自动替换 Episode task、
-Subtask 动作或对象，也不与机器人档案建立外键。后续接入上传或标注前，必须先
-设计兼容旧自由文本数据的映射方案。
+Episode 自定义字段定义写入 `hkc_extensions.episode_features`，实际列写入所有
+Episode 元数据；第一版支持 string/int64/float64/bool 统一值或统一空值。逐帧
+Feature 同时写入 `info.json.features` 和所有 frame Parquet，支持数值标量/定长
+向量全空占位，或从 CSV/Parquet 按 `episode_index + frame_index` 导入实际数据。
+全空或部分为空的 Feature 会标记为不满足训练要求，不会静默填 0。
+
+所有增删均复制完整数据集并发布新的 Derived DS。核心索引与 Episode 定位字段禁止
+删除；其他官方 Feature 允许删除，但必须经过醒目警告和二次确认。第一版不新增
+图片、视频或深度媒体内容；它们需要未来单独实现媒体文件和索引处理。
+
+旧受控词表 SQLite 表只做兼容保留，当前页面不再读写，也不执行破坏性删表迁移。
+
+### 数据集 Episode 关节曲线
+
+数据集详情页从真实 frame Parquet 按 Episode 读取 `observation.state` 和 `action`，
+通过折线图展示各维度随时间的变化。时间优先使用 `timestamp` 并归零到 Episode
+起点；缺少时间戳时使用 `frame_index / fps`。曲线名称优先使用
+`info.json.features.<字段>.names`，缺少名称时显示“维度 0、维度 1……”；长 Episode
+最多均匀返回 2000 个显示点，但不修改或重写原始数据。该功能为只读展示，不新增
+SQLite 表，也不改变 Raw/Derived 数据集。
+
+### 系统日志边界
+
+系统管理页展示真实的已登录访问记录，而非演示数据。认证中间件记录时间、用户、
+业务模块、HTTP 方法、路径、状态码和耗时，写入
+`storage/system/logs/platform.jsonl`。为避免泄露认证或业务数据，日志不记录查询
+参数、请求正文、Cookie、Header、密码和 Token。页面支持级别、模块、关键词及数量
+筛选，但没有删除或修改日志的接口。健康检查和静态资源不进入该业务日志。
 
 ## 5. 配置与部署
 

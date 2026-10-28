@@ -72,8 +72,9 @@
 - 系统管理以及部分工作台页面仍属于框架或演示；训练尚无真实机器人任务成功率评估；
 - 独立情景管理页面和 `/scenes/` 路由已按产品决定移除；未来场景分类归入数据
   定义，不重新建立独立情景管理模块；
-- `semantics`：真实 LeRobot v3 结构参考，以及带稳定 SD 编号的场景、任务、动作、
-  对象受控词表；当前不自动改写已有数据集或标注。
+- `semantics`：真实 LeRobot v3 Schema 编辑器；扫描 `info.json` 与全部 Episode/frame
+  Parquet，支持 Episode 扩展字段、数值逐帧 Feature 占位或索引导入，并以完整
+  Derived DS 发布。结构已声明不等于满足训练要求。
 
 Codex 不得因为页面能够打开就声称功能已完成。判断标准是：是否读取真实数据、
 是否有后端行为、是否有测试以及是否通过人工验收。
@@ -113,7 +114,7 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `app/modules/datasets/`：统一数据集登记、列表、详情与报告管理；
 - `app/modules/auth/`：登录/退出路由、Cookie 会话与全站访问保护；
 - `app/modules/robots/`：机器人档案与 DS 关联管理，不连接或控制真实机器人；
-- `app/modules/semantics/`：LeRobot v3 结构参考和平台受控词表；
+- `app/modules/semantics/`：LeRobot v3 结构扫描、字段定义与 Schema 派生发布；
 - `app/modules/ingestion/`：ZIP 上传、校验和 Raw 入库；
 - `app/modules/annotation/`：Episode/task/Subtask 标注与发布；
 - `app/modules/processing/`：Episode 处理及 Derived 构建；

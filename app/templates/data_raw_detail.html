@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block page_title %}数据集详情 · {{ item.id }}{% endblock %}
 {% block content %}
-<link rel="stylesheet" href="/static/css/data.css">
+<link rel="stylesheet" href="/static/css/data.css?v=20261028-joint-chart-1">
 <div class="dm-wrap" id="dm-detail-page" data-id="{{ item.id }}">
   <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span><a href="/data/{{ area }}/">{{ area|title }}</a><span>/</span>{{ item.id }}</nav>
   <section class="dm-hero"><div><span class="dm-eyebrow">{{ area|upper }} · {{ item.id }}</span><h2>{{ item.name }}</h2><p>/data/{{ area }}/{{ detail.folder or record.storage_relpath }}</p></div><span class="dm-hero-pill">{{ item.robot_type }}</span></section>
@@ -15,11 +15,26 @@
   {% endif %}
   {% if detail.folder %}
     {% if detail.cameras %}<section class="dm-panel"><div class="dm-panel-head"><div><h3>相机视频</h3><p>直接预览目录中的 MP4</p></div></div><div class="dm-camera-grid">{% for camera in detail.cameras %}<article class="dm-camera"><div class="dm-camera-head"><div><small>CAMERA {{ loop.index }}</small><h4>{{ camera.key }}</h4></div></div>{% if camera.videos %}<video controls preload="metadata" src="{{ camera.videos[0].url }}"></video><label>选择视频<select class="dm-video-select" aria-label="选择{{ camera.key }}视频">{% for video in camera.videos %}<option value="{{ video.url }}">{{ video.name }}</option>{% endfor %}</select></label>{% else %}<div class="dm-video-empty">此相机暂无 MP4 文件</div>{% endif %}</article>{% endfor %}</div></section>{% endif %}
+    <section class="dm-panel dm-joint-panel" id="dm-joint-chart" data-dataset-id="{{ item.id }}">
+      <div class="dm-panel-head"><div><h3>Episode 关节曲线</h3><p>X 轴为 Episode 内时间（秒），Y 轴为关节原始值；只读展示，不修改数据集。</p></div><span class="dm-count" id="dm-joint-point-count"></span></div>
+      {% if detail.joint_fields and detail.episode_indices %}
+      <div class="dm-joint-toolbar">
+        <label>Episode<select id="dm-joint-episode">{% for index in detail.episode_indices %}<option value="{{ index }}">Episode {{ index }}</option>{% endfor %}</select></label>
+        <label>数据字段<select id="dm-joint-field">{% for field in detail.joint_fields %}<option value="{{ field.name }}">{{ field.name }}（{{ field.width }} 维）</option>{% endfor %}</select></label>
+        <button type="button" class="dm-button" id="dm-joint-load">加载曲线</button>
+      </div>
+      <div class="dm-joint-feedback" id="dm-joint-feedback" role="status">请选择 Episode 和数据字段。</div>
+      <div class="dm-joint-chart-wrap"><canvas id="dm-joint-canvas" aria-label="Episode 关节曲线图" role="img"></canvas></div>
+      <div class="dm-joint-legend" id="dm-joint-legend" aria-label="关节曲线显示开关"></div>
+      {% else %}
+      <div class="dm-empty">{% if detail.episode_error %}{{ detail.episode_error }}{% elif not detail.joint_fields %}info.json 未声明可绘制的 <code>observation.state</code> 或 <code>action</code> 数值向量。{% else %}没有可读取的 Episode。{% endif %}</div>
+      {% endif %}
+    </section>
     <div class="dm-columns"><section class="dm-panel"><div class="dm-panel-head"><div><h3>字段与维度</h3><p>来自 meta/info.json</p></div></div><div class="dm-feature-grid dm-pad">{% for key, value in detail.features.items() %}<div class="dm-feature"><div class="dm-feature-line"><strong>{{ key }}</strong><small>{{ value.get('dtype', '—') if value is mapping else '—' }} · {{ value.get('shape', '—') if value is mapping else '—' }}</small></div>{% if value is mapping and value.get('names') %}<p class="dm-subtle">{{ value.get('names') }}</p>{% endif %}</div>{% else %}<div class="dm-empty">暂无字段定义。</div>{% endfor %}</div></section>
       <section class="dm-panel"><div class="dm-panel-head"><div><h3>原始元数据</h3><p>仅展示，不修改</p></div></div><details class="dm-source-details"><summary>meta/info.json</summary><pre class="dm-pre">{{ detail.info|tojson(indent=2) }}</pre></details><details class="dm-source-details"><summary>meta/stats.json</summary><pre class="dm-pre">{{ detail.stats|tojson(indent=2) }}</pre></details></section></div>
     <section class="dm-panel"><div class="dm-panel-head"><div><h3>文件结构</h3><p>最多展示前 500 个文件</p></div><span class="dm-count">{{ detail.files|length }} 项</span></div><div class="dm-file-list">{% for file in detail.files %}<div><code>{{ file.path }}</code><span>{{ file.size }}</span></div>{% else %}<div class="dm-empty">目录中暂无文件。</div>{% endfor %}</div></section>
   {% else %}<section class="dm-panel dm-empty">此目录当前不可访问。</section>{% endif %}
   {% if reports %}<section class="dm-panel"><div class="dm-panel-head"><div><h3>关联报告</h3><p>独立保存在 reports/qc/{{ item.id }}/</p></div><a href="/data/reports/">查看全部 →</a></div>{% for report in reports %}<a class="dm-list-row" href="{% if report.name.startswith('QC-') and report.name.endswith('.json') %}/qc/reports/{{ report.name[:-5] }}{% else %}/data/reports/{{ item.id }}/{{ report.name|urlencode }}{% endif %}"><div><strong>{{ report.name }}</strong><small>{{ report.created_at }} · {{ report.decision }}</small></div><span class="dm-arrow">→</span></a>{% endfor %}</section>{% endif %}
 </div>
-<script src="/static/js/data_manage.js"></script>
+<script src="/static/js/data_manage.js?v=20261028-joint-chart-1"></script>
 {% endblock %}

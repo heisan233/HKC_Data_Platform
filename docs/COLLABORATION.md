@@ -1,6 +1,6 @@
 # HKC 数采平台协作与 Codex 交接文档
 
-更新日期：2026-10-27
+更新日期：2026-10-28
 
 这是一份双方开发者和双方 Codex 共用的交接记录。合并后的当前结构、已完成与
 未完成功能、数据生命周期和接手步骤已经集中到 `docs/CODEX_CURRENT_STATE.md`；
@@ -27,6 +27,68 @@
   运行在宿主机 LeRobot 环境中。
 - 当前已有 SQLite 用户、密码哈希和服务端会话保护，但尚无 HTTPS；任何网络开放
   仍只能面向可信内网。
+
+### 2026-10-28 系统管理真实访问日志
+
+完成内容：移除系统管理页写死的 4 条演示日志，新增真实持久化访问日志。认证
+中间件在请求完成后记录登录用户、业务模块、HTTP 方法、纯路径、状态码和耗时；
+日志保存在 `storage/system/logs/platform.jsonl`。页面展示最近/今日/警告/错误统计，
+并支持级别、模块、关键词和显示数量筛选。日志不保存查询参数、正文、Cookie、
+Header、密码或 Token；写入失败不会影响正常业务请求。
+
+主要修改文件：`app/modules/system/service.py`、`router.py`、
+`app/modules/auth/middleware.py`、`app/templates/system.html`、
+`app/static/css/system.css`、`tests/integration/test_system.py`、测试隔离及相关说明。
+
+验证：系统、页面和认证相关专项 Ruff 通过，`20 passed`；全仓库 Ruff 通过，pytest
+共 `120 passed`（另有 1 条 Starlette/AnyIO 上游弃用警告）；`git diff --check`
+通过。开发容器已热重载，真实日志将在下一次已登录业务访问后自动创建。
+
+接口影响：没有新增写操作 API、数据库表或依赖；认证中间件新增脱敏访问日志副作用。
+日志只用于系统管理只读展示，不替代 Docker/Uvicorn 的进程级诊断日志。
+
+### 2026-10-28 数据集 Episode 关节曲线
+
+完成内容：在数据管理的数据集详情页增加只读 Episode 关节曲线。页面可选择
+Episode，并在 `observation.state`（实际状态）和 `action`（控制/目标值）之间切换；
+X 轴为 Episode 内秒数，Y 轴为原始关节值，各维曲线可独立显示或隐藏。名称读取
+`info.json` 的 `names`，缺失时使用“维度 N”。后端从真实 frame Parquet 读取数据，
+时间戳缺失时按 `frame_index / fps` 计算；长 Episode 仅对网页显示结果均匀抽样，
+不会修改来源文件。
+
+主要修改文件：`app/modules/datasets/router.py`、`service.py`、
+`app/templates/data_raw_detail.html`、`app/static/js/data_manage.js`、
+`app/static/css/data.css`、`tests/integration/test_data_management.py` 及交接说明。
+
+验证：数据管理专项 Ruff 和 `11 passed`；全仓库 Ruff 通过，pytest 共
+`118 passed`（另有 1 条 Starlette/AnyIO 上游弃用警告）；JavaScript 语法和
+`git diff --check` 通过。尚待使用者在真实 SmolVLA 数据集页面进行人工视觉验收。
+
+接口影响：新增只读
+`GET /data/api/datasets/{DS}/joint-series?episode_index=...&field_name=...`；没有修改
+SQLite、依赖、Compose 或数据集内容。此次跨维护边界修改 datasets 模块，是为了
+落实领导要求的数据管理详情能力，后续合并时需保留该接口和详情页图表区域。
+
+### 2026-10-28 数据定义 Schema 编辑器重制
+
+完成内容：从提交 `6ee0f5b` 的干净状态撤回未提交的受控词表扫描/组合方案，将
+`/semantics/` 重制为真实 LeRobot v3 Schema 编辑器。页面扫描已登记 DS 的
+`info.json` 与全部 Episode/frame Parquet；Episode 自定义定义写入
+`hkc_extensions.episode_features` 并写入真实元数据列；逐帧数值标量/向量同步写入
+`info.json.features` 和全部 frame 分片，支持全空占位以及 CSV/Parquet 通过
+`episode_index + frame_index` 对齐导入。全空/部分为空会阻止“训练可用”状态，
+平台不自动填 0。
+
+发布边界：Raw 和已有 Derived 不原地修改，结果经 `storage/staging/schema/` 验证后
+发布并登记新的 Derived DS，继承来源和机器人关系。核心索引/定位字段禁止删除；
+其他官方 Feature 删除必须二次确认。旧 `app/db/semantics.py` 和已有 SQLite 表只作
+兼容保留，当前页面不再读写，也未执行破坏性迁移。第一版不新增图片、视频和深度
+媒体文件。
+
+验证：数据定义模块 Ruff 通过，7 项专项集成测试通过；当时全仓库 Ruff 通过，pytest
+共 `117 passed`（另有 1 条 Starlette/AnyIO 上游弃用警告）；JavaScript 语法和
+`git diff --check` 通过。浏览器人工验收尚未完成，自动打开页面时被正常登录保护
+重定向到 `/login`，没有使用或提交任何账号密码。
 
 ## 二、分支与人员分工
 

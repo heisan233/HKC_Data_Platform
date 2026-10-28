@@ -1,144 +1,275 @@
-"""Data definition reference page and controlled vocabulary tests."""
+"""Real LeRobot v3 schema editor tests."""
 
+import json
 from pathlib import Path
 
+import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
+from app.db.datasets import DatasetRepository
 from app.main import app
+from app.modules.datasets.service import register_dataset
 from app.modules.semantics import router as semantics_router
 
 
+def make_schema_dataset(root: Path, name: str = "source") -> tuple[str, Path]:
+    folder = root / "raw" / name
+    (folder / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
+    (folder / "data" / "chunk-000").mkdir(parents=True)
+    info = {
+        "codebase_version": "v3.0",
+        "robot_type": "so100",
+        "fps": 10,
+        "total_episodes": 2,
+        "total_frames": 4,
+        "total_tasks": 1,
+        "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+        "features": {
+            "value": {"dtype": "float32", "shape": [1], "names": None},
+            "index": {"dtype": "int64", "shape": [1], "names": None},
+            "episode_index": {"dtype": "int64", "shape": [1], "names": None},
+            "frame_index": {"dtype": "int64", "shape": [1], "names": None},
+            "timestamp": {"dtype": "float32", "shape": [1], "names": None},
+            "task_index": {"dtype": "int64", "shape": [1], "names": None},
+        },
+    }
+    (folder / "meta" / "info.json").write_text(json.dumps(info), encoding="utf-8")
+    (folder / "meta" / "stats.json").write_text(
+        json.dumps({"value": {"mean": [2.5]}}), encoding="utf-8"
+    )
+    pd.DataFrame(
+        {"task_index": [0]}, index=pd.Index(["test task"], name="task")
+    ).to_parquet(folder / "meta" / "tasks.parquet")
+    pq.write_table(
+        pa.table(
+            {
+                "episode_index": [0, 1],
+                "dataset_from_index": [0, 2],
+                "dataset_to_index": [2, 4],
+                "length": [2, 2],
+                "tasks": [["test task"], ["test task"]],
+                "data/chunk_index": [0, 0],
+                "data/file_index": [0, 0],
+            }
+        ),
+        folder / "meta" / "episodes" / "chunk-000" / "file-000.parquet",
+    )
+    pq.write_table(
+        pa.table(
+            {
+                "value": pa.array([1, 2, 3, 4], type=pa.float32()),
+                "index": pa.array([0, 1, 2, 3], type=pa.int64()),
+                "episode_index": pa.array([0, 0, 1, 1], type=pa.int64()),
+                "frame_index": pa.array([0, 1, 0, 1], type=pa.int64()),
+                "timestamp": pa.array([0.0, 0.1, 0.0, 0.1], type=pa.float32()),
+                "task_index": pa.array([0, 0, 0, 0], type=pa.int64()),
+            }
+        ),
+        folder / "data" / "chunk-000" / "file-000.parquet",
+    )
+    record = register_dataset(root, "raw", name, "测试数据集")
+    return record["id"], folder
+
+
 @pytest.fixture
-def semantic_platform(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+def schema_platform(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, Path]:
     monkeypatch.setattr(semantics_router, "settings", Settings(data_root=tmp_path))
-    return TestClient(app)
+    return TestClient(app), tmp_path
 
 
-def definition_payload(**overrides) -> dict:
-    payload = {
-        "category": "action",
-        "code": "pick_and_place",
-        "name": "拾取并放置",
-        "description": "抓取目标并移动到指定位置。",
-        "examples": ["抓取红色方块并放入料盒"],
-        "status": "active",
-        "sort_order": 20,
-    }
-    payload.update(overrides)
-    return payload
+def test_page_is_dataset_schema_editor(schema_platform: tuple[TestClient, Path]) -> None:
+    client, _ = schema_platform
+    response = client.get("/semantics/")
+    assert response.status_code == 200
+    assert "数据集结构定义" in response.text
+    assert "平台受控词表" not in response.text
 
 
-def update_payload(**overrides) -> dict:
-    payload = {
-        "name": "拾取与放置",
-        "description": "更新后的动作说明。",
-        "examples": ["拾取连接器", "放入治具"],
-        "status": "active",
-        "sort_order": 10,
-    }
-    payload.update(overrides)
-    return payload
+def test_scan_reads_real_info_and_parquet(schema_platform: tuple[TestClient, Path]) -> None:
+    client, root = schema_platform
+    dataset_id, _ = make_schema_dataset(root)
 
-
-def test_page_describes_real_lerobot_v3_structure(semantic_platform: TestClient) -> None:
-    response = semantic_platform.get("/semantics/")
+    response = client.get(f"/semantics/api/datasets/{dataset_id}/schema")
 
     assert response.status_code == 200
-    assert "meta/info.json" in response.text
-    assert "meta/tasks.parquet" in response.text
-    assert "data/chunk-*/file-*.parquet" in response.text
-    assert "episode_0001/" not in response.text
-    assert "trajectory.parquet" not in response.text
+    body = response.json()
+    assert body["dataset"]["total_episodes"] == 2
+    assert body["status"]["training_ready"] is True
+    assert {item["name"] for item in body["episode_fields"]} >= {"episode_index", "length"}
+    assert {item["name"] for item in body["frame_features"]} >= {"value", "frame_index"}
 
 
-def test_create_list_and_render_definition(semantic_platform: TestClient) -> None:
-    created = semantic_platform.post(
-        "/semantics/api/definitions", json=definition_payload()
+def test_external_video_features_do_not_block_training_status(
+    schema_platform: tuple[TestClient, Path],
+) -> None:
+    client, root = schema_platform
+    dataset_id, folder = make_schema_dataset(root)
+    info_path = folder / "meta" / "info.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    info["features"]["observation.images.front"] = {
+        "dtype": "video",
+        "shape": [480, 640, 3],
+        "names": ["height", "width", "channels"],
+    }
+    info["features"]["observation.images.wrist"] = {
+        "dtype": "video",
+        "shape": [480, 640, 3],
+        "names": ["height", "width", "channels"],
+    }
+    info_path.write_text(json.dumps(info), encoding="utf-8")
+
+    response = client.get(f"/semantics/api/datasets/{dataset_id}/schema")
+
+    assert response.status_code == 200
+    body = response.json()
+    camera_rows = {
+        item["name"]: item
+        for item in body["frame_features"]
+        if item["name"].startswith("observation.images.")
+    }
+    assert camera_rows["observation.images.front"]["state"] == "external_media"
+    assert camera_rows["observation.images.wrist"]["state"] == "external_media"
+    assert body["status"]["training_ready"] is True
+    assert body["status"]["training_blockers"] == []
+
+
+def test_add_uniform_episode_field_creates_derived_dataset(
+    schema_platform: tuple[TestClient, Path],
+) -> None:
+    client, root = schema_platform
+    dataset_id, source = make_schema_dataset(root)
+
+    response = client.post(
+        f"/semantics/api/datasets/{dataset_id}/fields",
+        json={
+            "scope": "episode",
+            "name": "scene",
+            "dtype": "string",
+            "shape": [1],
+            "nullable": False,
+            "value": "lab",
+            "description": "采集场景",
+            "version_name": "增加场景字段",
+        },
     )
 
-    assert created.status_code == 201
-    assert created.json()["id"] == "SD000001"
-    assert created.json()["code"] == "pick_and_place"
-
-    listed = semantic_platform.get("/semantics/api/definitions?category=action")
-    assert listed.status_code == 200
-    assert listed.json()[0]["category_label"] == "动作类型"
-    assert listed.json()[0]["status_label"] == "启用"
-
-    page = semantic_platform.get("/semantics/?q=pick_and_place")
-    assert "SD000001 · 拾取并放置" in page.text
-    assert "抓取红色方块并放入料盒" in page.text
-
-
-def test_duplicate_code_and_name_are_rejected(semantic_platform: TestClient) -> None:
-    assert semantic_platform.post(
-        "/semantics/api/definitions", json=definition_payload()
-    ).status_code == 201
-
-    duplicate_code = semantic_platform.post(
-        "/semantics/api/definitions",
-        json=definition_payload(name="另一名称"),
+    assert response.status_code == 201
+    result = response.json()["result"]
+    record = next(
+        item
+        for item in client.get("/semantics/api/datasets").json()["datasets"]
+        if item["dataset_id"] == result["dataset_id"]
     )
-    duplicate_name = semantic_platform.post(
-        "/semantics/api/definitions",
-        json=definition_payload(code="another_action"),
+    derived = root / "derived" / next(
+        row["storage_relpath"]
+        for row in DatasetRepository(root).list()
+        if row["id"] == result["dataset_id"]
     )
-
-    assert duplicate_code.status_code == 409
-    assert duplicate_code.json()["detail"] == "该类别下的机器编码已经存在"
-    assert duplicate_name.status_code == 409
-    assert duplicate_name.json()["detail"] == "该类别下的显示名称已经存在"
-
-
-def test_update_status_restore_and_no_delete(semantic_platform: TestClient) -> None:
-    definition_id = semantic_platform.post(
-        "/semantics/api/definitions", json=definition_payload()
-    ).json()["id"]
-
-    updated = semantic_platform.put(
-        f"/semantics/api/definitions/{definition_id}", json=update_payload()
-    )
-    assert updated.status_code == 200
-    assert updated.json()["name"] == "拾取与放置"
-    assert updated.json()["code"] == "pick_and_place"
-    assert updated.json()["sort_order"] == 10
-
-    deactivated = semantic_platform.post(
-        f"/semantics/api/definitions/{definition_id}/deactivate"
-    )
-    assert deactivated.status_code == 200
-    assert deactivated.json()["status"] == "inactive"
-    assert semantic_platform.get(
-        "/semantics/api/definitions?status=inactive"
-    ).json()[0]["id"] == definition_id
-
-    restored = semantic_platform.post(
-        f"/semantics/api/definitions/{definition_id}/activate"
-    )
-    assert restored.status_code == 200
-    assert restored.json()["status"] == "active"
-    assert semantic_platform.delete(
-        f"/semantics/api/definitions/{definition_id}"
-    ).status_code == 405
+    info = json.loads((derived / "meta" / "info.json").read_text(encoding="utf-8"))
+    rows = pq.read_table(
+        derived / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+    ).to_pylist()
+    assert record["storage_area"] == "derived"
+    assert info["hkc_extensions"]["episode_features"]["scene"]["dtype"] == "string"
+    assert [row["scene"] for row in rows] == ["lab", "lab"]
+    assert "scene" not in pq.read_schema(
+        source / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+    ).names
 
 
-def test_validation_and_missing_definition_errors(semantic_platform: TestClient) -> None:
-    invalid_code = semantic_platform.post(
-        "/semantics/api/definitions",
-        json=definition_payload(code="中文 编码"),
-    )
-    invalid_category = semantic_platform.post(
-        "/semantics/api/definitions",
-        json=definition_payload(category="sensor"),
+def test_add_empty_frame_vector_marks_not_training_ready(
+    schema_platform: tuple[TestClient, Path],
+) -> None:
+    client, root = schema_platform
+    dataset_id, _ = make_schema_dataset(root)
+
+    response = client.post(
+        f"/semantics/api/datasets/{dataset_id}/fields",
+        json={
+            "scope": "frame",
+            "name": "observation.extra_joints",
+            "dtype": "float32",
+            "shape": [2],
+            "names": ["joint_a", "joint_b"],
+            "description": "待补充关节",
+            "version_name": "增加空关节字段",
+        },
     )
 
-    assert invalid_code.status_code == 422
-    assert invalid_category.status_code == 422
-    assert semantic_platform.get(
-        "/semantics/api/definitions?category=sensor"
-    ).status_code == 422
-    assert semantic_platform.post(
-        "/semantics/api/definitions/SD999999/deactivate"
-    ).status_code == 404
+    assert response.status_code == 201
+    derived_id = response.json()["result"]["dataset_id"]
+    scanned = client.get(f"/semantics/api/datasets/{derived_id}/schema").json()
+    field = next(item for item in scanned["frame_features"]
+                 if item["name"] == "observation.extra_joints")
+    assert field["state"] == "declared_empty"
+    assert field["completeness"] == 0
+    assert scanned["status"]["training_ready"] is False
+    assert scanned["status"]["training_blockers"] == ["observation.extra_joints"]
+
+
+def test_import_vector_feature_by_episode_and_frame_index(
+    schema_platform: tuple[TestClient, Path],
+) -> None:
+    client, root = schema_platform
+    dataset_id, _ = make_schema_dataset(root)
+    csv = (
+        "episode_index,frame_index,joint_a,joint_b\n"
+        "0,0,1.0,2.0\n0,1,3.0,4.0\n1,0,5.0,6.0\n1,1,7.0,8.0\n"
+    )
+
+    response = client.post(
+        f"/semantics/api/datasets/{dataset_id}/frame-import",
+        data={
+            "field_name": "observation.extra_joints",
+            "dtype": "float32",
+            "shape": "[2]",
+            "source_columns": '["joint_a", "joint_b"]',
+            "names": '["joint_a", "joint_b"]',
+            "description": "导入关节",
+            "version_name": "导入关节数据",
+        },
+        files={"import_file": ("joints.csv", csv, "text/csv")},
+    )
+
+    assert response.status_code == 201, response.text
+    derived_id = response.json()["result"]["dataset_id"]
+    scanned = client.get(f"/semantics/api/datasets/{derived_id}/schema").json()
+    field = next(item for item in scanned["frame_features"]
+                 if item["name"] == "observation.extra_joints")
+    assert field["state"] == "complete"
+    assert field["completeness"] == 100
+    assert scanned["status"]["training_ready"] is True
+
+
+def test_delete_protects_core_and_requires_official_confirmation(
+    schema_platform: tuple[TestClient, Path],
+) -> None:
+    client, root = schema_platform
+    dataset_id, _ = make_schema_dataset(root)
+    common = {"version_name": "删除字段测试", "version_description": ""}
+
+    core = client.post(
+        f"/semantics/api/datasets/{dataset_id}/fields/delete",
+        json={"scope": "frame", "name": "frame_index", "confirm_official": True, **common},
+    )
+    warning = client.post(
+        f"/semantics/api/datasets/{dataset_id}/fields/delete",
+        json={"scope": "frame", "name": "value", "confirm_official": False, **common},
+    )
+    confirmed = client.post(
+        f"/semantics/api/datasets/{dataset_id}/fields/delete",
+        json={"scope": "frame", "name": "value", "confirm_official": True, **common},
+    )
+
+    assert core.status_code == 400
+    assert "禁止删除" in core.json()["message"]
+    assert warning.status_code == 400
+    assert "明确确认" in warning.json()["message"]
+    assert confirmed.status_code == 200
+    derived_id = confirmed.json()["result"]["dataset_id"]
+    scanned = client.get(f"/semantics/api/datasets/{derived_id}/schema").json()
+    assert "value" not in {item["name"] for item in scanned["frame_features"]}

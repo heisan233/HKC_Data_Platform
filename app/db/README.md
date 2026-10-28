@@ -11,8 +11,8 @@
   列仅为数据库兼容保留，不保存机器人运行遥测，也不直接修改数据集。
 - `dataset_robots.py` 管理一个 DS 到一台采集机器人的可选关系；支持改绑、解除和
   派生数据集继承，不修改真实数据集文件。
-- `semantics.py` 管理稳定 SD 编号，以及场景、任务、动作、对象四类受控词表；
-  词表不自动改写已有数据集。
+- `semantics.py` 是旧受控词表表结构的兼容保留代码；当前数据定义页不再读写这些
+  表。为避免破坏已有 SQLite，暂不执行破坏性删表迁移。
 - 管理员使用 `python -m app.cli.create_user` 交互创建用户，使用
   `python -m app.cli.list_users` 查看不含认证秘密的账号摘要。
 - 数据库文件是运行数据，位于 `storage/system/platform.sqlite`，不提交 Git。

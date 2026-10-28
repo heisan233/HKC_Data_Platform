@@ -1,154 +1,108 @@
 {% extends "base.html" %}
 {% block page_title %}数据定义{% endblock %}
 {% block extra_head %}
-<link rel="stylesheet" href="/static/css/semantics.css?v=20261022a">
+<link rel="stylesheet" href="/static/css/semantics.css?v=20261028d">
 {% endblock %}
 {% block content %}
-<div class="semantic-wrap" id="semantic-page">
-  <section class="semantic-hero">
+<div class="schema-page" id="schema-page">
+  <section class="schema-hero">
     <div>
-      <span class="semantic-eyebrow">DATA CONTRACT</span>
-      <h2>数据结构与语义词表</h2>
-      <p>以平台实际支持的 LeRobot v3 为结构基线，统一维护场景、任务、动作和对象名称。词表不会自动改写已有数据集。</p>
+      <span class="schema-eyebrow">DATASET SCHEMA EDITOR</span>
+      <h2>数据集结构定义</h2>
+      <p>读取真实 LeRobot v3 结构，给 Episode 或逐帧数据增加字段。所有正式修改都生成新的 Derived DS，Raw 和源 Derived 保持不变。</p>
     </div>
-    <button class="semantic-button" type="button" id="semantic-create">+ 新建定义</button>
+    <span class="schema-hero-badge">结构定义 ≠ 数据可用于训练</span>
   </section>
 
-  <div class="semantic-stats" aria-label="数据定义统计">
-    <div><strong>{{ counts.all }}</strong><span>全部定义</span></div>
-    <div><strong>{{ counts.active }}</strong><span>启用</span></div>
-    <div><strong>{{ counts.inactive }}</strong><span>已停用</span></div>
-    <div><strong>LeRobot v3</strong><span>当前结构基线</span></div>
-  </div>
+  <section class="schema-panel schema-selector">
+    <label>选择数据集
+      <select id="schema-dataset"><option value="">正在读取数据集……</option></select>
+    </label>
+    <button class="schema-button" type="button" id="schema-scan">扫描真实结构</button>
+    <p>扫描会读取 <code>meta/info.json</code>、全部 Episode Parquet 和 frame Parquet，不解析视频。</p>
+  </section>
 
-  <section class="semantic-panel semantic-reference">
-    <div class="semantic-section-head">
-      <div>
-        <span class="semantic-eyebrow">STRUCTURE REFERENCE</span>
-        <h3>平台当前读取的真实结构</h3>
+  <div id="schema-feedback" class="schema-feedback" role="status" hidden></div>
+
+  <section class="schema-summary" id="schema-summary" hidden>
+    <article><span>数据集</span><strong id="summary-id">—</strong><small id="summary-name">—</small></article>
+    <article><span>Episode / 帧</span><strong id="summary-size">—</strong><small id="summary-shards">—</small></article>
+    <article><span>结构扩展</span><strong id="summary-extension">—</strong><small>平台 hkc_extensions</small></article>
+    <article><span>训练状态</span><strong id="summary-training">—</strong><small id="summary-blockers">—</small></article>
+  </section>
+
+  <section class="schema-panel" id="schema-fields" hidden>
+    <div class="schema-tabs" role="tablist">
+      <button class="active" type="button" data-schema-tab="episode">Episode 元数据</button>
+      <button type="button" data-schema-tab="frame">逐帧 Features</button>
+    </div>
+    <div class="schema-tab active" data-schema-panel="episode">
+      <div class="schema-section-head">
+        <div><h3>Episode 元数据字段</h3><p>例如 <code>scene</code>。第一版支持统一值或统一空值，字段实际写入所有 Episode 元数据分片。</p></div>
+        <button class="schema-button" type="button" data-open-create="episode">+ 新增 Episode 字段</button>
       </div>
-      <span class="semantic-note">只读参考，不修改数据集文件</span>
+      <div class="schema-table-wrap"><table class="schema-table"><thead><tr><th>字段</th><th>类型</th><th>来源</th><th>完整率</th><th>状态</th><th>操作</th></tr></thead><tbody id="episode-fields"></tbody></table></div>
     </div>
-    <div class="semantic-table-scroll">
-      <table class="semantic-table semantic-structure-table">
-        <thead><tr><th>层级</th><th>真实路径</th><th>关键字段</th><th>平台解释</th></tr></thead>
-        <tbody>
-          {% for item in structure %}
-          <tr>
-            <td><strong>{{ item.level }}</strong></td>
-            <td><code>{{ item.path }}</code></td>
-            <td>{{ item.fields }}</td>
-            <td>{{ item.meaning }}</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <p class="semantic-callout">Episode 总体 task 仍保存在 LeRobot 核心任务关系中；执行结果和 Subtask 等扩展信息保存在 <code>meta/annotations/</code>，不会破坏官方格式。</p>
-  </section>
-
-  <section class="semantic-category-grid" aria-label="词表类别">
-    {% for key, item in categories.items() %}
-    <article>
-      <div><span>{{ item.label }}</span><strong>{{ counts.categories[key] }}</strong></div>
-      <p>{{ item.description }}</p>
-      <code>{{ item.example }}</code>
-    </article>
-    {% endfor %}
-  </section>
-
-  <section class="semantic-panel">
-    <div class="semantic-section-head semantic-vocabulary-head">
-      <div>
-        <span class="semantic-eyebrow">CONTROLLED VOCABULARY</span>
-        <h3>平台受控词表</h3>
+    <div class="schema-tab" data-schema-panel="frame">
+      <div class="schema-section-head">
+        <div><h3>逐帧 Features</h3><p>新增数值标量/向量可保持全空，或从 CSV/Parquet 按 <code>episode_index + frame_index</code> 对齐导入。</p></div>
+        <div class="schema-head-actions"><button class="schema-button schema-button-light" type="button" id="open-import">从文件导入</button><button class="schema-button" type="button" data-open-create="frame">+ 新增空 Feature</button></div>
       </div>
-      <p>停用会保留历史定义；当前版本不自动替换数据集中的自由文本。</p>
-    </div>
-    <form class="semantic-toolbar" method="get" action="/semantics/">
-      <label><span>搜索</span><input name="q" value="{{ query }}" placeholder="编号、编码、名称、说明或示例"></label>
-      <label><span>类别</span>
-        <select name="category">
-          <option value="all" {% if category_filter == 'all' %}selected{% endif %}>全部类别</option>
-          {% for key, item in categories.items() %}<option value="{{ key }}" {% if category_filter == key %}selected{% endif %}>{{ item.label }}</option>{% endfor %}
-        </select>
-      </label>
-      <label><span>状态</span>
-        <select name="status">
-          <option value="all" {% if status_filter == 'all' %}selected{% endif %}>全部状态</option>
-          {% for value, label in status_labels.items() %}<option value="{{ value }}" {% if status_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-        </select>
-      </label>
-      <button class="semantic-button semantic-button-secondary" type="submit">筛选</button>
-      {% if query or category_filter != 'all' or status_filter != 'all' %}<a href="/semantics/">清除条件</a>{% endif %}
-    </form>
-
-    <div id="semantic-feedback" class="semantic-feedback" role="status" hidden></div>
-    <div class="semantic-table-scroll">
-      <table class="semantic-table semantic-definition-table">
-        <thead><tr><th>编号 / 名称</th><th>类别</th><th>机器编码</th><th>说明 / 示例</th><th>排序</th><th>状态</th><th>操作</th></tr></thead>
-        <tbody>
-          {% for item in definitions %}
-          <tr>
-            <td><strong>{{ item.id }} · {{ item.name }}</strong><small>更新于 {{ item.updated_at|local_datetime }}</small></td>
-            <td><span class="semantic-category semantic-category-{{ item.category }}">{{ item.category_label }}</span></td>
-            <td><code>{{ item.code }}</code></td>
-            <td>
-              <span>{{ item.description or '未填写说明' }}</span>
-              <div class="semantic-examples">{% for example in item.examples %}<span>{{ example }}</span>{% else %}<small>暂无示例</small>{% endfor %}</div>
-            </td>
-            <td>{{ item.sort_order }}</td>
-            <td><span class="semantic-status semantic-status-{{ item.status }}">{{ item.status_label }}</span></td>
-            <td><div class="semantic-actions">
-              <button type="button" data-semantic-edit="{{ item.id }}">编辑</button>
-              {% if item.status == 'inactive' %}
-              <button type="button" data-semantic-activate="{{ item.id }}">恢复</button>
-              {% else %}
-              <button class="semantic-action-danger" type="button" data-semantic-deactivate="{{ item.id }}">停用</button>
-              {% endif %}
-            </div></td>
-          </tr>
-          {% else %}
-          <tr><td colspan="7" class="semantic-empty">当前条件下没有数据定义。可以先建立场景、任务、动作或对象词条。</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+      <div class="schema-warning">全空或部分为空的 Feature 会明确标记为“不满足训练要求”。平台不会把空值自动改成 0。</div>
+      <div class="schema-table-wrap"><table class="schema-table"><thead><tr><th>Feature</th><th>dtype / shape</th><th>物理类型</th><th>来源</th><th>完整率</th><th>状态</th><th>操作</th></tr></thead><tbody id="frame-fields"></tbody></table></div>
     </div>
   </section>
 </div>
 
-<dialog class="semantic-dialog" id="semantic-dialog">
-  <form id="semantic-form">
-    <div class="semantic-dialog-head">
-      <div><span class="semantic-eyebrow">VOCABULARY ITEM</span><h3 id="semantic-dialog-title">新建定义</h3></div>
-      <button type="button" id="semantic-dialog-close" aria-label="关闭">×</button>
+<dialog class="schema-dialog" id="field-dialog">
+  <form id="field-form">
+    <header><div><span class="schema-eyebrow">NEW FIELD</span><h3 id="field-title">新增字段</h3></div><button type="button" data-close-dialog>×</button></header>
+    <input type="hidden" id="field-scope">
+    <div class="schema-form-grid">
+      <label>字段名<input id="field-name" required maxlength="200" placeholder="例如 scene 或 observation.depth_valid"></label>
+      <label>数据类型<select id="field-dtype" required></select></label>
+      <label id="shape-label">Shape<input id="field-shape" value="1" placeholder="例如 6 或 2,3"></label>
+      <label id="names-label">元素名称<input id="field-names" placeholder="例如 joint_1,joint_2"></label>
+      <label id="value-label">全部 Episode 的统一值<input id="field-value" placeholder="留空表示所有 Episode 均为空"></label>
+      <label class="wide">字段说明<textarea id="field-description" rows="2" maxlength="1000"></textarea></label>
+      <label>新派生版本名称<input id="field-version-name" required maxlength="120" placeholder="例如 增加场景字段"></label>
+      <label>版本说明<input id="field-version-description" maxlength="1000"></label>
     </div>
-    <input type="hidden" id="semantic-id">
-    <div class="semantic-form-grid">
-      <label>类别
-        <select id="semantic-category" required>
-          {% for key, item in categories.items() %}<option value="{{ key }}">{{ item.label }}</option>{% endfor %}
-        </select>
-      </label>
-      <label>机器编码<input id="semantic-code" maxlength="64" pattern="[a-z][a-z0-9_]*" placeholder="例如 pick_and_place" required></label>
-      <label>显示名称<input id="semantic-name" maxlength="100" placeholder="例如 拾取并放置" required></label>
-      <label>排序值<input id="semantic-sort" type="number" min="0" max="9999" value="100" required></label>
-      <label class="semantic-form-wide">说明<textarea id="semantic-description" rows="3" maxlength="1000" placeholder="说明这个词条什么时候使用"></textarea></label>
-      <label class="semantic-form-wide">示例<textarea id="semantic-examples" rows="4" placeholder="每行一条，或使用英文逗号分隔；最多 20 条"></textarea></label>
-      <label>状态
-        <select id="semantic-status" required><option value="active">启用</option><option value="inactive">已停用</option></select>
-      </label>
-    </div>
-    <p class="semantic-form-note">机器编码用于未来 API 和数据映射，创建后不能修改。新建词条不会自动改写 Raw/Derived 数据集。</p>
-    <div class="semantic-dialog-actions">
-      <button class="semantic-button semantic-button-secondary" type="button" id="semantic-cancel">取消</button>
-      <button class="semantic-button" type="submit" id="semantic-save">保存定义</button>
-    </div>
+    <p class="schema-form-note" id="field-note"></p>
+    <footer><button class="schema-button schema-button-light" type="button" data-close-dialog>取消</button><button class="schema-button" type="submit">生成新的 Derived DS</button></footer>
   </form>
 </dialog>
 
-<script id="semantic-records-json" type="application/json">{{ definitions|tojson }}</script>
+<dialog class="schema-dialog" id="import-dialog">
+  <form id="import-form">
+    <header><div><span class="schema-eyebrow">FRAME IMPORT</span><h3>导入逐帧 Feature</h3></div><button type="button" data-close-import>×</button></header>
+    <div class="schema-form-grid">
+      <label>Feature 名<input name="field_name" required maxlength="200" placeholder="observation.extra_joints"></label>
+      <label>数据类型<select name="dtype"><option>float32</option><option>float64</option><option>int32</option><option>int64</option><option>bool</option></select></label>
+      <label>Shape<input name="shape_text" required value="1" placeholder="例如 6"></label>
+      <label>导入列名<input name="source_columns_text" required placeholder="例如 joint_1,joint_2,..."></label>
+      <label>元素名称<input name="names_text" placeholder="可选；数量须等于 Shape 元素数"></label>
+      <label>CSV/Parquet 文件<input name="import_file" type="file" accept=".csv,.parquet,.pq" required></label>
+      <label class="wide">字段说明<textarea name="description" rows="2" maxlength="1000"></textarea></label>
+      <label>新派生版本名称<input name="version_name" required maxlength="120"></label>
+      <label>版本说明<input name="version_description" maxlength="1000"></label>
+    </div>
+    <p class="schema-form-note">文件必须含 <code>episode_index</code>、<code>frame_index</code> 和指定值列。缺少的帧保留为空；文件中不能出现数据集不存在的帧。</p>
+    <footer><button class="schema-button schema-button-light" type="button" data-close-import>取消</button><button class="schema-button" type="submit">导入并生成 Derived DS</button></footer>
+  </form>
+</dialog>
+
+<dialog class="schema-dialog" id="delete-dialog">
+  <form id="delete-form">
+    <header><div><span class="schema-eyebrow">DELETE FIELD</span><h3>从派生版本删除字段</h3></div><button type="button" data-close-delete>×</button></header>
+    <input type="hidden" id="delete-scope"><input type="hidden" id="delete-name"><input type="hidden" id="delete-official">
+    <div class="schema-delete-copy" id="delete-copy"></div>
+    <div class="schema-form-grid">
+      <label>新派生版本名称<input id="delete-version-name" required maxlength="120"></label>
+      <label>版本说明<input id="delete-version-description" maxlength="1000"></label>
+    </div>
+    <footer><button class="schema-button schema-button-light" type="button" data-close-delete>取消</button><button class="schema-button schema-button-danger" type="submit">确认生成 Derived DS</button></footer>
+  </form>
+</dialog>
 {% endblock %}
-{% block scripts %}
-<script src="/static/js/semantics.js?v=20261022a"></script>
-{% endblock %}
+{% block scripts %}<script src="/static/js/semantics.js?v=20261028d"></script>{% endblock %}

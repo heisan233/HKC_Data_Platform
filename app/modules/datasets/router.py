@@ -107,6 +107,17 @@ def accept_rescan(dataset_id: str):
         dataset_id, service.info_digest(folder), service.robot_type_label(info))
 
 
+@router.get("/api/datasets/{dataset_id}/joint-series")
+def dataset_joint_series(dataset_id: str, episode_index: int, field_name: str):
+    record = record_or_404(dataset_id)
+    if episode_index < 0:
+        raise HTTPException(400, "Episode 编号不能小于 0。")
+    try:
+        return service.joint_series(storage_root(), record, episode_index, field_name)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.get("/raw/")
 def raw_list(request: Request, q: str = "", qc: str = "all"):
     _, managed = service.catalog(storage_root())
