@@ -30,8 +30,7 @@
 .robot-status-active { background: #e8f8ee; color: #23834b; }
 .robot-status-maintenance { background: #fff4d9; color: #a66d00; }
 .robot-status-inactive { background: #edf0f3; color: #77828e; }
-.robot-sensors { display: flex; flex-wrap: wrap; gap: 5px; max-width: 230px; }
-.robot-sensors span { padding: 3px 7px; border-radius: 4px; background: #eef5fb; color: #376587; font-size: 11px; }
+.robot-notes { max-width: 260px; overflow-wrap: anywhere; }
 .robot-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .robot-actions button { border: 0; background: transparent; color: #2b7de9; cursor: pointer; font-size: 12px; }
 .robot-actions .robot-action-danger { color: #c04646; }
@@ -50,10 +49,27 @@
 .robot-form-wide { grid-column: 1 / -1; }
 .robot-form-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 7px; background: #f4f7fa; color: #6d7b89; font-size: 12px; line-height: 1.6; }
 .robot-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.robot-dataset-dialog { width: min(1040px, calc(100vw - 32px)); }
+.robot-dataset-shell { padding: 24px; }
+.robot-dialog-head p { margin-top: 6px; color: #708296; font-size: 13px; }
+.robot-dataset-toolbar { display: flex; gap: 12px; margin-bottom: 12px; }
+.robot-dataset-toolbar input { flex: 1; min-width: 0; border: 1px solid #ccd8e3; border-radius: 7px; padding: 10px 12px; font: inherit; }
+.robot-dataset-dialog .robot-feedback { margin: 0 0 12px; }
+.robot-dataset-table-wrap { max-height: min(58vh, 620px); margin-top: 14px; overflow: auto; border: 1px solid #e1e9f0; border-radius: 9px; }
+.robot-dataset-table { width: 100%; min-width: 800px; border-collapse: collapse; font-size: 13px; }
+.robot-dataset-table th { position: sticky; top: 0; z-index: 1; padding: 11px 12px; background: #f7f9fb; color: #637489; text-align: left; }
+.robot-dataset-table td { padding: 12px; border-top: 1px solid #edf1f5; vertical-align: top; }
+.robot-dataset-table strong, .robot-dataset-table small { display: block; }
+.robot-dataset-table small { margin-top: 4px; color: #8794a2; }
+.robot-dataset-table button { border: 0; background: transparent; color: #c04646; cursor: pointer; }
+.robot-dataset-linked { background: #f3faf6; }
+.robot-type-warning { display: inline-flex; margin-top: 5px; padding: 2px 6px; border-radius: 4px; background: #fff1d7; color: #966400; font-size: 11px; font-weight: 700; }
+.robot-dataset-current { color: #23834b; font-weight: 700; }
 @media (max-width: 850px) {
   .robot-hero { align-items: flex-start; flex-direction: column; }
   .robot-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .robot-toolbar { align-items: stretch; flex-direction: column; }
   .robot-form-grid { grid-template-columns: 1fr; }
   .robot-form-wide { grid-column: auto; }
+  .robot-dataset-toolbar { align-items: stretch; flex-direction: column; }
 }

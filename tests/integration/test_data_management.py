@@ -7,7 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
+from app.db.dataset_robots import DatasetRobotRepository
 from app.db.quality import QualityRepository
+from app.db.robots import RobotRepository
 from app.main import app
 from app.modules.datasets import router as data_router
 from app.modules.quality import router as quality_router
@@ -61,6 +63,26 @@ def test_select_and_register_keeps_raw_folder(platform):
     duplicate = client.post("/data/api/register", json={"folders": [source.name]})
     assert duplicate.json()["registered"] == []
     assert "已经登记" in duplicate.json()["errors"][0]["message"]
+
+
+def test_dataset_pages_show_read_only_collecting_robot(platform):
+    client, root = platform
+    dataset(root, "collected")
+    client.post("/data/api/register", json={"folders": ["collected"]})
+    robot = RobotRepository(root).create(
+        name="一号采集臂", robot_type="other-type", serial_number="COLLECT-01",
+    )
+    DatasetRobotRepository(root).bind(robot["id"], ["DS000001"], "test_user")
+
+    registered = client.get("/data/manage/?view=registered")
+    listed = client.get("/data/raw/")
+    detail = client.get("/data/raw/DS000001")
+
+    for response in (registered, listed, detail):
+        assert response.status_code == 200
+        assert "RB000001" in response.text
+        assert "一号采集臂" in response.text
+    assert "关联关系只能在机器人管理页面修改" in detail.text
 
 
 def test_folder_name_does_not_control_platform_sequence(platform):

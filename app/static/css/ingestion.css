@@ -121,6 +121,21 @@
 
 .field-label span { color: var(--ingestion-red); }
 
+.field-help {
+    color: var(--ingestion-muted);
+    display: block;
+    font-size: 12px;
+    line-height: 1.55;
+    margin-top: 6px;
+}
+
+.field-help code {
+    background: #edf1f6;
+    border-radius: 4px;
+    color: #27415f;
+    padding: 1px 4px;
+}
+
 .text-input {
     border: 1px solid var(--ingestion-border);
     border-radius: 7px;

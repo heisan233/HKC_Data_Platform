@@ -64,7 +64,10 @@ def manage_page(request: Request, q: str = "", view: str = "pending"):
     term = q.strip().casefold()
     if term:
         rows = [row for row in rows if term in " ".join(
-            str(row.get(key) or "") for key in ("id", "name", "folder", "robot_type")).casefold()]
+            str(row.get(key) or "") for key in (
+                "id", "name", "folder", "robot_type",
+                "collector_robot_id", "collector_robot_name",
+            )).casefold()]
     return templates.TemplateResponse(request=request, name="data_manage.html", context={
         "items": rows, "pending_count": len(pending), "registered_count": len(managed),
         "view": "registered" if view == "registered" else "pending", "query": q.strip(),
@@ -115,7 +118,10 @@ def raw_list(request: Request, q: str = "", qc: str = "all"):
     term = q.strip().casefold()
     if term:
         managed = [row for row in managed if term in " ".join(
-            str(row.get(key) or "") for key in ("id", "name", "folder", "robot_type")).casefold()]
+            str(row.get(key) or "") for key in (
+                "id", "name", "folder", "robot_type",
+                "collector_robot_id", "collector_robot_name",
+            )).casefold()]
     return templates.TemplateResponse(request=request, name="data_raw.html", context={
         "items": managed, "query": q.strip(), "qc_filter": qc,
     })

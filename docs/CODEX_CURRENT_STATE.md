@@ -11,9 +11,9 @@
 当前集成开发分支：
 
 ```text
-分支：integration/hs-lxp-v3.0.1
-来源：integration/hs-lxp-v3.0 + 服务器 v3.0 模型训练代码
-目录：HKC_Data_Platform_v2（本地工作区）
+分支：integration/hs-lxp-v3.0.2
+来源：integration/hs-lxp-v3.0.1
+目录：HKC_Data_Platform_v3.0.2（本地工作区）
 ```
 
 开始任务时先确认：
@@ -63,7 +63,7 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
 | `/export/` | `conversion`、`export` | Derived DS 转换 HDF5、CV 任务及完整打包下载 |
 | `/training/` | `training` | 已接入真实 DS、SQLite 任务、宿主执行器、离线评估与模型包；执行器离线时不可提交训练 |
-| `/robots/` | `robots` | 独立 SQLite 机器人档案、新增/编辑、停用/恢复和筛选 |
+| `/robots/` | `robots` | SQLite 机器人档案、停用/恢复，以及 DS 关联、改绑和解除 |
 | `/semantics/` | `semantics` | 真实 LeRobot v3 结构参考和 SQLite 受控词表 |
 | `/system/` | `system` | 框架页面 |
 
@@ -78,12 +78,16 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 LeRobot v3 ZIP
   → storage/staging/uploads/
   → ZIP 安全检查和最低结构检查
+  → 解析 robot_type（表单值优先；两处均为空则拒绝）
   → storage/raw/<内部目录名>/
   → SQLite 登记
   → 返回 DS000001 形式的编号
 ```
 
-上传支持单文件接口和最多 20 个文件的批量包装接口。上传检查不是完整质检。
+上传支持单文件接口和最多 20 个文件的批量包装接口。单文件页提供可选
+`robot_type` 文本框：填写后在 Staging 中覆盖 `meta/info.json` 再进入 Raw；留空则
+沿用包内值。如果包内缺少或为空且表单也为空，上传被拒绝，不再以“未声明”入库。
+上传检查不是完整质检。
 
 ### 统一登记
 
@@ -173,6 +177,7 @@ SQLite 访问代码：
 - `app/db/training.py`：TR 任务编号、固定快照、状态、评估和模型包引用；
 - `app/db/users.py`：用户、scrypt 密码哈希和服务端登录会话；
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
+- `app/db/dataset_robots.py`：DS 与采集机器人的可选关系及派生继承；
 - `app/db/semantics.py`：稳定 SD 编号和场景/任务/动作/对象受控词表；
 - 真实数据库：`storage/system/platform.sqlite`，被 Git 忽略。
 
@@ -186,14 +191,17 @@ HTTPS，因此只能在可信内网使用。
 
 ### 机器人档案边界
 
-`RB000001` 是平台内的机器人实例编号。机器人页面维护名称、类型、型号、序列号、
-使用状态、网络地址、传感器和备注，没有永久删除接口。网络地址只是管理字段，当前
-不会探测在线状态、控制机器人或调用机器人 API。
+`RB000001` 是平台自动分配的机器人实例编号。注册/编辑页面只维护 SN、名称、类型、
+IP 地址和备注；新记录默认在用，状态只通过停用/恢复操作改变，没有永久删除接口。
+IP 地址只是管理字段，当前不会探测在线状态、控制机器人或调用机器人 API。旧数据
+库中的型号和传感器列为兼容保留，不再出现在页面或写入 API 中。
 
-已有 LeRobot 数据集继续保存自身 `robot_type`。机器人页面展示的“同类型数据集”
-只是字符串匹配统计，不代表数据集已经绑定该机器人。当前没有修改 datasets 表，
-也不会回写 Raw/Derived 文件；未来若要追踪具体采集设备，需要单独设计
-`robot_id` 关联和历史数据迁移。
+已有 LeRobot 数据集继续保存自身 `robot_type`。平台通过独立
+`dataset_robot_links` 表把一个 DS 可选关联到一台机器人；一台机器人可关联多个
+DS，已有 DS 不自动迁移。关联、改绑和解除只在机器人管理页执行，数据管理页只读
+显示 `RB 编号 · 名称`。类型不一致允许保存但必须告警；停用机器人不能接收新关联，
+仍可查看并解除历史关系。派生 DS 仅在所有来源都关联同一机器人时继承。该关系不会
+回写 Raw/Derived 文件或 `meta/info.json`。
 
 ### 数据定义边界
 

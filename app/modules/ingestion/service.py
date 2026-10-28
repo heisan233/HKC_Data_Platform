@@ -110,14 +110,23 @@ def _display_filename(raw_name: str | None) -> str:
     return filename
 
 
-def _validate_form_text(dataset_name: str, description: str) -> tuple[str, str]:
+def _validate_form_text(
+    dataset_name: str,
+    description: str,
+    robot_type: str,
+) -> tuple[str, str, str]:
     clean_name = dataset_name.strip()
     clean_description = description.strip()
+    clean_robot_type = robot_type.strip()
     if not 2 <= len(clean_name) <= 100:
         raise UploadValidationError("数据集名称长度必须为 2 到 100 个字符。")
     if len(clean_description) > 1000:
         raise UploadValidationError("备注不能超过 1000 个字符。")
-    return clean_name, clean_description
+    if len(clean_robot_type) > 100:
+        raise UploadValidationError("robot_type 不能超过 100 个字符。")
+    if any(ord(character) < 32 for character in clean_robot_type):
+        raise UploadValidationError("robot_type 不能包含换行符或控制字符。")
+    return clean_name, clean_description, clean_robot_type
 
 
 async def _stream_upload(
@@ -306,10 +315,22 @@ def _extract_validated_archive(
     archive_path: Path,
     destination: Path,
     limits: UploadLimits,
+    robot_type_override: str,
 ) -> dict[str, Any]:
     """完成整包校验后，逐文件安全解压到指定目录。"""
 
     members, info_data, expanded_bytes = _inspect_archive(archive_path, limits)
+    source_value = info_data.get("robot_type")
+    source_robot_type = (
+        source_value.strip()
+        if isinstance(source_value, str) and source_value.strip()
+        else ""
+    )
+    resolved_robot_type = robot_type_override or source_robot_type
+    if not resolved_robot_type:
+        raise UploadValidationError(
+            "meta/info.json 缺少 robot_type，请在上传页面手动填写机器人类型。"
+        )
     free_bytes = shutil.disk_usage(destination.parent).free
     reserve_bytes = 512 * MIB
     if expanded_bytes > max(0, free_bytes - reserve_bytes):
@@ -323,9 +344,23 @@ def _extract_validated_archive(
             with archive.open(info) as source, target.open("xb") as output:
                 shutil.copyfileobj(source, output, length=STREAM_CHUNK_SIZE)
 
+    if robot_type_override:
+        # This happens in staging, before the dataset enters immutable Raw
+        # storage. Keeping the declared value in info.json makes later rescan,
+        # quality checks and exports observe the same metadata as the registry.
+        info_data["robot_type"] = resolved_robot_type
+        (destination / "meta" / "info.json").write_text(
+            json.dumps(info_data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
     return {
         "codebase_version": info_data["codebase_version"],
-        "robot_type": info_data.get("robot_type") or "未声明",
+        "robot_type": resolved_robot_type,
+        "original_robot_type": source_robot_type or None,
+        "robot_type_source": (
+            "upload_form" if robot_type_override else "meta/info.json"
+        ),
         "fps": info_data["fps"],
         "total_episodes": info_data["total_episodes"],
         "total_frames": info_data["total_frames"],
@@ -363,6 +398,7 @@ async def receive_dataset_upload(
     upload: UploadFile,
     dataset_name: str,
     description: str,
+    robot_type: str = "",
 ) -> UploadOutcome:
     """接收一个 ZIP，并在成功后将内容原子移动到 ``raw`` 目录。"""
 
@@ -380,6 +416,7 @@ async def receive_dataset_upload(
         "storage_name": None,
         "dataset_name": dataset_name.strip(),
         "description": description.strip(),
+        "requested_robot_type": robot_type.strip(),
         "original_filename": upload.filename or "",
         "status": "receiving",
         "message": "正在接收文件",
@@ -391,11 +428,16 @@ async def receive_dataset_upload(
     }
 
     try:
-        clean_name, clean_description = _validate_form_text(dataset_name, description)
+        clean_name, clean_description, clean_robot_type = _validate_form_text(
+            dataset_name,
+            description,
+            robot_type,
+        )
         filename = _display_filename(upload.filename)
         record.update(
             dataset_name=clean_name,
             description=clean_description,
+            requested_robot_type=clean_robot_type,
             original_filename=filename,
         )
 
@@ -418,6 +460,7 @@ async def receive_dataset_upload(
             archive_path,
             unpacked_path,
             limits,
+            clean_robot_type,
         )
         raw_root = data_root / "raw"
         raw_root.mkdir(parents=True, exist_ok=True)

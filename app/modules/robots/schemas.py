@@ -1,18 +1,15 @@
 """Request models for robot registry operations."""
 
-from typing import Literal
-
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RobotWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=100)
     robot_type: str = Field(min_length=1, max_length=100)
-    model: str = Field(default="", max_length=100)
     serial_number: str = Field(default="", max_length=100)
-    status: Literal["active", "maintenance", "inactive"] = "active"
     network_address: str = Field(default="", max_length=255)
-    sensors: list[str] = Field(default_factory=list, max_length=50)
     notes: str = Field(default="", max_length=2000)
 
     @field_validator("name", "robot_type")
@@ -23,20 +20,21 @@ class RobotWrite(BaseModel):
             raise ValueError("不能为空")
         return normalized
 
-    @field_validator("model", "serial_number", "network_address", "notes")
+    @field_validator("serial_number", "network_address", "notes")
     @classmethod
     def optional_text(cls, value: str) -> str:
         return value.strip()
 
-    @field_validator("sensors")
+
+class DatasetBindingWrite(BaseModel):
+    dataset_ids: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator("dataset_ids")
     @classmethod
-    def sensor_names(cls, values: list[str]) -> list[str]:
-        result: list[str] = []
-        for value in values:
-            normalized = value.strip()
-            if not normalized or normalized in result:
-                continue
-            if len(normalized) > 80:
-                raise ValueError("单个传感器名称不能超过 80 个字符")
-            result.append(normalized)
+    def stable_dataset_ids(cls, values: list[str]) -> list[str]:
+        result = list(dict.fromkeys(value.strip() for value in values if value.strip()))
+        if not result or any(
+            not value.startswith("DS") or not value[2:].isdigit() for value in result
+        ):
+            raise ValueError("数据集编号格式无效")
         return result

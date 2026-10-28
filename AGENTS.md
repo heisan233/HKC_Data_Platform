@@ -12,8 +12,9 @@
 
 ## 1. 当前共同基线
 
-- `integration/hs-lxp-v3.0.1` 是当前模型训练集成分支，来源于
-  `integration/hs-lxp-v3.0`。后者以已冻结验收的
+- `integration/hs-lxp-v3.0.2` 是当前机器人—数据集关联开发分支，来源于已验收的
+  `integration/hs-lxp-v3.0.1` 模型训练集成分支。后者来源于
+  `integration/hs-lxp-v3.0`，并以已冻结验收的
   `integration/hs-v2.1` 为基线，合入 LXP 的 `integration/hs-lxp-v2.5` 格式转换、
   导出和数据管理扩展。
 - `integration/hs-v2.1` 与 `integration/hs-lxp-v2.5` 是本轮两个来源分支，保留为
@@ -47,9 +48,10 @@
 已连接真实文件或 SQLite 的功能：
 
 - `auth`：无默认账号的用户表、密码哈希、服务端会话、登录、退出和全站访问保护；
-- `robots`：独立机器人档案、稳定 RB 编号、新增/编辑、停用/恢复及同类型数据集统计；
-- `ingestion`：单个 LeRobot v3 ZIP 上传、批量包装接口、安全解压、Raw 入库和
-  自动分配 DS 编号；
+- `robots`：独立机器人档案、稳定 RB 编号、新增/编辑、停用/恢复，以及 DS 的
+  关联、改绑和解除；
+- `ingestion`：单个 LeRobot v3 ZIP 上传、批量包装接口、安全解压、上传阶段
+  `robot_type` 声明/覆盖、Raw 入库和自动分配 DS 编号；
 - `datasets`：统一 DS 登记、Raw/Derived 列表、详情、显示信息、重新扫描、视频
   访问、质检状态和报告管理；
 - `annotation`：真实 Episode/task/Subtask 读取、视频播放、标注以及完整派生数据集
@@ -110,7 +112,7 @@ tests/                      自动化测试，结构尽量对应业务模块
 
 - `app/modules/datasets/`：统一数据集登记、列表、详情与报告管理；
 - `app/modules/auth/`：登录/退出路由、Cookie 会话与全站访问保护；
-- `app/modules/robots/`：独立机器人档案，不连接或控制真实机器人；
+- `app/modules/robots/`：机器人档案与 DS 关联管理，不连接或控制真实机器人；
 - `app/modules/semantics/`：LeRobot v3 结构参考和平台受控词表；
 - `app/modules/ingestion/`：ZIP 上传、校验和 Raw 入库；
 - `app/modules/annotation/`：Episode/task/Subtask 标注与发布；

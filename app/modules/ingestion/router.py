@@ -37,6 +37,7 @@ async def ingestion_page(request: Request) -> HTMLResponse:
 async def upload_dataset(
     dataset_name: Annotated[str, Form()],
     archive: Annotated[UploadFile, File()],
+    robot_type: Annotated[str, Form()] = "",
     description: Annotated[str, Form()] = "",
 ) -> JSONResponse:
     """接收一个完整 LeRobot v3 ZIP 数据集。"""
@@ -46,6 +47,7 @@ async def upload_dataset(
         upload=archive,
         dataset_name=dataset_name,
         description=description,
+        robot_type=robot_type,
     )
     return JSONResponse(status_code=outcome.status_code, content=outcome.payload)
 
@@ -53,6 +55,7 @@ async def upload_dataset(
 @router.post("/api/uploads/batch", response_class=JSONResponse)
 async def upload_datasets_batch(
     files: Annotated[list[UploadFile], File()],
+    robot_type: Annotated[str, Form()] = "",
 ) -> JSONResponse:
     """批量调用同一套严格上传流程，并为每个成功数据集登记 DS 编号。"""
 
@@ -72,6 +75,7 @@ async def upload_datasets_batch(
             upload=upload,
             dataset_name=display_name[:100],
             description="批量上传",
+            robot_type=robot_type,
         )
         if outcome.payload.get("ok"):
             uploaded.append({

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
 
+from app.db.dataset_robots import DatasetRobotRepository
 from app.db.datasets import STORAGE_AREAS, DatasetRepository
 
 MAX_METADATA_BYTES = 4 * 1024 * 1024
@@ -134,7 +135,8 @@ def register_dataset(
     name = display_name.strip()
     if not 1 <= len(name) <= 100:
         raise ValueError("显示名称须为 1–100 个字符")
-    return DatasetRepository(root).register(
+    repo = DatasetRepository(root)
+    record = repo.register(
         storage_area,
         storage_relpath,
         name,
@@ -142,6 +144,14 @@ def register_dataset(
         info_digest(folder),
         source_dataset_ids,
     )
+    try:
+        DatasetRobotRepository(root).inherit(record["id"], source_dataset_ids or [])
+    except Exception:
+        # Keep dataset registration and relationship publication as one logical
+        # operation for callers that will roll back their file transaction.
+        repo.unregister(record["id"])
+        raise
+    return record
 
 
 def folder_size(folder: Path) -> int:
@@ -169,6 +179,7 @@ def summary(root: Path, name: str, registered: dict | None = None, area: str = "
     except (OSError, ValueError):
         changed = True
     state = "missing" if not folder else "invalid" if error else "changed" if changed else "ready"
+    collector = DatasetRobotRepository(root).get(registered["id"]) if registered else None
     return {
         "id": registered["id"] if registered else None,
         "name": registered["name"] if registered else name,
@@ -187,6 +198,9 @@ def summary(root: Path, name: str, registered: dict | None = None, area: str = "
         "registered_at": registered["registered_at"] if registered else None,
         "description": registered["description"] if registered else "",
         "tags": registered["tags"] if registered else [],
+        "collector_robot_id": collector["robot_id"] if collector else None,
+        "collector_robot_name": collector["robot_name"] if collector else None,
+        "collector_robot_status": collector["robot_status"] if collector else None,
     }
 
 

@@ -101,7 +101,7 @@ def test_non_v3_archive_is_rejected(monkeypatch, tmp_path: Path) -> None:
     assert not (tmp_path / "raw").exists()
 
 
-def test_v3_without_robot_type_is_registered_as_unspecified(
+def test_v3_without_robot_type_requires_manual_declaration(
     monkeypatch, tmp_path: Path
 ) -> None:
     use_temporary_storage(monkeypatch, tmp_path)
@@ -112,10 +112,64 @@ def test_v3_without_robot_type_is_registered_as_unspecified(
         files={"archive": ("sample.zip", make_lerobot_v3_zip(robot_type=None))},
     )
 
+    assert response.status_code == 400
+    assert "手动填写机器人类型" in response.json()["message"]
+    assert DatasetRepository(tmp_path).list() == []
+
+
+def test_manual_robot_type_fills_missing_info_json(monkeypatch, tmp_path: Path) -> None:
+    use_temporary_storage(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/ingestion/api/uploads",
+        data={"dataset_name": "手动声明机器人数据", "robot_type": "so100"},
+        files={"archive": ("sample.zip", make_lerobot_v3_zip(robot_type=None))},
+    )
+
     assert response.status_code == 201
     result = response.json()
-    assert result["summary"]["robot_type"] == "未声明"
-    assert DatasetRepository(tmp_path).get(result["dataset_id"])["robot_type"] == "未声明"
+    assert result["summary"]["robot_type"] == "so100"
+    assert result["summary"]["original_robot_type"] is None
+    assert result["summary"]["robot_type_source"] == "upload_form"
+    dataset_root = tmp_path / result["raw_relative_path"]
+    info = json.loads((dataset_root / "meta" / "info.json").read_text(encoding="utf-8"))
+    assert info["robot_type"] == "so100"
+    assert DatasetRepository(tmp_path).get(result["dataset_id"])["robot_type"] == "so100"
+
+
+def test_manual_robot_type_overrides_archive_value(monkeypatch, tmp_path: Path) -> None:
+    use_temporary_storage(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/ingestion/api/uploads",
+        data={"dataset_name": "覆盖机器人类型", "robot_type": "aloha"},
+        files={"archive": ("sample.zip", make_lerobot_v3_zip(robot_type="so100"))},
+    )
+
+    assert response.status_code == 201
+    result = response.json()
+    assert result["summary"]["robot_type"] == "aloha"
+    assert result["summary"]["original_robot_type"] == "so100"
+    assert result["summary"]["robot_type_source"] == "upload_form"
+    dataset_root = tmp_path / result["raw_relative_path"]
+    info = json.loads((dataset_root / "meta" / "info.json").read_text(encoding="utf-8"))
+    assert info["robot_type"] == "aloha"
+
+
+def test_existing_robot_type_is_used_when_form_is_empty(monkeypatch, tmp_path: Path) -> None:
+    use_temporary_storage(monkeypatch, tmp_path)
+
+    response = client.post(
+        "/ingestion/api/uploads",
+        data={"dataset_name": "沿用包内机器人类型", "robot_type": ""},
+        files={"archive": ("sample.zip", make_lerobot_v3_zip(robot_type="so100"))},
+    )
+
+    assert response.status_code == 201
+    result = response.json()
+    assert result["summary"]["robot_type"] == "so100"
+    assert result["summary"]["original_robot_type"] == "so100"
+    assert result["summary"]["robot_type_source"] == "meta/info.json"
 
 
 def test_zip_path_traversal_is_rejected(monkeypatch, tmp_path: Path) -> None:

@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.core.config import settings
 from app.modules.robots import service
-from app.modules.robots.schemas import RobotWrite
+from app.modules.robots.schemas import DatasetBindingWrite, RobotWrite
 from app.web import templates
 
 router = APIRouter()
@@ -28,9 +28,9 @@ async def robots_page(
                     "id",
                     "name",
                     "robot_type",
-                    "model",
                     "serial_number",
                     "network_address",
+                    "notes",
                 )
             ).casefold()
         ]
@@ -95,3 +95,41 @@ def activate_robot(robot_id: str) -> dict:
     if robot is None:
         raise HTTPException(404, "机器人不存在")
     return robot
+
+
+@router.get("/api/robots/{robot_id}/datasets")
+def robot_datasets(robot_id: str) -> dict:
+    result = service.dataset_bindings(settings.data_root, robot_id)
+    if result is None:
+        raise HTTPException(404, "机器人不存在")
+    return result
+
+
+@router.post("/api/robots/{robot_id}/datasets")
+def bind_robot_datasets(
+    request: Request,
+    robot_id: str,
+    payload: DatasetBindingWrite,
+) -> dict:
+    try:
+        result = service.bind_datasets(
+            settings.data_root,
+            robot_id,
+            payload,
+            request.state.user["username"],
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    if result is None:
+        raise HTTPException(404, "机器人不存在")
+    return result
+
+
+@router.delete("/api/robots/{robot_id}/datasets/{dataset_id}")
+def unlink_robot_dataset(robot_id: str, dataset_id: str) -> dict:
+    result = service.unlink_dataset(settings.data_root, robot_id, dataset_id)
+    if result is None:
+        raise HTTPException(404, "机器人不存在")
+    if result is False:
+        raise HTTPException(404, "此数据集未关联到该机器人")
+    return {"robot_id": robot_id, "dataset_id": dataset_id, "unlinked": True}

@@ -96,7 +96,7 @@
                 const summary = payload.summary || {};
                 showResult(
                     "success",
-                    `入库成功：${payload.dataset_name}，平台编号 ${payload.dataset_id}，共 ${summary.total_episodes ?? "-"} 个 Episodes；实际目录 ${payload.raw_relative_path}。刷新页面可查看记录。`
+                    `入库成功：${payload.dataset_name}，平台编号 ${payload.dataset_id}，机器人类型 ${summary.robot_type ?? "-"}，共 ${summary.total_episodes ?? "-"} 个 Episodes；实际目录 ${payload.raw_relative_path}。刷新页面可查看记录。`
                 );
                 form.reset();
                 showSelectedFile();

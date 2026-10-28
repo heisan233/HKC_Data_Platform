@@ -13,7 +13,7 @@
 ## 一、同事第一次拉取并构建集成分支
 
 本节适用于同事在另一台 Ubuntu 电脑或服务器上第一次部署
-`integration/hs-lxp-v3.0`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
+`integration/hs-lxp-v3.0.2`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
 SQLite、报告、模型或其他 `storage/` 运行数据。
 
 ### Git 会带来什么
@@ -63,7 +63,7 @@ Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设�
 同事开始拉取前，分支负责人必须先在当前开发机完成代码审查、提交和推送：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0.2
 git status --short --branch
 git log -3 --oneline --decorate
 ```
@@ -71,7 +71,7 @@ git log -3 --oneline --decorate
 只有工作区修改已经提交，并且执行以下命令成功后，另一台机器才能取得最新版本：
 
 ```bash
-git push origin integration/hs-lxp-v3.0
+git push origin integration/hs-lxp-v3.0.2
 ```
 
 不要为了推送而执行 `git reset`、`git clean` 或强制覆盖远程分支。需要提交哪些
@@ -95,11 +95,11 @@ mkdir -p ~/vscode_project/HKC
 cd ~/vscode_project/HKC
 
 git clone \
-  --branch integration/hs-lxp-v3.0 \
+  --branch integration/hs-lxp-v3.0.2 \
   https://github.com/heisan233/HKC_Data_Platform.git \
-  HKC_Data_Platform_v3.0
+  HKC_Data_Platform_v3.0.2
 
-cd HKC_Data_Platform_v3.0
+cd HKC_Data_Platform_v3.0.2
 git status --short --branch
 git log -1 --oneline --decorate
 ```
@@ -107,16 +107,16 @@ git log -1 --oneline --decorate
 如果同事电脑上已经有这个仓库，不要再次克隆。在工作区没有未提交修改的前提下：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0.2
 git fetch origin
-git switch integration/hs-lxp-v3.0
-git pull --ff-only origin integration/hs-lxp-v3.0
+git switch integration/hs-lxp-v3.0.2
+git pull --ff-only origin integration/hs-lxp-v3.0.2
 ```
 
 如果本地还没有同名分支，则使用：
 
 ```bash
-git switch --track origin/integration/hs-lxp-v3.0
+git switch --track origin/integration/hs-lxp-v3.0.2
 ```
 
 `--ff-only` 会在本地与远程已经分叉时停止，避免自动制造意外合并。遇到这种情况先
@@ -343,7 +343,7 @@ docker run --rm \
   '
 ```
 
-当前 `integration/hs-lxp-v3.0` 基线的预期结果是 Ruff 全部通过、pytest `76 passed`。一条来自
+当前 `integration/hs-lxp-v3.0.2` 基线的预期结果是 Ruff 全部通过、pytest `115 passed`。一条来自
 Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取项目 `.env`；
 如果官方 PyPI 较慢，可将测试命令中的地址明确替换成前述中科大地址。
 
@@ -354,7 +354,7 @@ Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取
 ```bash
 git status --short --branch
 git fetch origin
-git pull --ff-only origin integration/hs-lxp-v3.0
+git pull --ff-only origin integration/hs-lxp-v3.0.2
 ```
 
 普通 Python/HTML/CSS 修改在开发模式下通常会热重载；如果更新包含 Dockerfile、
@@ -372,7 +372,7 @@ docker compose \
 打开终端，进入包含 `compose.yaml` 的项目根目录：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0.2
 ```
 
 确认位置正确：
@@ -666,7 +666,7 @@ docker compose \
 如果只是 IP 改变，按下面执行即可：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0.2
 
 ip -br -4 address show
 

@@ -3,7 +3,7 @@
 {% block page_title %}原始数据集上传{% endblock %}
 
 {% block extra_head %}
-<link rel="stylesheet" href="/static/css/ingestion.css">
+<link rel="stylesheet" href="/static/css/ingestion.css?v=20261027b">
 {% endblock %}
 
 {% block content %}
@@ -41,6 +41,20 @@
                 placeholder="例如：双臂抓取苹果_2026-10-19"
                 required
             >
+
+            <label class="field-label" for="robot-type">机器人类型（robot_type）</label>
+            <input
+                id="robot-type"
+                name="robot_type"
+                class="text-input"
+                type="text"
+                maxlength="100"
+                placeholder="例如：so100；压缩包未声明时必须填写"
+                aria-describedby="robot-type-help"
+            >
+            <small class="field-help" id="robot-type-help">
+                留空时沿用 <code>meta/info.json</code> 中的值；填写后会在进入 Raw 前覆盖该字段。
+            </small>
 
             <label class="field-label" for="description">备注</label>
             <textarea
@@ -84,6 +98,7 @@
         </div>
         <ul class="check-list">
             <li><span>✓</span><div><strong>版本</strong><small><code>meta/info.json</code> 中必须为 v3.0</small></div></li>
+            <li><span>✓</span><div><strong>机器人类型</strong><small>压缩包未声明时必须手动填写；填写值优先于包内值</small></div></li>
             <li><span>✓</span><div><strong>元数据</strong><small>包含 info、stats、tasks 和 episodes 元数据</small></div></li>
             <li><span>✓</span><div><strong>帧数据</strong><small><code>data/</code> 中至少包含一个 Parquet 文件</small></div></li>
             <li><span>✓</span><div><strong>视频可选</strong><small><code>videos/</code> 可以不存在</small></div></li>
@@ -113,6 +128,7 @@
                     <th>数据集</th>
                     <th>源文件</th>
                     <th>大小</th>
+                    <th>机器人类型</th>
                     <th>状态</th>
                     <th>Episodes</th>
                     <th>上传时间（UTC）</th>
@@ -127,6 +143,7 @@
                     </td>
                     <td>{{ record.original_filename or '-' }}</td>
                     <td>{{ record.received_size }}</td>
+                    <td>{% if record.summary %}{{ record.summary.robot_type }}{% else %}{{ record.requested_robot_type or '-' }}{% endif %}</td>
                     <td>
                         <span class="record-status status-{{ record.status }}">
                             {% if record.status == 'accepted' %}已入库
@@ -156,5 +173,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/ingestion.js" defer></script>
+<script src="/static/js/ingestion.js?v=20261027b" defer></script>
 {% endblock %}

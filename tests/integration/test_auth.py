@@ -102,6 +102,21 @@ def test_login_session_and_logout(auth_platform):
     dashboard = client.get("/dashboard/")
     assert dashboard.status_code == 200
     assert "hei_san" in dashboard.text
+    navigation = [
+        "工作台",
+        "机器人管理",
+        "数据定义",
+        "数据管理",
+        "原始数据集上传",
+        "数据质检",
+        "数据标注",
+        "数据处理",
+        "格式转换与导出",
+        "模型训练",
+        "系统管理",
+    ]
+    positions = [dashboard.text.index(label) for label in navigation]
+    assert positions == sorted(positions)
 
     logout = client.post("/logout", follow_redirects=False)
     assert logout.status_code == 303
