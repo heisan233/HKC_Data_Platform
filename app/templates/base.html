@@ -51,7 +51,7 @@
         <aside class="sidebar">
             <div class="logo">📦 数采平台<br/>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Data Platform</div>
             <ul class="menu">
-                <li><a href="/dashboard" class="{% if request.url.path == '/dashboard' %}active{% endif %}">📊 工作台</a></li>
+                <li><a href="/dashboard" class="{% if request.url.path.startswith('/dashboard') %}active{% endif %}">📊 工作台</a></li>
                 <li><a href="/robots" class="{% if request.url.path.startswith('/robots') %}active{% endif %}">🤖 机器人管理</a></li>
                 <li><a href="/semantics" class="{% if request.url.path.startswith('/semantics') %}active{% endif %}">📖 数据定义</a></li>
                 <li><a href="/data" class="{% if request.url.path.startswith('/data') %}active{% endif %}">📁 数据管理</a></li>

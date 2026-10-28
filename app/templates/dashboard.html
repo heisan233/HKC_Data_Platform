@@ -1,33 +1,100 @@
 {% extends "base.html" %}
 {% block page_title %}工作台{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/dashboard.css?v=20261028-dashboard-1">{% endblock %}
 {% block content %}
-<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:16px;margin-bottom:24px;">
-    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#2b7de9;">{{ stats.datasets }}</div><div class="text-muted">数据集总数</div></div>
-    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#1890ff;">{{ stats.raw_hours }}h</div><div class="text-muted">原始数据时长</div></div>
-    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#722ed1;">{{ stats.annotated }}</div><div class="text-muted">已标注数据集</div></div>
-    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#52c41a;">{{ stats.qc_passed }}</div><div class="text-muted">质检通过</div></div>
-    <div class="card" style="text-align:center;padding:24px;"><div style="font-size:28px;font-weight:700;color:#faad14;">{{ stats.training }}</div><div class="text-muted">训练任务</div></div>
-</div>
-<div class="card"><h3>📌 近期任务进度</h3>
-    <table class="table">
-        <tr><th>任务名称</th><th>机器人</th><th>状态</th><th>进度</th></tr>
-        {% for r in recent %}
-        <tr>
-            <td>{{ r.name }}</td>
-            <td>{{ r.robot }}</td>
-            <td><span class="status-badge
-                {% if r.status == '已完成' %}status-done
-                {% elif r.status == '采集中' %}status-running
-                {% elif r.status == '质检中' %}status-paused
-                {% else %}status-running{% endif %}">{{ r.status }}</span></td>
-            <td>
-                <div style="background:#e9edf4;border-radius:6px;height:8px;width:160px;display:inline-block;vertical-align:middle;">
-                    <div style="background:#2b7de9;height:8px;border-radius:6px;width:{{ r.progress }}%;"></div>
-                </div>
-                <span style="font-size:12px;color:#666;margin-left:6px;">{{ r.progress }}%</span>
-            </td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
+<main class="dash-wrap">
+  <section class="dash-hero">
+    <div>
+      <span class="dash-eyebrow">HKC DATA OPERATIONS</span>
+      <h2>你好，{{ request.state.user.username }}</h2>
+      <p>这里汇总平台真实资产、质检进度和训练状态，帮助你快速找到下一项需要处理的工作。</p>
+    </div>
+    <div class="dash-hero-actions">
+      <a class="dash-button dash-button-primary" href="/ingestion/">上传原始数据集</a>
+      <a class="dash-button" href="/data/">查看数据资产</a>
+    </div>
+  </section>
+
+  <section class="dash-stat-grid" aria-label="平台核心指标">
+    <a class="dash-stat dash-stat-blue" href="/data/">
+      <span class="dash-stat-icon">DS</span><div><small>数据资产</small><strong>{{ stats.datasets }}</strong><p>{{ stats.raw }} Raw · {{ stats.derived }} Derived</p></div>
+    </a>
+    <a class="dash-stat dash-stat-violet" href="/robots/">
+      <span class="dash-stat-icon">RB</span><div><small>机器人档案</small><strong>{{ stats.active_robots }}<em>/ {{ stats.robots }}</em></strong><p>当前在用 / 全部机器人</p></div>
+    </a>
+    <a class="dash-stat dash-stat-green" href="/data/raw/?qc=passed">
+      <span class="dash-stat-icon">QC</span><div><small>质检通过</small><strong>{{ stats.qc_passed }}</strong><p>{{ stats.qc_review }} 待审核 · {{ stats.qc_running }} 进行中</p></div>
+    </a>
+    <a class="dash-stat dash-stat-orange" href="/training/">
+      <span class="dash-stat-icon">TR</span><div><small>训练任务</small><strong>{{ stats.training_active }}<em>/ {{ stats.training }}</em></strong><p>{{ stats.training_completed }} 已完成 · {{ stats.models }} 模型包</p></div>
+    </a>
+  </section>
+
+  <section class="dash-flow" aria-label="数据生命周期">
+    <div class="dash-section-head"><div><span>DATA LIFECYCLE</span><h3>数据流转概览</h3></div><small>共 {{ stats.episodes }} Episodes · {{ stats.frames }} Frames</small></div>
+    <div class="dash-flow-steps">
+      <a href="/ingestion/"><b>01</b><span>Raw 入库</span><strong>{{ stats.raw }}</strong></a><i>→</i>
+      <a href="/qc/"><b>02</b><span>质检通过</span><strong>{{ stats.qc_passed }}</strong></a><i>→</i>
+      <a href="/annotation/"><b>03</b><span>派生数据</span><strong>{{ stats.derived }}</strong></a><i>→</i>
+      <a href="/training/"><b>04</b><span>完成训练</span><strong>{{ stats.training_completed }}</strong></a>
+    </div>
+  </section>
+
+  <div class="dash-main-grid">
+    <section class="dash-panel dash-todo-panel">
+      <div class="dash-section-head"><div><span>NEXT ACTIONS</span><h3>待处理事项</h3></div></div>
+      <div class="dash-todo-list">
+        {% for item in todo %}<a href="{{ item.href }}" class="dash-todo dash-todo-{{ item.tone }}">
+          <strong>{{ item.count }}</strong><div><b>{{ item.label }}</b><p>{{ item.hint }}</p></div><span>处理 →</span>
+        </a>{% endfor %}
+      </div>
+    </section>
+
+    <section class="dash-panel dash-storage-panel">
+      <div class="dash-section-head"><div><span>STORAGE</span><h3>存储空间</h3></div><a href="/system/">系统日志 →</a></div>
+      {% if storage.available %}
+      <div class="dash-storage-ring" style="--storage-percent: {{ storage.percent }}%;"><div><strong>{{ storage.percent }}%</strong><span>已使用</span></div></div>
+      <div class="dash-storage-numbers"><div><small>可用</small><strong>{{ storage.free }}</strong></div><div><small>已用</small><strong>{{ storage.used }}</strong></div><div><small>总量</small><strong>{{ storage.total }}</strong></div></div>
+      {% else %}<div class="dash-empty">暂时无法读取存储空间。</div>{% endif %}
+      <p class="dash-storage-note">显示 storage 所在文件系统的容量，不等同于数据集文件总大小。</p>
+    </section>
+  </div>
+
+  <section class="dash-panel">
+    <div class="dash-section-head"><div><span>RECENT DATASETS</span><h3>最近登记的数据集</h3></div><a href="/data/manage/?view=registered">查看全部 →</a></div>
+    <div class="dash-table-wrap"><table class="dash-table">
+      <thead><tr><th>数据集</th><th>区域</th><th>规模</th><th>采集机器人</th><th>质检状态</th><th>登记时间</th><th></th></tr></thead>
+      <tbody>
+        {% for item in recent_datasets %}<tr>
+          <td><strong>{{ item.id }}</strong><span>{{ item.name }}</span></td>
+          <td><span class="dash-pill dash-pill-{{ item.storage_area }}">{{ item.storage_area|upper }}</span></td>
+          <td>{{ item.episodes if item.episodes is not none else '—' }} Episodes<small>{{ item.frames if item.frames is not none else '—' }} Frames</small></td>
+          <td>{% if item.collector_robot_id %}{{ item.collector_robot_id }}<small>{{ item.collector_robot_name }}</small>{% else %}<span class="dash-muted">未关联</span>{% endif %}</td>
+          <td><span class="dash-state dash-state-{{ item.qc_state }}">{{ item.qc_label }}</span></td>
+          <td>{{ item.registered_at|local_datetime }}</td>
+          <td><a class="dash-row-link" href="/data/raw/{{ item.id }}">查看 →</a></td>
+        </tr>{% else %}<tr><td colspan="7"><div class="dash-empty"><strong>还没有已登记数据集</strong><p>上传一个完整的 LeRobot v3 ZIP，工作台就会开始显示真实资产。</p><a href="/ingestion/">前往上传</a></div></td></tr>{% endfor %}
+      </tbody>
+    </table></div>
+  </section>
+
+  <div class="dash-main-grid dash-job-grid">
+    <section class="dash-panel">
+      <div class="dash-section-head"><div><span>QUALITY TASKS</span><h3>最近质检任务</h3></div><a href="/qc/">质检工作台 →</a></div>
+      <div class="dash-job-list">
+        {% for task in recent_qc %}<a href="/qc/?dataset={{ task.dataset_id|urlencode }}"><span class="dash-job-mark dash-job-qc">QC</span><div><strong>{{ task.dataset_name }}</strong><p>{{ task.id }} · {{ task.created_at|local_datetime }}</p></div><b class="dash-job-status status-{{ task.status|lower }}">{{ task.status_label }}</b></a>
+        {% else %}<div class="dash-empty">暂无质检任务。</div>{% endfor %}
+      </div>
+    </section>
+    <section class="dash-panel">
+      <div class="dash-section-head"><div><span>TRAINING TASKS</span><h3>最近训练任务</h3></div><a href="/training/">模型训练 →</a></div>
+      <div class="dash-job-list">
+        {% for task in recent_training %}<a href="/training/"><span class="dash-job-mark dash-job-tr">TR</span><div><strong>{{ task.name }}</strong><p>{{ task.id }} · {{ task.dataset_id }} · {{ task.created_at|local_datetime }}</p></div><b class="dash-job-status status-{{ task.status|lower }}">{{ task.status_label }}</b></a>
+        {% else %}<div class="dash-empty">暂无训练任务。</div>{% endfor %}
+      </div>
+    </section>
+  </div>
+
+  <p class="dash-updated">工作台数据生成于 {{ generated_at|local_datetime }}。页面只读，不会修改数据集或任务状态。</p>
+</main>
 {% endblock %}

@@ -13,6 +13,7 @@ import pytest
 
 from app.core.config import Settings
 from app.modules.auth import middleware as auth_middleware
+from app.modules.dashboard import router as dashboard_router
 from app.modules.robots import router as robot_router
 from app.modules.semantics import router as semantics_router
 from app.modules.system import router as system_router
@@ -25,6 +26,7 @@ def isolated_shared_services(
     tmp_path: Path,
 ):
     monkeypatch.setattr(robot_router, "settings", Settings(data_root=tmp_path))
+    monkeypatch.setattr(dashboard_router, "settings", Settings(data_root=tmp_path))
     monkeypatch.setattr(semantics_router, "settings", Settings(data_root=tmp_path))
     monkeypatch.setattr(system_router, "settings", Settings(data_root=tmp_path))
     monkeypatch.setattr(auth_middleware, "settings", Settings(data_root=tmp_path))

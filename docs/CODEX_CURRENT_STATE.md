@@ -52,7 +52,7 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | --- | --- | --- |
 | `/login`、`/logout` | `auth` | SQLite 用户、密码哈希、登录会话和退出 |
 | `/healthz` | 应用入口 | 无需登录的 Docker 存活检查，不返回业务数据 |
-| `/dashboard/` | `dashboard` | 工作台页面，部分展示内容仍偏框架 |
+| `/dashboard/` | `dashboard` | 真实 DS、机器人、质检、训练、待办和磁盘容量总览 |
 | `/data/` | `datasets` | 真实 DS 数据集总览和质检状态 |
 | `/data/manage/` | `datasets` | 真实登记、信息修改与重新扫描 |
 | `/data/raw/` | `datasets` | Raw/Derived 列表、详情及 Episode 关节曲线 |
@@ -237,6 +237,15 @@ SQLite 表，也不改变 Raw/Derived 数据集。
 `storage/system/logs/platform.jsonl`。为避免泄露认证或业务数据，日志不记录查询
 参数、请求正文、Cookie、Header、密码和 Token。页面支持级别、模块、关键词及数量
 筛选，但没有删除或修改日志的接口。健康检查和静态资源不进入该业务日志。
+
+### 工作台边界
+
+工作台不再使用写死的演示任务。页面从统一 DS 登记、机器人档案、质检任务和训练
+任务中读取真实统计，展示 Raw/Derived 数量、Episode/Frame 总量、机器人使用状态、
+最近数据集、最近任务以及待登记、待审核、未关联和异常等待办入口。磁盘区域通过
+`storage` 所在文件系统的容量计算可用空间，不递归统计所有数据集字节，因此页面
+加载不会读取大型视频内容。工作台为只读聚合，不会修改业务记录，也不会主动连接
+训练执行器或触发质检。
 
 ## 5. 配置与部署
 

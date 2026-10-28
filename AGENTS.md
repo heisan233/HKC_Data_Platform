@@ -65,11 +65,14 @@
 - `export`：将 Derived DS 或已完成的 CV 转换结果打包到 `storage/exports/` 下载；
 - `training`：已登记 LeRobot v3 DS 训前校验、X-VLA 基座微调任务、训练指标、
   留出 Episode 离线前向损失、模型包和任务回收站；实际训练依赖已配置的宿主执行器；
+- `dashboard`：真实只读工作台，聚合 DS、机器人、质检、训练、待办与 storage 所在
+  文件系统容量，不修改业务记录；
+- `system`：脱敏、持久化的真实访问日志和只读筛选；
 - 报告回收站：报告只能移入 `storage/trash/reports/` 并恢复，不允许永久删除。
 
 仍是占位或未完整实现的功能：
 
-- 系统管理以及部分工作台页面仍属于框架或演示；训练尚无真实机器人任务成功率评估；
+- 训练尚无真实机器人任务成功率评估；
 - 独立情景管理页面和 `/scenes/` 路由已按产品决定移除；未来场景分类归入数据
   定义，不重新建立独立情景管理模块；
 - `semantics`：真实 LeRobot v3 Schema 编辑器；扫描 `info.json` 与全部 Episode/frame
