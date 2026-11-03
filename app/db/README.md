@@ -1,11 +1,21 @@
 # `app/db` 目录说明
 
-本目录当前是未来预留，不参与程序运行。
+本目录保存数据管理使用的 SQLite 访问代码。
 
 - 当前数据集保存在项目根目录的 `storage/` 中。
-- 当前没有连接 SQLite、PostgreSQL 或其他数据库。
-- 本目录不能放数据集、JSON 状态文件或 `.db` 数据库文件。
-- 将来启用数据库后，本目录才放数据库连接、表模型和查询代码。
-- 真正的数据库文件仍属于运行数据，应放在 `storage/system/`，不能提交 Git。
+- `datasets.py` 管理 Raw/Derived 数据集的统一 DS 编号、登记信息、派生来源以及目录映射。
+- `conversions.py` 管理转换任务状态；转换结果由 CV 任务编号关联 `converted/`
+  目录，不进入 DS 登记表。旧版转换登记表若已存在，会保留但不再读写。
+- `users.py` 管理用户、scrypt 密码哈希和只保存令牌摘要的登录会话。
+- `robots.py` 管理稳定 RB 编号、名称、类型、SN、IP、备注和状态；历史型号/传感器
+  列仅为数据库兼容保留，不保存机器人运行遥测，也不直接修改数据集。
+- `dataset_robots.py` 管理一个 DS 到一台采集机器人的可选关系；支持改绑、解除和
+  派生数据集继承，不修改真实数据集文件。
+- `semantics.py` 是旧受控词表表结构的兼容保留代码；当前数据定义页不再读写这些
+  表。为避免破坏已有 SQLite，暂不执行破坏性删表迁移。
+- 管理员使用 `python -m app.cli.create_user` 交互创建用户，使用
+  `python -m app.cli.list_users` 查看不含认证秘密的账号摘要。
+- 数据库文件是运行数据，位于 `storage/system/platform.sqlite`，不提交 Git。
+- 原始和派生数据文件分别留在 `storage/raw/`、`storage/derived/`；质检任务和人工审核记录写入 SQLite，报告文件保存在 `storage/reports/qc/`。
 
-可以把它理解为“未来如何操作数据库的 Python 代码”，而不是“数据库存储位置”。
+这里保存“如何操作数据库”的代码，而不是数据库文件本身。

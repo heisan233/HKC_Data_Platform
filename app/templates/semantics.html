@@ -1,75 +1,108 @@
 {% extends "base.html" %}
 {% block page_title %}数据定义{% endblock %}
-{% block content %}
-
-<!-- 顶部标题 -->
-<div class="card" style="padding:18px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
-    <div>
-        <div style="font-size:17px;font-weight:700;color:#1a3c5e;">
-            📖 统一语义层 · 完整字段
-            <span style="font-size:12px;font-weight:400;color:#2b7de9;background:#eef3ff;padding:2px 10px;border-radius:12px;margin-left:8px;">跨本体数据互通的核心抽象</span>
-        </div>
-        <div class="text-muted" style="margin-top:6px;">剥离本体专属信息，只保留任务级抽象描述</div>
-    </div>
-    <div style="font-size:13px;color:#722ed1;background:#f9f0ff;padding:6px 14px;border-radius:16px;">
-        ⚡ 8个核心字段 + Episode结构
-    </div>
-</div>
-
-<!-- 8 个核心字段 -->
-<div class="card">
-    <table class="table">
-        <thead>
-            <tr>
-                <th style="width:15%;">字段</th>
-                <th style="width:47%;">说明</th>
-                <th style="width:38%;">举例</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for f in fields %}
-            <tr>
-                <td><strong>{{ f.name }}</strong></td>
-                <td>{{ f.desc }}</td>
-                <td style="color:#5a6b85;">{{ f.example }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-
-<!-- Episode 文件结构 -->
-<div class="card">
-    <div style="font-size:15px;font-weight:700;color:#1a3c5e;margin-bottom:12px;">
-        📁 Episode 文件结构
-        <span style="font-size:12px;font-weight:400;color:#8896ab;background:#f0f2f5;padding:2px 10px;border-radius:12px;margin-left:8px;">结构化 + 非结构化 + 元信息</span>
-    </div>
-
-    <div style="background:#f7f9fc;border-radius:8px;padding:18px 22px;font-family:Consolas,Monaco,monospace;font-size:13.5px;line-height:2;color:#1a2b4c;border:1px solid #e9edf4;">
-        <div style="font-weight:700;">episode_0001/</div>
-        {% for ef in episode_files %}
-        <div>
-            &nbsp;&nbsp;├── <span style="color:#2b7de9;">{{ ef.name }}</span>
-            <span style="color:#8896ab;font-family:'Microsoft YaHei',sans-serif;">&nbsp;&nbsp;# {{ ef.desc }}</span>
-        </div>
-        {% endfor %}
-    </div>
-
-    <div style="margin-top:14px;font-size:13px;color:#5a6b85;background:#fffbe6;border-left:3px solid #faad14;padding:10px 14px;border-radius:4px;">
-        💡 <strong>核心原则：</strong>结构化数据用 Parquet，非结构化数据用 MP4，元信息用 JSON。既紧凑，又便于训练时快速读取。
-    </div>
-</div>
-
-<!-- 核心价值 -->
-<div class="card" style="background:linear-gradient(135deg,#f0f7ff 0%,#f9f0ff 100%);border-left:4px solid #2b7de9;">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
-        <div style="font-size:14px;font-weight:700;color:#1a3c5e;">
-            🎯 核心价值：把“本体专属”信息剥离，只保留“任务级”抽象描述
-        </div>
-        <div style="font-size:13px;color:#2b7de9;background:#fff;padding:6px 14px;border-radius:16px;border:1px solid #d6e4ff;">
-            让不同机器人采集的数据能被同一套模型理解
-        </div>
-    </div>
-</div>
-
+{% block extra_head %}
+<link rel="stylesheet" href="/static/css/semantics.css?v=20261028d">
 {% endblock %}
+{% block content %}
+<div class="schema-page" id="schema-page">
+  <section class="schema-hero">
+    <div>
+      <span class="schema-eyebrow">DATASET SCHEMA EDITOR</span>
+      <h2>数据集结构定义</h2>
+      <p>读取真实 LeRobot v3 结构，给 Episode 或逐帧数据增加字段。所有正式修改都生成新的 Derived DS，Raw 和源 Derived 保持不变。</p>
+    </div>
+    <span class="schema-hero-badge">结构定义 ≠ 数据可用于训练</span>
+  </section>
+
+  <section class="schema-panel schema-selector">
+    <label>选择数据集
+      <select id="schema-dataset"><option value="">正在读取数据集……</option></select>
+    </label>
+    <button class="schema-button" type="button" id="schema-scan">扫描真实结构</button>
+    <p>扫描会读取 <code>meta/info.json</code>、全部 Episode Parquet 和 frame Parquet，不解析视频。</p>
+  </section>
+
+  <div id="schema-feedback" class="schema-feedback" role="status" hidden></div>
+
+  <section class="schema-summary" id="schema-summary" hidden>
+    <article><span>数据集</span><strong id="summary-id">—</strong><small id="summary-name">—</small></article>
+    <article><span>Episode / 帧</span><strong id="summary-size">—</strong><small id="summary-shards">—</small></article>
+    <article><span>结构扩展</span><strong id="summary-extension">—</strong><small>平台 hkc_extensions</small></article>
+    <article><span>训练状态</span><strong id="summary-training">—</strong><small id="summary-blockers">—</small></article>
+  </section>
+
+  <section class="schema-panel" id="schema-fields" hidden>
+    <div class="schema-tabs" role="tablist">
+      <button class="active" type="button" data-schema-tab="episode">Episode 元数据</button>
+      <button type="button" data-schema-tab="frame">逐帧 Features</button>
+    </div>
+    <div class="schema-tab active" data-schema-panel="episode">
+      <div class="schema-section-head">
+        <div><h3>Episode 元数据字段</h3><p>例如 <code>scene</code>。第一版支持统一值或统一空值，字段实际写入所有 Episode 元数据分片。</p></div>
+        <button class="schema-button" type="button" data-open-create="episode">+ 新增 Episode 字段</button>
+      </div>
+      <div class="schema-table-wrap"><table class="schema-table"><thead><tr><th>字段</th><th>类型</th><th>来源</th><th>完整率</th><th>状态</th><th>操作</th></tr></thead><tbody id="episode-fields"></tbody></table></div>
+    </div>
+    <div class="schema-tab" data-schema-panel="frame">
+      <div class="schema-section-head">
+        <div><h3>逐帧 Features</h3><p>新增数值标量/向量可保持全空，或从 CSV/Parquet 按 <code>episode_index + frame_index</code> 对齐导入。</p></div>
+        <div class="schema-head-actions"><button class="schema-button schema-button-light" type="button" id="open-import">从文件导入</button><button class="schema-button" type="button" data-open-create="frame">+ 新增空 Feature</button></div>
+      </div>
+      <div class="schema-warning">全空或部分为空的 Feature 会明确标记为“不满足训练要求”。平台不会把空值自动改成 0。</div>
+      <div class="schema-table-wrap"><table class="schema-table"><thead><tr><th>Feature</th><th>dtype / shape</th><th>物理类型</th><th>来源</th><th>完整率</th><th>状态</th><th>操作</th></tr></thead><tbody id="frame-fields"></tbody></table></div>
+    </div>
+  </section>
+</div>
+
+<dialog class="schema-dialog" id="field-dialog">
+  <form id="field-form">
+    <header><div><span class="schema-eyebrow">NEW FIELD</span><h3 id="field-title">新增字段</h3></div><button type="button" data-close-dialog>×</button></header>
+    <input type="hidden" id="field-scope">
+    <div class="schema-form-grid">
+      <label>字段名<input id="field-name" required maxlength="200" placeholder="例如 scene 或 observation.depth_valid"></label>
+      <label>数据类型<select id="field-dtype" required></select></label>
+      <label id="shape-label">Shape<input id="field-shape" value="1" placeholder="例如 6 或 2,3"></label>
+      <label id="names-label">元素名称<input id="field-names" placeholder="例如 joint_1,joint_2"></label>
+      <label id="value-label">全部 Episode 的统一值<input id="field-value" placeholder="留空表示所有 Episode 均为空"></label>
+      <label class="wide">字段说明<textarea id="field-description" rows="2" maxlength="1000"></textarea></label>
+      <label>新派生版本名称<input id="field-version-name" required maxlength="120" placeholder="例如 增加场景字段"></label>
+      <label>版本说明<input id="field-version-description" maxlength="1000"></label>
+    </div>
+    <p class="schema-form-note" id="field-note"></p>
+    <footer><button class="schema-button schema-button-light" type="button" data-close-dialog>取消</button><button class="schema-button" type="submit">生成新的 Derived DS</button></footer>
+  </form>
+</dialog>
+
+<dialog class="schema-dialog" id="import-dialog">
+  <form id="import-form">
+    <header><div><span class="schema-eyebrow">FRAME IMPORT</span><h3>导入逐帧 Feature</h3></div><button type="button" data-close-import>×</button></header>
+    <div class="schema-form-grid">
+      <label>Feature 名<input name="field_name" required maxlength="200" placeholder="observation.extra_joints"></label>
+      <label>数据类型<select name="dtype"><option>float32</option><option>float64</option><option>int32</option><option>int64</option><option>bool</option></select></label>
+      <label>Shape<input name="shape_text" required value="1" placeholder="例如 6"></label>
+      <label>导入列名<input name="source_columns_text" required placeholder="例如 joint_1,joint_2,..."></label>
+      <label>元素名称<input name="names_text" placeholder="可选；数量须等于 Shape 元素数"></label>
+      <label>CSV/Parquet 文件<input name="import_file" type="file" accept=".csv,.parquet,.pq" required></label>
+      <label class="wide">字段说明<textarea name="description" rows="2" maxlength="1000"></textarea></label>
+      <label>新派生版本名称<input name="version_name" required maxlength="120"></label>
+      <label>版本说明<input name="version_description" maxlength="1000"></label>
+    </div>
+    <p class="schema-form-note">文件必须含 <code>episode_index</code>、<code>frame_index</code> 和指定值列。缺少的帧保留为空；文件中不能出现数据集不存在的帧。</p>
+    <footer><button class="schema-button schema-button-light" type="button" data-close-import>取消</button><button class="schema-button" type="submit">导入并生成 Derived DS</button></footer>
+  </form>
+</dialog>
+
+<dialog class="schema-dialog" id="delete-dialog">
+  <form id="delete-form">
+    <header><div><span class="schema-eyebrow">DELETE FIELD</span><h3>从派生版本删除字段</h3></div><button type="button" data-close-delete>×</button></header>
+    <input type="hidden" id="delete-scope"><input type="hidden" id="delete-name"><input type="hidden" id="delete-official">
+    <div class="schema-delete-copy" id="delete-copy"></div>
+    <div class="schema-form-grid">
+      <label>新派生版本名称<input id="delete-version-name" required maxlength="120"></label>
+      <label>版本说明<input id="delete-version-description" maxlength="1000"></label>
+    </div>
+    <footer><button class="schema-button schema-button-light" type="button" data-close-delete>取消</button><button class="schema-button schema-button-danger" type="submit">确认生成 Derived DS</button></footer>
+  </form>
+</dialog>
+{% endblock %}
+{% block scripts %}<script src="/static/js/semantics.js?v=20261028d"></script>{% endblock %}

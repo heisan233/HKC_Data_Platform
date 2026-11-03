@@ -1,27 +1,43 @@
 {% extends "base.html" %}
 {% block page_title %}系统管理{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/system.css?v=20261028-system-logs-1">{% endblock %}
 {% block content %}
-<div class="flex mb-12">
-    <div><span class="text-muted">⚙️ 系统日志、权限、审计</span></div>
-</div>
-<div class="card">
-    <h3>📋 系统日志</h3>
-    <table class="table">
-        <tr><th>ID</th><th>时间</th><th>级别</th><th>模块</th><th>内容</th></tr>
-        {% for l in logs %}
-        <tr>
-            <td>{{ l.id }}</td>
-            <td style="font-size:13px;color:#666;">{{ l.time }}</td>
-            <td>
-                <span class="status-badge
-                    {% if l.level == 'ERROR' %}status-error
-                    {% elif l.level == 'WARNING' %}status-paused
-                    {% else %}status-done{% endif %}">{{ l.level }}</span>
-            </td>
-            <td><span class="tag">{{ l.module }}</span></td>
-            <td style="font-size:13px;">{{ l.msg }}</td>
-        </tr>
-        {% endfor %}
-    </table>
-</div>
+<main class="sys-wrap">
+  <section class="sys-hero">
+    <div><span>SYSTEM OBSERVABILITY</span><h2>系统日志</h2><p>查看平台内已登录用户的真实访问记录；日志不保存请求正文、密码、Cookie 或查询参数。</p></div>
+    <a class="sys-refresh" href="{{ request.url.path }}?level={{ level_filter|urlencode }}&module={{ module_filter|urlencode }}&q={{ query|urlencode }}&limit={{ limit }}">刷新日志</a>
+  </section>
+
+  <section class="sys-metrics">
+    <article><small>最近记录</small><strong>{{ stats.total }}</strong><span>最多扫描最近 5000 条</span></article>
+    <article><small>今日记录</small><strong>{{ stats.today }}</strong><span>按当前服务器时区统计</span></article>
+    <article class="sys-warning"><small>警告</small><strong>{{ stats.warning }}</strong><span>HTTP 4xx</span></article>
+    <article class="sys-error"><small>错误</small><strong>{{ stats.error }}</strong><span>HTTP 5xx 或执行异常</span></article>
+  </section>
+
+  <section class="sys-panel">
+    <form class="sys-filters" method="get" action="/system/">
+      <label>日志级别<select name="level"><option value="ALL" {% if level_filter == 'ALL' %}selected{% endif %}>全部级别</option><option value="INFO" {% if level_filter == 'INFO' %}selected{% endif %}>INFO</option><option value="WARNING" {% if level_filter == 'WARNING' %}selected{% endif %}>WARNING</option><option value="ERROR" {% if level_filter == 'ERROR' %}selected{% endif %}>ERROR</option></select></label>
+      <label>业务模块<select name="module"><option value="ALL">全部模块</option>{% for name in modules %}<option value="{{ name }}" {% if module_filter == name %}selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+      <label class="sys-search">搜索<input name="q" value="{{ query }}" maxlength="100" placeholder="用户名、路径、状态码"></label>
+      <label>显示数量<select name="limit">{% for value in [50, 100, 200, 500] %}<option value="{{ value }}" {% if limit == value %}selected{% endif %}>{{ value }} 条</option>{% endfor %}</select></label>
+      <button type="submit">应用筛选</button>
+    </form>
+    <div class="sys-table-head"><div><h3>访问记录</h3><p>当前条件匹配 {{ matched }} 条，页面显示 {{ logs|length }} 条。</p></div><span>只读</span></div>
+    <div class="sys-table-wrap">
+      <table class="sys-table">
+        <thead><tr><th>时间</th><th>级别</th><th>模块</th><th>用户</th><th>请求</th><th>结果</th><th>耗时</th></tr></thead>
+        <tbody>{% for log in logs %}<tr>
+          <td class="sys-time">{{ log.time|local_datetime }}</td>
+          <td><span class="sys-level sys-level-{{ log.level|lower }}">{{ log.level }}</span></td>
+          <td>{{ log.module }}</td><td>{{ log.username }}</td>
+          <td><code>{{ log.method }} {{ log.path }}</code></td>
+          <td><strong class="sys-status {% if log.status_code >= 500 %}is-error{% elif log.status_code >= 400 %}is-warning{% else %}is-ok{% endif %}">{% if log.status_code < 400 %}成功{% else %}{{ log.status_code }}{% endif %}</strong></td>
+          <td>{{ '%.2f'|format(log.duration_ms) }} ms</td>
+        </tr>{% else %}<tr><td colspan="7" class="sys-empty">暂无匹配日志。访问其他平台页面后刷新即可看到真实记录。</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </section>
+  <p class="sys-footnote">日志文件：<code>storage/system/logs/platform.jsonl</code>（容器内为 <code>/data/system/logs/platform.jsonl</code>）。</p>
+</main>
 {% endblock %}

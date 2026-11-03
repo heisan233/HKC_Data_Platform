@@ -14,12 +14,14 @@
         .sidebar .menu { list-style: none; padding: 12px 0; }
         .sidebar .menu li a { display: block; padding: 11px 24px; color: rgba(255,255,255,0.7); text-decoration: none; transition: 0.2s; font-size: 14px; }
         .sidebar .menu li a:hover, .sidebar .menu li a.active { background: rgba(255,255,255,0.1); color: #fff; }
-        .main { margin-left: 230px; flex: 1; display: flex; flex-direction: column; min-height: 100vh; }
+        .main { margin-left: 230px; flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 100vh; }
         .header { background: #fff; padding: 16px 32px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
         .header h1 { font-size: 20px; color: #1a3c5e; }
         .header .user { display: flex; align-items: center; gap: 16px; font-size: 14px; }
-        .header .user a { color: #2b7de9; text-decoration: none; }
-        .content { padding: 24px 32px; flex: 1; }
+        .header .user form { margin: 0; }
+        .logout-button { border: 0; background: transparent; color: #2b7de9; cursor: pointer; font-size: 14px; }
+        .logout-button:hover { text-decoration: underline; }
+        .content { padding: 24px 32px; flex: 1; min-width: 0; }
         .card { background: #fff; border-radius: 8px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 16px; }
         .card h3 { font-size: 16px; color: #1a3c5e; margin-bottom: 12px; }
         .table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -42,21 +44,22 @@
         .mb-12 { margin-bottom: 12px; }
         .text-muted { color: #999; font-size: 13px; }
     </style>
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
     <div class="app">
         <aside class="sidebar">
             <div class="logo">📦 数采平台<br/>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Data Platform</div>
             <ul class="menu">
-                <li><a href="/dashboard" class="{% if request.url.path == '/dashboard' %}active{% endif %}">📊 工作台</a></li>
-                <li><a href="/semantics" class="{% if request.url.path.startswith('/semantics') %}active{% endif %}">📖 数据定义</a></li>
+                <li><a href="/dashboard" class="{% if request.url.path.startswith('/dashboard') %}active{% endif %}">📊 工作台</a></li>
                 <li><a href="/robots" class="{% if request.url.path.startswith('/robots') %}active{% endif %}">🤖 机器人管理</a></li>
-                <li><a href="/scenes" class="{% if request.url.path.startswith('/scenes') %}active{% endif %}">📋 情景管理</a></li>
+                <li><a href="/semantics" class="{% if request.url.path.startswith('/semantics') %}active{% endif %}">📖 数据定义</a></li>
                 <li><a href="/data" class="{% if request.url.path.startswith('/data') %}active{% endif %}">📁 数据管理</a></li>
-                <li><a href="/preprocess" class="{% if request.url.path.startswith('/preprocess') %}active{% endif %}">🔧 数据预处理</a></li>
+                <li><a href="/ingestion" class="{% if request.url.path.startswith('/ingestion') %}active{% endif %}">⬆️ 原始数据集上传</a></li>
                 <li><a href="/qc" class="{% if request.url.path.startswith('/qc') %}active{% endif %}">✅ 数据质检</a></li>
                 <li><a href="/annotation" class="{% if request.url.path.startswith('/annotation') %}active{% endif %}">✏️ 数据标注</a></li>
-                <li><a href="/export" class="{% if request.url.path.startswith('/export') %}active{% endif %}">📤 数据集导出</a></li>
+                <li><a href="/preprocess" class="{% if request.url.path.startswith('/preprocess') %}active{% endif %}">🔧 数据处理</a></li>
+                <li><a href="/export" class="{% if request.url.path.startswith('/export') %}active{% endif %}">📤 格式转换与导出</a></li>
                 <li><a href="/training" class="{% if request.url.path.startswith('/training') %}active{% endif %}">🧠 模型训练</a></li>
                 <li><a href="/system" class="{% if request.url.path.startswith('/system') %}active{% endif %}">⚙️ 系统管理</a></li>
             </ul>
@@ -66,7 +69,10 @@
             <header class="header">
                 <h1>{% block page_title %}工作台{% endblock %}</h1>
                 <div class="user">
-                    <span>🛠️ 开发模式</span>
+                    <span>👤 {{ request.state.user.username }}</span>
+                    <form method="post" action="/logout">
+                        <button class="logout-button" type="submit">退出登录</button>
+                    </form>
                 </div>
             </header>
             <div class="content">
@@ -74,5 +80,6 @@
             </div>
         </div>
     </div>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

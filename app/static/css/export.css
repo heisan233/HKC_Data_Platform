@@ -1,0 +1,76 @@
+.conversion-wrap { width: 100%; min-width: 0; max-width: 1320px; margin: 0 auto; color: #173455; }
+.conversion-hero { display: flex; justify-content: space-between; gap: 24px; align-items: center; padding: 30px 34px; margin-bottom: 20px; border-radius: 12px; background: linear-gradient(115deg, #12345a, #27659c); color: white; box-shadow: 0 6px 22px #163d6e1a; }
+.conversion-eyebrow { display: block; font-size: 11px; font-weight: 800; letter-spacing: .17em; text-transform: uppercase; opacity: .7; }
+.conversion-hero h2 { margin: 8px 0 9px; font-size: 27px; }
+.conversion-hero p { margin: 0; max-width: 760px; line-height: 1.65; color: #d8e7f5; font-size: 14px; }
+.conversion-hero-stat { min-width: 138px; padding: 17px 22px; border: 1px solid #ffffff50; border-radius: 10px; text-align: center; background: #ffffff12; }
+.conversion-hero-stat strong { display: block; font-size: 28px; line-height: 1.2; }
+.conversion-hero-stat span { color: #dceaf5; font-size: 12px; }
+.conversion-workflow { display: grid; grid-template-columns: minmax(290px, .9fr) minmax(400px, 1.1fr); gap: 18px; align-items: stretch; margin-bottom: 20px; }
+.conversion-panel { min-width: 0; padding: 25px 27px; border: 1px solid #e5eaf0; border-radius: 12px; background: white; box-shadow: 0 3px 12px #1834510d; }
+.conversion-heading { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 22px; }
+.conversion-step { display: grid; place-items: center; flex: 0 0 32px; height: 32px; border-radius: 9px; background: #e9f2ff; color: #2465a0; font-size: 12px; font-weight: 800; }
+.conversion-heading h3, .conversion-history-heading h3 { margin: 1px 0 5px; font-size: 18px; }
+.conversion-heading p, .conversion-history-heading p { margin: 0; color: #708397; font-size: 12px; line-height: 1.5; }
+.conversion-profiles { display: grid; gap: 10px; }
+.conversion-profile { display: flex; gap: 10px; padding: 15px 17px; border: 1px solid #d9e3ed; border-radius: 9px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.conversion-profile:has(input:checked) { border-color: #4c8bd0; box-shadow: 0 0 0 3px #e5f1ff; }
+.conversion-profile input { margin-top: 4px; accent-color: #2173bd; }
+.conversion-profile-content { display: grid; gap: 7px; width: 100%; }
+.conversion-profile-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.conversion-profile-top strong { font-size: 15px; }
+.conversion-profile-top em { padding: 3px 9px; border-radius: 20px; background: #e7f7ee; color: #18744d; font-size: 11px; font-style: normal; white-space: nowrap; }
+.conversion-profile-meta { color: #48657e; font-size: 13px; }
+.conversion-profile-meta b { margin: 0 8px; color: #2084ca; }
+.conversion-profile small { color: #73879a; line-height: 1.55; }
+.conversion-profile.is-unavailable { opacity: .55; cursor: not-allowed; }
+.conversion-source-row { display: grid; grid-template-columns: 85px minmax(0, 1fr); gap: 12px; align-items: center; }
+.conversion-source-row label { font-size: 13px; font-weight: 700; }
+.conversion-source-row select { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid #ccd9e5; border-radius: 7px; background: white; color: #173455; font: inherit; }
+.conversion-empty-state { display: grid; gap: 5px; margin: 17px 0 0 97px; padding: 14px 16px; border-radius: 8px; background: #f5f8fc; color: #59718a; font-size: 12px; }
+.conversion-empty-state strong { color: #2d4861; font-size: 13px; }
+.conversion-empty-state a { color: #176aa9; font-weight: 700; text-decoration: none; }
+.conversion-empty-state[hidden] { display: none; }
+.conversion-export { margin-bottom: 20px; }
+.conversion-export-controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.conversion-export-controls label { font-size: 13px; font-weight: 700; }
+.conversion-export-controls select { flex: 1; min-width: 260px; max-width: 570px; padding: 10px 12px; border: 1px solid #ccd9e5; border-radius: 7px; background: white; color: #173455; font: inherit; }
+.conversion-export-controls button, .conversion-row-export { display: inline-flex; align-items: center; gap: 10px; border: 0; border-radius: 7px; padding: 10px 15px; background: #176fad; color: white; font: inherit; font-size: 13px; font-weight: 700; text-decoration: none; cursor: pointer; }
+.conversion-export-controls button:disabled { opacity: .48; cursor: not-allowed; }
+.conversion-export-note, .conversion-export-empty { margin: 12px 0 0; color: #71869a; font-size: 12px; }
+.conversion-export-empty[hidden] { display: none; }
+.conversion-row-export { margin-top: 9px; padding: 5px 10px; font-size: 11px; }
+.conversion-row-export a { color: white; }
+.conversion-output { display: flex; gap: 13px; margin-top: 20px; padding: 15px; border: 1px dashed #cbdbea; border-radius: 9px; background: #f8fbfe; }
+.conversion-output-icon { color: #3281bd; font-size: 21px; line-height: 1; }
+.conversion-output strong { font-size: 13px; }
+.conversion-output p { margin: 5px 0 0; color: #6f8294; font-size: 12px; line-height: 1.65; }
+.conversion-output code { color: #385c7a; }
+.conversion-actions { display: flex; gap: 14px; align-items: center; margin-top: 20px; }
+.conversion-actions button { display: inline-flex; align-items: center; gap: 22px; border: 0; border-radius: 7px; padding: 10px 18px; background: #176fad; color: white; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; }
+.conversion-actions button:hover:not(:disabled) { background: #095b97; }
+.conversion-actions button:disabled { opacity: .48; cursor: not-allowed; }
+.conversion-actions > span { color: #8192a3; font-size: 11px; }
+.conversion-feedback { margin: 13px 0 0; color: #18744d; font-size: 12px; }
+.conversion-feedback.error, .conversion-error { color: #b33b3b; }
+.conversion-history-heading { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 20px; }
+.conversion-history-heading .conversion-eyebrow { color: #527a9c; }
+.conversion-count { border-radius: 20px; padding: 5px 12px; background: #eef5fb; color: #426a89; font-size: 12px; white-space: nowrap; }
+.conversion-scroll { overflow-x: auto; }
+.conversion-scroll table { width: 100%; min-width: 780px; border-collapse: collapse; font-size: 13px; }
+.conversion-scroll th { padding: 12px 13px; background: #f4f7fa; color: #6c7f91; text-align: left; font-weight: 700; }
+.conversion-scroll td { padding: 15px 13px; border-bottom: 1px solid #ebeff3; vertical-align: top; }
+.conversion-scroll td strong { display: block; font-size: 12px; }
+.conversion-scroll td small { display: block; margin-top: 5px; color: #8192a2; line-height: 1.5; }
+.conversion-scroll a { color: #176fad; text-decoration: none; }
+.conversion-scroll a:hover { text-decoration: underline; }
+.conversion-scroll .conversion-row-export, .conversion-scroll .conversion-row-export a { color: #fff; }
+.conversion-progress { height: 5px; margin-top: 9px; border-radius: 3px; background: #e9eff5; overflow: hidden; }
+.conversion-progress span { display: block; height: 100%; background: #439ad0; }
+.conversion-status { display: inline-block; padding: 4px 9px; border-radius: 20px; background: #edf3f9; color: #426f96; white-space: nowrap; font-size: 11px; font-weight: 700; }
+.conversion-status-completed { background: #e7f7ee; color: #19734a; }
+.conversion-status-failed { background: #fff0ef; color: #b33b3b; }
+.conversion-status-running { background: #e7f2ff; color: #156daf; }
+.conversion-no-tasks { padding: 32px !important; color: #8192a2; text-align: center; }
+@media (max-width: 900px) { .conversion-workflow { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { .conversion-hero { padding: 23px; } .conversion-hero-stat { display: none; } .conversion-panel { padding: 20px; } .conversion-source-row { grid-template-columns: 1fr; gap: 6px; } .conversion-empty-state { margin-left: 0; } .conversion-actions { align-items: flex-start; flex-direction: column; } .conversion-export-controls select { min-width: 100%; } }

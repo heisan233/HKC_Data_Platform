@@ -8,16 +8,24 @@ version = "0.1.0"
 description = "HKC robot dataset management platform"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+    "av==15.0.0",
     "fastapi==0.141.1",
+    "h5py==3.15.1",
     "jinja2==3.1.6",
+    "numpy==2.2.6",
+    "pandas==2.3.3",
+    "pillow==12.0.0",
+    "pyarrow==26.0.0",
+    "pydantic==2.14.1",
     "python-multipart==0.0.32",
     "starlette==1.6.0",
     "uvicorn[standard]==0.53.0",
+    "lerobot-doctor==0.2.0",
+    "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "httpx==0.28.1",
     "pytest==9.1.1",
     "ruff==0.16.8",
 ]
@@ -27,6 +35,9 @@ include = ["app*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "real_auth: run with the real SQLite authentication middleware",
+]
 
 [tool.ruff]
 line-length = 100

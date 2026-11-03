@@ -1,0 +1,6 @@
+# Server-only offline code overlay. Use only when the base app image has the
+# same pyproject dependencies; it does not install CUDA or LeRobot.
+ARG BASE_IMAGE=hkc-data-platform:v3.0-server
+FROM ${BASE_IMAGE}
+WORKDIR /opt/hkc-platform
+COPY app ./app

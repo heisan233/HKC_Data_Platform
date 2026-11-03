@@ -1,1 +1,1 @@
-"""旧版数据定义模块，后续从导航移除并转为内部规范。"""
+"""LeRobot v3 structure reference and controlled semantic vocabulary."""

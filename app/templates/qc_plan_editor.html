@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block page_title %}数据质检 · 编辑方案{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css">
+<link rel="stylesheet" href="/static/css/quality.css?v=20261020j">
+<div class="dm-wrap qc-wrap" id="qc-plan-editor" data-plan-id="{{ plan.id }}">
+  <nav class="dm-crumb"><a href="/qc/">数据质检</a><span>/</span><a href="/qc/plans/">质检方案</a><span>/</span>{{ plan.id }}</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">PLAN {{ plan.id }} · VERSION {{ plan.version }}</span><h2>编辑质检方案</h2><p>规则内容和参数在此维护。保存后发布新版本，不改变已有任务与报告。</p></div><a class="dm-hero-link" href="/qc/">返回质检任务 →</a></section>
+  <div id="qc-feedback" class="dm-feedback" role="status" hidden></div>
+  <form id="qc-plan-form">
+    <section class="dm-panel"><div class="dm-panel-head"><div><h3>方案与机器人配置</h3><p>机器人类型与数据集的 meta/info.json 一致；已有方案的类型不可更改。</p></div><span class="dm-badge dm-muted">{{ plan.robot_type }}</span></div>
+      <div class="qc-config-grid qc-pad"><label class="qc-field">方案名称<input id="qc-plan-name" maxlength="100" required value="{{ plan.name }}"></label><label class="qc-field">robot_type<input id="qc-robot-type" disabled value="{{ plan.robot_type }}"></label><label class="qc-field">预期 FPS<input id="qc-expected-fps" type="number" min="0.1" max="500" step="0.1"></label><label class="qc-field">状态字段<input id="qc-state-key" required></label><label class="qc-field">状态维度<input id="qc-state-dim" type="number" min="1" max="10000"></label><label class="qc-field">动作字段<input id="qc-action-key" required></label><label class="qc-field">动作维度<input id="qc-action-dim" type="number" min="1" max="10000"></label><label class="qc-field qc-wide">相机字段（每行一个）<textarea id="qc-video-keys" rows="3"></textarea></label><label class="qc-field qc-wide">关节限位 JSON（可留空）<textarea id="qc-joint-limits" rows="3" placeholder='{"joint_0":[-3.14,3.14]}'></textarea><small>仅“专属关节范围”规则使用；字段名称须与元数据中的关节名称一致。</small></label></div>
+    </section>
+    <div class="qc-step-tabs qc-editor-tabs" role="tablist" aria-label="质检方案规则类型"><button type="button" class="active" data-editor-tab="doctor">01 · LeRobot Doctor</button><button type="button" data-editor-tab="robot_rules">02 · 机器人专项规则</button><button type="button" data-editor-tab="vlm">03 · VLM 视频规则</button></div>
+    <section class="dm-panel" data-editor-panel="doctor"><div class="dm-panel-head"><div><h3>Doctor 原生检查</h3><p>固定使用已安装版本的检查类型。仅选择启用项与抽样范围；不调用自动修复。</p></div></div><div class="qc-pad"><label class="qc-field qc-narrow">最多检查 Episode 数（留空为全量）<input id="qc-doctor-max" type="number" min="1" max="100000" placeholder="全量检查"></label><div id="qc-doctor-list" class="qc-config-rules"></div></div></section>
+    <section class="dm-panel" data-editor-panel="robot_rules" hidden><div class="dm-panel-head"><div><h3>机器人专项规则</h3><p>新增规则并编辑阈值、严重度。执行器只支持列表中的安全规则类型。</p></div><button type="button" class="dm-button dm-button-secondary" id="qc-add-robot-rule">+ 新增规则</button></div><div id="qc-robot-rule-list" class="qc-pad qc-rule-editor-list"></div></section>
+    <section class="dm-panel" data-editor-panel="vlm" hidden><div class="dm-panel-head"><div><h3>VLM 视频规则</h3><p>每条规则可独立设置判断要求与主视角；按 Episode 片段调用外部模型。</p></div><button type="button" class="dm-button dm-button-secondary" id="qc-add-vlm-rule">+ 新增规则</button></div><div class="qc-config-grid qc-pad"><label class="qc-field">模型名称<input id="qc-vlm-model" required></label><label class="qc-field">单次请求超时（秒）<input id="qc-vlm-timeout" type="number" min="5" max="600" required></label><label class="qc-field">输出 token 上限<input id="qc-vlm-tokens" type="number" min="32" max="2048" required></label><label class="qc-field">最多检查 Episode 数（留空为全量）<input id="qc-vlm-max" type="number" min="1" max="100000" placeholder="全量检查"></label></div><div id="qc-vlm-rule-list" class="qc-pad qc-rule-editor-list"></div></section>
+    <div class="qc-sticky-actions"><span>保存将生成 v{{ plan.version + 1 }}；正在运行的任务不受影响。</span><button type="submit" class="dm-button">保存新版本</button></div>
+  </form>
+</div>
+<script id="qc-plan-json" type="application/json">{{ plan|tojson }}</script>
+<script id="qc-rule-types-json" type="application/json">{{ {'robot':robot_types,'vlm':vlm_types,'doctor':doctor_checks}|tojson }}</script>
+<script src="/static/js/quality.js?v=20261020j"></script>
+{% endblock %}

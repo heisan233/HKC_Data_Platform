@@ -3,7 +3,6 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
-
 client = TestClient(app)
 
 
@@ -20,8 +19,8 @@ def test_root_redirects_to_dashboard() -> None:
         "/dashboard/",
         "/semantics/",
         "/robots/",
-        "/scenes/",
         "/data/",
+        "/ingestion/",
         "/preprocess/",
         "/qc/",
         "/annotation/",
@@ -35,3 +34,9 @@ def test_legacy_pages_still_render(path: str) -> None:
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
+
+
+def test_removed_scenes_page_returns_not_found() -> None:
+    response = client.get("/scenes/")
+
+    assert response.status_code == 404

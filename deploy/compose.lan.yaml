@@ -1,0 +1,13 @@
+# Trusted-LAN override.
+#
+# HKC_LAN_BIND_ADDRESS must be an IPv4 address assigned to this host's trusted
+# LAN interface. Keeping this in a separate override preserves the secure
+# 127.0.0.1-only default in compose.yaml.
+services:
+  platform:
+    ports: !override
+      - name: web
+        target: 8000
+        published: "8000"
+        host_ip: "${HKC_LAN_BIND_ADDRESS:?Set HKC_LAN_BIND_ADDRESS to this host's trusted LAN IPv4 address}"
+        protocol: tcp

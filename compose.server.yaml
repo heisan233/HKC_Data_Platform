@@ -1,0 +1,22 @@
+services:
+  platform:
+    volumes:
+      - type: bind
+        source: "${HKC_TRAINING_AGENT_SOCKET_DIR:-/home/z123/.local/share/hkc-training-agent}"
+        target: /run/hkc-training-agent
+        read_only: true
+    environment:
+      HKC_TRAINING_RUNNER_SOCKET: /run/hkc-training-agent/agent.sock
+      HKC_TRAINING_RUNNER_TOKEN_FILE: /run/hkc-training-agent/token
+      HKC_TRAINING_OPERATORS: "${HKC_TRAINING_OPERATORS:-}"
+    ports: !override
+      - name: web
+        target: 8000
+        published: "18000"
+        host_ip: "${HKC_LAN_BIND_ADDRESS}"
+        protocol: tcp
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
