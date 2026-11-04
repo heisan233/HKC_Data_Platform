@@ -11,20 +11,22 @@
   本地开发时叠加。
 - `deploy/compose.lan.yaml`：把默认 `127.0.0.1` 端口替换成指定可信内网 IPv4；
   本地开发和内网服务器都可以叠加。
-- `compose.server.yaml`：服务器 v3.0 当前实际使用的覆盖配置；内网 18000 端口、
-  训练执行器通信目录只读挂载和训练操作员环境变量。默认宿主路径属于当前服务器，
-  换服务器时通过 `HKC_TRAINING_AGENT_SOCKET_DIR` 指向新服务器的执行器通信目录。
+- `compose.server.yaml`：通用服务器覆盖配置；监听 `0.0.0.0:18000` 并启用 Docker
+  日志轮转，不包含任何用户专属绝对路径。
+- `deploy/compose.training-agent.yaml`：可选训练覆盖；只读挂载宿主训练执行器通信
+  目录并注入训练操作员。只有训练环境已经部署时才叠加。
 
 主 `Dockerfile` 构建当前源码时会包含训练页面/API，但不会安装训练依赖。
 `deploy/Dockerfile.training-overlay` 是服务器既有旧镜像的代码叠加方案，并非第二个
 训练环境；新构建完整平台镜像时不必使用它。不要为数据管理、质检再启动重复平台容器。
 
-服务器使用 `compose.yaml`、`compose.server.yaml` 和自己的 `.env`，训练执行器是
-独立的宿主机进程，不由 Compose 创建。运行命令、Conda 环境、基座模型及受控 VLM
-权限见 `deploy/TRAINING_EXECUTOR.md`。不要把服务器的 `.env`、socket 令牌或模型
-权重复制进 Git。
+服务器至少使用 `compose.yaml`、`compose.server.yaml` 和自己的 `.env`。开发阶段
+需要源码热重载时再叠加 `compose.dev.yaml`。训练执行器是独立宿主机进程，不由
+Compose 创建；它尚未部署时不要叠加训练覆盖。运行命令、Conda 环境、基座模型及
+受控 VLM 权限见 `deploy/TRAINING_EXECUTOR.md`。不要把服务器的 `.env`、socket
+令牌或模型权重复制进 Git。
 
-服务器已导入匹配镜像且宿主执行器已启动时，在项目根目录执行：
+服务器已导入匹配镜像时，在项目根目录执行：
 
 ```bash
 docker compose --env-file .env -p hkc-vla \
@@ -33,7 +35,28 @@ docker compose --env-file .env -p hkc-vla \
 ```
 
 `--force-recreate` 会让新增挂载和环境变量生效；普通 `restart` 不会加载这些配置。
-这条命令不安装或修改宿主 LeRobot/Conda 环境。
+开发阶段希望服务器直接读取宿主源码并热重载时使用：
+
+```bash
+docker compose --env-file .env -p hkc-vla \
+  -f compose.yaml -f compose.dev.yaml -f compose.server.yaml \
+  up -d --no-build --force-recreate --wait
+```
+
+源码以只读方式挂载，容器不能修改宿主代码；宿主编辑器仍可正常修改。以上命令都
+不会安装或修改宿主 LeRobot/Conda 环境。
+
+宿主训练执行器准备完成后，才使用包含训练覆盖的完整命令：
+
+```bash
+docker compose --env-file .env -p hkc-vla \
+  -f compose.yaml -f compose.server.yaml \
+  -f deploy/compose.training-agent.yaml \
+  up -d --no-build --force-recreate --wait
+```
+
+并在 `.env` 设置位于 Linux 文件系统的 `HKC_TRAINING_AGENT_SOCKET_DIR`。Unix
+socket 目录不能放在 NTFS/exFAT 数据盘。
 
 ## 首次准备 `.env` 和持久化目录
 
@@ -43,17 +66,25 @@ id -u
 id -g
 ```
 
-将输出写入 `.env` 的 `APP_UID`、`APP_GID`。默认数据目录是项目内
-`./storage`；服务器可设置绝对路径，例如：
+将输出写入 `.env` 的 `APP_UID`、`APP_GID`。默认数据目录和系统状态目录都位于
+项目内；服务器可把大型文件与 SQLite/system 状态分开放置，例如：
 
 ```dotenv
-HKC_STORAGE_PATH=/srv/hkc-data-platform/storage
+HKC_STORAGE_PATH=/media/<用户名>/<数据盘>/vscode_project/HKC_Data_Platform/storage
+HKC_SYSTEM_PATH=/home/<用户名>/vscode_project/SQLite_data
 APP_UID=1000
 APP_GID=1000
 ```
 
-目标目录必须由这组数字 UID/GID 写入。容器内部路径始终为 `/data`，业务代码和
-数据集记录中不得出现宿主机绝对路径。已有 `.env` 时不要用示例文件覆盖它。
+`HKC_STORAGE_PATH` 映射到 `/data`，`HKC_SYSTEM_PATH` 作为更具体的嵌套挂载映射
+到 `/data/system`。后者包含 SQLite、日志、上传记录和任务状态，应放在 Linux
+ext4；前者可以位于容量更大的数据盘。两个目标目录都必须由这组数字 UID/GID
+写入。业务代码和数据集记录中不得出现宿主机绝对路径。已有 `.env` 时不要用示例
+文件覆盖它。
+
+如果 `HKC_STORAGE_PATH` 位于额外硬盘，必须先由系统管理员使用 UUID 配置稳定的
+开机挂载，再启动 Compose。每次启动前可用 `findmnt -T "$HKC_STORAGE_PATH"`
+确认路径确实落在目标磁盘；不能在磁盘尚未挂载时让 Docker 创建同名普通目录。
 
 `.env.example` 还给出上传限制、Doctor 超时以及空的 VLM 配置。真实 VLM 地址与
 Token 只写入部署机 `.env`，不要提交 Git。
@@ -81,9 +112,9 @@ docker compose exec platform \
 docker compose exec platform python -m app.cli.list_users
 ```
 
-列表不会显示密码哈希或会话令牌。账号位于持久化目录的
-`system/platform.sqlite`；重新创建容器不会删除账号，但换用全新持久化目录时必须
-重新创建。详细说明见项目根目录 `how_use.md`。
+列表不会显示密码哈希或会话令牌。账号位于
+`HKC_SYSTEM_PATH/platform.sqlite`；重新创建容器不会删除账号，但换用全新系统
+状态目录时必须重新创建。详细说明见项目根目录 `how_use.md`。
 
 ### 1. 查找本机的可信内网地址
 
@@ -236,9 +267,9 @@ docker compose ps
 
 ## 更新、备份与迁移设备
 
-代码、镜像和 `storage/` 是三类不同内容。更换服务器时需要同时迁移 Git 项目和
-`HKC_STORAGE_PATH` 指向的完整目录；只推送或拉取镜像不会包含数据集、SQLite、
-报告或回收站。
+代码、镜像、数据目录和系统状态目录是不同内容。更换服务器时需要迁移 Git 项目、
+`HKC_STORAGE_PATH` 与 `HKC_SYSTEM_PATH`；只推送或拉取镜像不会包含数据集、
+SQLite、报告或回收站。
 
 备份前先停止写入：
 
@@ -246,14 +277,15 @@ docker compose ps
 docker compose stop platform
 ```
 
-然后由管理员备份 `HKC_STORAGE_PATH` 的整个目录，完成后再启动：
+然后由管理员同时备份 `HKC_STORAGE_PATH` 和 `HKC_SYSTEM_PATH` 的完整目录，完成
+后再启动：
 
 ```bash
 docker compose up -d --wait
 ```
 
-禁止只复制 `platform.sqlite` 而遗漏 Raw/Derived/报告文件，也不要在运行上传、
-标注发布、数据处理或质检任务时制作不一致的文件级备份。
+禁止只复制 `platform.sqlite` 而遗漏其他 system 状态或 Raw/Derived/报告文件，也
+不要在运行上传、标注发布、数据处理或质检任务时制作不一致的文件级备份。
 
 更新代码后按顺序执行：拉取/切换到已验收版本、检查 `.env`、执行
 `docker compose config --quiet`、重新构建、再 `up -d --force-recreate --wait`。

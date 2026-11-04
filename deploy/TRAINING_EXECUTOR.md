@@ -6,7 +6,12 @@
 调用执行器。本服务器数据盘是 exFAT，不能保存 socket/0600 令牌；通信目录必须
 位于支持 Unix 权限和 socket 的 ext4/XFS 文件系统。
 
-当前服务器已只读核对过：LeRobot 环境 `/home/z123/miniconda3/envs/lerobot` 可识别
+下面的 `/home/z123/...` 是深圳服务器的历史验收路径，只用于理解既有执行器，不能
+直接复制到新服务器。新服务器必须重新核对 Conda、权重和 socket 目录，并通过
+`.env` 的 `HKC_TRAINING_AGENT_SOCKET_DIR` 配合可选
+`deploy/compose.training-agent.yaml`。
+
+深圳服务器曾只读核对过：LeRobot 环境 `/home/z123/miniconda3/envs/lerobot` 可识别
 RTX 4090 D；完整基座位于 `/externalDisk/data/model/xvla-base`；tokenizer 副本位于
 `/externalDisk/data/hkc_storage/pretrain/bart-large`。这些是**部署机的配置值**，
 不是平台通用代码中的固定路径。其他服务器须重新提供各自的三个路径。

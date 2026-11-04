@@ -21,7 +21,9 @@ Platform v2 已完成目录迁移，并已接入登录、上传、数据管理�
 的实际目录结构，避免重新在项目根目录堆放业务文件：
 
 数据集和运行结果保存在 `storage/`。数据管理使用 SQLite 登记编号及目录映射，
-数据库文件位于 `storage/system/platform.sqlite`；大型数据文件不写入数据库。
+数据库文件在容器内位于 `/data/system/platform.sqlite`，默认宿主位置为
+`storage/system/platform.sqlite`；服务器可把整个 system 状态目录独立放到 ext4。
+大型数据文件不写入数据库。
 `migrations/` 仍是后续数据库结构升级预留目录。
 
 ```text
@@ -64,7 +66,8 @@ HKC_Data_Platform_v3.0.2/
 
 1. `app/modules/` 保存“平台能够做什么”的 Python 代码，例如上传、质检和转换。
 2. `storage/` 保存真正的数据集、处理结果、报告和平台产生的普通文件。
-3. `app/db/` 保存登记库的数据库访问代码；SQLite 文件在 `storage/system/`。
+3. `app/db/` 保存登记库的数据库访问代码；SQLite 文件在容器 `/data/system/`，
+   宿主位置由 `HKC_SYSTEM_PATH` 决定。
 4. `migrations/` 未来保存“如何升级数据库表结构”的脚本；它不是旧数据存档。
 
 原始数据集上传、数据管理、Episode/task/Subtask 标注、Episode 数据处理
@@ -168,9 +171,11 @@ cp .env.example .env
 docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
 
-`.env` 中的 `HKC_STORAGE_PATH` 决定宿主机持久化目录，默认是项目内 `./storage`；
-容器内部始终使用 `/data`。上传大小、解压大小和 ZIP 文件数限制也可在 `.env`
-调整。真实 VLM 地址和 Token 只能写入 `.env`。
+`.env` 中的 `HKC_STORAGE_PATH` 决定宿主机大型数据目录，默认是项目内
+`./storage`，映射到容器 `/data`；`HKC_SYSTEM_PATH` 决定 SQLite、日志和任务状态
+目录，默认 `./storage/system`，嵌套映射到 `/data/system`。服务器可将前者放在
+大容量数据盘、后者放在 Linux ext4。上传大小、解压大小和 ZIP 文件数限制也可在
+`.env` 调整。真实 VLM 地址和 Token 只能写入 `.env`。
 
 默认端口只绑定 `127.0.0.1`。需要让可信局域网中的其他机器临时访问时，不要直接
 修改 `compose.yaml`，请按 `deploy/README.md` 使用
@@ -205,10 +210,10 @@ docker compose exec platform \
 不包含密码哈希或会话令牌。完整说明见 `how_use.md`，真实用户名和密码不得提交
 Git 或写入文档。
 
-容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`；默认情况下
-`./storage` 会挂载到 `/data`。修改 Python 或模板后，开发覆盖配置中的
-Uvicorn `--reload` 会重新加载应用。正式部署时只使用 `compose.yaml`，代码来自
-镜像而不是宿主机源码挂载。
+容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`，系统状态路径固定
+为 `/data/system`。修改 Python 或模板后，开发覆盖配置中的 Uvicorn `--reload`
+会重新加载应用。正式部署时可以只使用镜像内代码；开发服务器可叠加
+`compose.dev.yaml`，把宿主 `./app` 只读挂载进容器。
 
 ### 原始数据集上传（第一版）
 
@@ -389,7 +394,8 @@ VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.pa
 每个 HDF5 文件最多包含 10 个 Episode。来源只读，任务临时目录位于
 `storage/staging/conversion/`，成功结果位于 `storage/converted/<CV 编号>/`，
 导出时先在 `storage/staging/export/` 打包，再原子发布到 `storage/exports/`；相同文件快照复用已有压缩包。
-任务状态与结果管理元数据位于 SQLite 的 `storage/system/platform.sqlite`；旧 JSON 任务记录首次访问时复制入库并保留原文件。视频/图像帧转换为 JPEG，
+任务状态与结果管理元数据位于 SQLite 的 `/data/system/platform.sqlite`（宿主位置
+由 `HKC_SYSTEM_PATH` 决定）；旧 JSON 任务记录首次访问时复制入库并保留原文件。视频/图像帧转换为 JPEG，
 `meta/annotations/` 旁路标注作为元数据文件保存到 HDF5。
 
 接口为 `GET /export/api/profiles`、`GET /export/api/datasets`、`GET /export/api/exportable-datasets`、`POST /export/api/conversions`

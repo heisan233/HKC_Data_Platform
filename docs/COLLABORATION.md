@@ -1,6 +1,6 @@
 # HKC 数采平台协作与 Codex 交接文档
 
-更新日期：2026-10-28
+更新日期：2026-11-04
 
 这是一份双方开发者和双方 Codex 共用的交接记录。合并后的当前结构、已完成与
 未完成功能、数据生命周期和接手步骤已经集中到 `docs/CODEX_CURRENT_STATE.md`；
@@ -302,6 +302,35 @@ data_root = settings.data_root
 ```
 
 ### 当前交接记录
+
+日期：2026-11-04
+
+开发者/分支：Codex / `integration/hs-lxp-v3.0.2`
+
+完成内容：为跨磁盘服务器部署拆分大型数据与平台系统状态。新增
+`HKC_SYSTEM_PATH`，把宿主系统状态目录嵌套映射到容器 `/data/system`；默认仍为
+`./storage/system`，旧部署行为不变。`compose.server.yaml` 移除深圳服务器用户
+绝对路径，只保留通用 `0.0.0.0:18000` 与日志轮转；训练执行器挂载拆到可选的
+`deploy/compose.training-agent.yaml`。同步更新环境变量模板、存储、部署和换机说明。
+
+主要修改文件：`compose.yaml`、`compose.server.yaml`、
+`deploy/compose.training-agent.yaml`、`.env.example`、`AGENTS.md`、
+`docs/CODEX_CURRENT_STATE.md`、`deploy/README.md`、`how_use.md`、`readme.md`、
+`storage/README.md`、`app/db/README.md` 及本交接记录。
+
+执行的验证：默认、开发、局域网、开发服务器及可选训练五种 Compose 组合均通过
+`config --quiet`；另用分离的绝对宿主路径检查最终配置，确认数据盘映射 `/data`、
+ext4 状态目录映射 `/data/system`、源码只读映射和 `0.0.0.0:18000` 均正确。
+
+未完成或已知问题：尚未修改重庆服务器的固定挂载、上传源码、导入镜像或启动容器；
+本轮只完成本地配置和文档。正式部署前仍需提交、推送，并在目标机创建 `.env`。
+
+是否修改共享文件：是，修改 Compose 持久化挂载和部署分层；没有修改 Python、
+SQLite 表结构、业务 API、真实数据库或数据集。
+
+下一步建议：使用者审查并提交当前差异；推送后再配置目标机固定挂载，将
+`HKC_STORAGE_PATH` 指向数据盘、`HKC_SYSTEM_PATH` 指向 ext4，并以开发服务器组合
+进行部署验收。
 
 日期：2026-10-28
 

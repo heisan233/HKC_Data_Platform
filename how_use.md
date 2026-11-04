@@ -32,7 +32,8 @@ SQLite、报告、模型或其他 `storage/` 运行数据。
 | 内容 | 新设备上的处理方式 |
 | --- | --- |
 | `.env`、`.env.*` | 从 `.env.example` 新建，重新填写本机路径、UID/GID、IP、VLM 地址和 Token |
-| `storage/` 真实内容 | 新部署保持空目录；迁移时复制完整目录，不能只复制 SQLite |
+| `storage/` 真实内容 | 新部署保持空目录；迁移时复制 `HKC_STORAGE_PATH` 的完整内容 |
+| SQLite 与系统状态 | 复制完整 `HKC_SYSTEM_PATH`；不能只复制单个 SQLite 文件 |
 | `HKC_LAN_BIND_ADDRESS` | 使用新设备当前网卡的私有 IPv4，换网络后重新确认 |
 | 外接硬盘挂载 | 在操作系统中重新挂载并配置开机自动挂载，Git 不管理磁盘 |
 | Docker 代理或镜像加速 | 在新设备重新配置 `/etc/docker/daemon.json` 或 systemd，项目不会上传它们 |
@@ -48,6 +49,7 @@ Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设�
 | 变量 | 用途 | 修改后需要什么操作 |
 | --- | --- | --- |
 | `HKC_STORAGE_PATH` | 宿主机持久化目录 | 重新创建容器，并确认目标磁盘已挂载 |
+| `HKC_SYSTEM_PATH` | SQLite、日志和任务状态目录 | 重新创建容器；推荐服务器放在 Linux ext4 |
 | `HKC_IMAGE` | Compose 使用的应用镜像标签 | 重新创建容器；离线部署保持 `hkc-data-platform:v3.0-server` |
 | `APP_UID`、`APP_GID` | 构建镜像内的非 root 用户 | 必须重新构建镜像；对已加载的离线镜像无效 |
 | `PIP_INDEX_URL`、`PIP_DEFAULT_TIMEOUT` | 构建时下载 Python 包 | 只在重新构建镜像时使用 |
@@ -56,7 +58,8 @@ Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设�
 | `QC_DOCTOR_TIMEOUT_SECONDS`、上传限制 | 容器运行参数 | 重新创建容器 |
 
 不要在宿主机 `.env` 中设置 `HKC_DATA_ROOT`。它是容器内部固定的 `/data`；宿主机
-目录只能通过 `HKC_STORAGE_PATH` 配置。
+大型数据目录通过 `HKC_STORAGE_PATH` 配置，系统状态目录通过 `HKC_SYSTEM_PATH`
+配置。默认后者仍是前者下面的 `system/`，旧部署不需要立即迁移。
 
 ### 1. 分支负责人先发布最新代码
 
@@ -135,30 +138,34 @@ nano .env
 
 ```dotenv
 HKC_STORAGE_PATH=./storage
+HKC_SYSTEM_PATH=./storage/system
 ```
 
 服务器建议设置为已经备份、权限明确的绝对目录。真实 VLM 地址和 Token 只写入
 本机 `.env`，不得提交 Git，也不要直接复制其他人的 `.env`。
 
-外部存储目录必须在启动前存在，并由 `APP_UID:APP_GID` 对应的用户写入。例如，
-假设额外硬盘已经可靠挂载到 `/mnt/hkc-data`：
+外部存储目录和系统状态目录必须在启动前存在，并由 `APP_UID:APP_GID` 对应的用户
+写入。例如，假设额外硬盘已经可靠挂载到 `/mnt/hkc-data`，系统状态保存在 ext4：
 
 ```bash
 sudo install -d -o "$(id -u)" -g "$(id -g)" /mnt/hkc-data/storage
+install -d "$HOME/vscode_project/SQLite_data"
 ```
 
 然后在 `.env` 中设置：
 
 ```dotenv
 HKC_STORAGE_PATH=/mnt/hkc-data/storage
+HKC_SYSTEM_PATH=/home/<用户名>/vscode_project/SQLite_data
 ```
 
 不要把尚未挂载的目录写进 `.env`，否则系统可能在根分区创建同名普通目录，导致
 数据写到错误磁盘。服务器还应由管理员配置 `/etc/fstab`，并在启动平台前用
 `findmnt` 确认额外硬盘确实已挂载。
 
-新的 Git 克隆不会包含原设备的数据。需要复用数据时，必须单独复制原设备
-`HKC_STORAGE_PATH` 指向的完整目录，不能只复制 SQLite，也不能通过 Git 上传。
+新的 Git 克隆不会包含原设备的数据。需要复用数据时，必须同时复制原设备
+`HKC_STORAGE_PATH` 与 `HKC_SYSTEM_PATH` 指向的完整目录，不能只复制 SQLite，
+也不能通过 Git 上传。
 
 ### 5. 准备基础镜像和 Python 下载源
 
@@ -223,7 +230,7 @@ docker image inspect hkc-data-platform:v3.0-server \
 ```
 
 离线服务器启动时必须加 `--no-build`，避免 Compose 再次联网下载基础镜像或 Python
-依赖。服务器只运行镜像内代码，不叠加 `compose.dev.yaml`：
+依赖。正式冻结版本只运行镜像内代码，不叠加 `compose.dev.yaml`：
 
 ```bash
 docker compose \
@@ -231,6 +238,32 @@ docker compose \
   -f deploy/compose.lan.yaml \
   up -d --no-build --force-recreate --wait
 ```
+
+开发中的服务器如果需要宿主机修改源码后立即生效，应改为叠加
+`compose.dev.yaml` 和通用服务器覆盖：
+
+```bash
+docker compose --env-file .env -p hkc-vla \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  -f compose.server.yaml \
+  up -d --no-build --force-recreate --wait
+```
+
+其中 `./app` 相对于项目根目录解析，只读挂载到容器；Uvicorn 开启热重载。默认不
+连接训练执行器。只有宿主训练环境完成后才额外叠加
+`deploy/compose.training-agent.yaml`，并在 `.env` 设置位于 Linux 文件系统的
+`HKC_TRAINING_AGENT_SOCKET_DIR`。
+
+`compose.server.yaml` 发布 `0.0.0.0:18000`，因此服务器 IP 改变后不需要修改端口
+绑定；浏览器使用服务器当时的实际地址，例如：
+
+```text
+http://192.168.0.163:18000/
+```
+
+切回另一网络后只需改用新的服务器 IP。`0.0.0.0` 会监听全部网卡，但网络路由和
+防火墙仍决定哪些设备能够访问；该模式只能用于可信内网，禁止映射到公网。
 
 注意：把约 378 MB 压缩包放到额外硬盘，并不表示 Docker 解压后的镜像也在额外
 硬盘。执行 `docker load` 前必须确认 Docker/Containerd 的实际数据目录有足够空间；
@@ -260,7 +293,7 @@ http://127.0.0.1:8000/
 
 #### 创建和检查平台用户
 
-全新 `storage/` 没有默认账号。容器健康后必须由管理员交互创建首个用户。推荐
+全新 `HKC_SYSTEM_PATH` 没有默认账号。容器健康后必须由管理员交互创建首个用户。推荐
 明确写出用户名，密码仍由终端隐藏输入：
 
 ```bash
@@ -287,10 +320,9 @@ docker compose \
 ```
 
 列表只显示 ID、用户名、启用状态、创建时间和最近登录时间，不显示密码哈希、密码或
-会话令牌。用户保存在 `HKC_STORAGE_PATH/system/platform.sqlite`：重启或重建容器
-不会丢失；重新克隆 Git 或使用一个全新存储目录时不会自动带来旧用户，必须重新
-创建。若把完整 `HKC_STORAGE_PATH` 迁移到新设备，用户记录会与其他平台元数据一同
-迁移。
+会话令牌。用户保存在 `HKC_SYSTEM_PATH/platform.sqlite`：重启或重建容器不会
+丢失；重新克隆 Git 或使用一个全新系统状态目录时不会自动带来旧用户，必须重新
+创建。迁移完整 `HKC_SYSTEM_PATH` 时，用户记录会与其他平台元数据一同迁移。
 
 正式部署或局域网部署时命令相同，只需在启动平台所用的项目目录中执行：
 
@@ -393,8 +425,9 @@ id -g
 ```
 
 确认 `.env` 中的 `APP_UID`、`APP_GID` 与两条命令输出一致。默认
-`HKC_STORAGE_PATH=./storage`；如果服务器把数据放在其他磁盘，应改成对应绝对
-路径，并保证该目录归相同 UID/GID 所有。容器内路径始终是 `/data`。
+`HKC_STORAGE_PATH=./storage`、`HKC_SYSTEM_PATH=./storage/system`；服务器可以把
+大型数据与系统状态分开设置，并保证两个目录都归相同 UID/GID 所有。容器内路径
+始终分别是 `/data` 与 `/data/system`。
 
 ## 三、选择访问方式
 
@@ -541,6 +574,7 @@ nano .env
 
 ```dotenv
 HKC_STORAGE_PATH=./storage
+HKC_SYSTEM_PATH=./storage/system
 APP_UID=1000
 APP_GID=1000
 VLM_BASE_URL=http://192.168.123.105:实际端口/v1
@@ -555,6 +589,8 @@ PIP 下载源、上传大小限制等其他行，只修改当前设备确实需�
 
 - 地址、端口和 Token 必须以公司实际部署为准；
 - `HKC_STORAGE_PATH` 是宿主机目录，不要把它改成容器路径 `/data`；
+- `HKC_SYSTEM_PATH` 是 SQLite 和运行状态目录，不要把它改成容器路径
+  `/data/system`；
 - `VLM_BASE_URL` 通常写到 `/v1`，平台会继续请求 `/models` 和
   `/chat/completions`；
 - 不要把 Markdown 链接写法或方括号复制进 `.env`；
@@ -656,7 +692,8 @@ docker compose \
 `down` 会删除应用容器和 Compose 网络，但不会删除：
 
 - 已构建的镜像；
-- 宿主机 `HKC_STORAGE_PATH` 目录中的数据集、SQLite、报告和导出文件；
+- 宿主机 `HKC_STORAGE_PATH` 中的数据集、报告和导出文件；
+- 宿主机 `HKC_SYSTEM_PATH` 中的 SQLite、日志和任务状态；
 - 项目代码。
 
 不要增加 `-v`，以免误删以后可能使用的 Docker 卷。
@@ -752,4 +789,5 @@ docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
 - `docker compose up -d --force-recreate`：按当前配置重新创建容器，切换网络时使用；
 - `--build`：重新构建镜像，仅代码依赖或 Dockerfile 改变时需要；
 - `logs -f`：查看日志，不会启动或停止容器；
-- `down`：停止并移除容器，不会删除 `storage/` 中的真实数据。
+- `down`：停止并移除容器，不会删除 `HKC_STORAGE_PATH` 或
+  `HKC_SYSTEM_PATH` 中的真实数据。

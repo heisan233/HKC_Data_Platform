@@ -1,6 +1,6 @@
 # 合并后项目现状（供同事 Codex 接手）
 
-更新日期：2026-10-27
+更新日期：2026-11-04
 
 这份文档只描述当前集成代码，不描述旧分支设想。每次新会话先读取根目录
 `AGENTS.md`，再读本文件。若本文件与源码或测试不一致，先停止修改并把差异告诉
@@ -157,6 +157,7 @@ Episode 重新编码 H.264，并同步更新 LeRobot v3 feature 宽高。
 
 ```text
 HKC_STORAGE_PATH（宿主机） → /data（容器）
+HKC_SYSTEM_PATH（宿主机）  → /data/system（容器）
 ```
 
 程序只能使用：
@@ -179,7 +180,9 @@ SQLite 访问代码：
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
 - `app/db/dataset_robots.py`：DS 与采集机器人的可选关系及派生继承；
 - `app/db/semantics.py`：旧受控词表兼容保留；当前数据定义页不再读写；
-- 真实数据库：`storage/system/platform.sqlite`，被 Git 忽略。
+- 真实数据库在容器内始终是 `/data/system/platform.sqlite`。默认宿主位置为
+  `storage/system/platform.sqlite`；服务器可用 `HKC_SYSTEM_PATH` 把整个
+  `system/` 放到独立 Linux ext4，路径仍被 Git 忽略。
 
 平台不提供默认账号。每台全新部署设备启动后，由管理员在容器中交互执行
 `python -m app.cli.create_user` 创建用户，并可用 `python -m app.cli.list_users`
@@ -253,15 +256,18 @@ SQLite 表，也不改变 Raw/Derived 数据集。
 - `compose.dev.yaml`：挂载 `app/` 并启用 Uvicorn `--reload`；
 - `deploy/compose.lan.yaml`：把 8000 端口绑定到
   `HKC_LAN_BIND_ADDRESS`，供可信内网访问；
-- `compose.server.yaml`：与服务器 v3.0 保持一致，发布内网 18000 端口、只读挂载
-  宿主训练执行器的 Unix socket/令牌目录，并配置训练操作员；默认路径指向该服务器，
-  换机时须通过 `HKC_TRAINING_AGENT_SOCKET_DIR` 覆盖；
+- `compose.server.yaml`：发布服务器 18000 端口并限制 Docker 日志大小，默认监听
+  `0.0.0.0`，不包含任何用户专属绝对路径；
+- `deploy/compose.training-agent.yaml`：可选地只读挂载宿主训练执行器的 Unix
+  socket/令牌目录并配置训练操作员。只有执行器就绪后才叠加，目录通过部署机
+  `.env` 的 `HKC_TRAINING_AGENT_SOCKET_DIR` 提供；
 - `.env.example`：可提交的公开模板；
 - `.env`：每台设备单独创建，包含本地目录、IP 和 VLM 配置，不提交 Git；
 - `how_use.md`：换设备、构建、离线镜像、局域网和 VLM 使用说明。
 
-真实数据、SQLite 与 `.env` 不会随 Git 克隆。换设备时必须另行迁移完整
-`HKC_STORAGE_PATH`，或接受一个全新空平台。
+真实数据、SQLite 与 `.env` 不会随 Git 克隆。换设备时必须同时迁移
+`HKC_STORAGE_PATH` 和 `HKC_SYSTEM_PATH`，或接受一个全新空平台；两者默认落在
+同一个 `storage/` 树中，因此旧部署无需迁移即可继续运行。
 
 ## 6. 当前依赖边界
 

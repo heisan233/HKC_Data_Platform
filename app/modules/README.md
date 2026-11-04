@@ -64,7 +64,8 @@ HTML/JavaScript 按钮
 关节曲线；缺失关节名称时按“维度 N”显示，显示抽样不会改变源数据。`quality` 的 `service.py` 负责方案版本、任务快照和统一
 报告，`robot_rules.py` 与 `vlm.py` 分别执行机器人专项与视频规则，
 Doctor 由服务层调用。数据集登记、质检任务和人工复核历史保存在
-`storage/system/platform.sqlite`。
+容器内 `/data/system/platform.sqlite`；默认宿主位置为
+`storage/system/platform.sqlite`，服务器可通过 `HKC_SYSTEM_PATH` 单独映射。
 
 `system` 提供只读系统管理日志页。认证中间件将已登录访问的用户、模块、HTTP
 方法、纯路径、状态码和耗时写入 `storage/system/logs/platform.jsonl`；不会记录

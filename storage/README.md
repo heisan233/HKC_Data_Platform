@@ -14,11 +14,17 @@
 
 ```text
 HKC_STORAGE_PATH（默认 ./storage） -> 容器中的 /data
+HKC_SYSTEM_PATH（默认 ./storage/system） -> 容器中的 /data/system
 ```
 
 服务器可在 `.env` 中把 `HKC_STORAGE_PATH` 设置成独立磁盘上的绝对路径；更换该
 路径不会改变容器内路径或业务代码。目录所有者的数字 UID/GID 应与 `.env` 中的
 `APP_UID`/`APP_GID` 一致。
+
+`HKC_SYSTEM_PATH` 是更具体的嵌套挂载，覆盖 `/data/system`。本机默认仍使用本目录
+的 `system/`；服务器可以把它设置到 Ubuntu ext4，从而让大型数据集留在 NTFS
+数据盘，而 SQLite、日志和任务状态保存在 Linux 文件系统。两处目录都必须持久化、
+备份并由容器用户写入。
 
 所以业务代码应读取配置提供的存储根目录，不能写死
 `/home/heisan/.../storage` 这样的个人路径。
@@ -45,7 +51,8 @@ HKC_STORAGE_PATH（默认 ./storage） -> 容器中的 /data
 - `models/`：通过验证的训练模型包；X-VLA 基座权重由宿主执行器另行配置，不放在此目录。
 - `training-runs/`：训练任务状态、日志与离线评估结果；临时 checkpoint 工作目录
   由宿主执行器单独配置，不能放在不支持符号链接的 exFAT 数据盘上。
-- `system/`：平台运行状态。`platform.sqlite` 保存数据集登记、质检任务和人工
+- `system/`：平台运行状态；宿主位置由 `HKC_SYSTEM_PATH` 决定。
+  `platform.sqlite` 保存数据集登记、质检任务和人工
   审核记录；上传记录位于
   `system/upload-records/<upload_id>.json`；标注派生版本记录位于
   `system/dataset-versions/<dataset_id>.json`；数据处理任务记录位于
@@ -61,3 +68,7 @@ HKC_STORAGE_PATH（默认 ./storage） -> 容器中的 /data
 
 平台不会启动时自动扫描或迁移 `raw/`、`derived/` 中已有的测试目录。需要继续
 使用的 Raw 目录可在数据管理页手动登记；新上传和新派生结果会自动登记。
+
+分离部署时不能只备份数据盘，也不能只复制 `platform.sqlite`。应在停止平台写入
+后同时备份 `HKC_STORAGE_PATH` 与完整 `HKC_SYSTEM_PATH`，保持 DS 映射、报告、
+上传记录和真实文件一致。

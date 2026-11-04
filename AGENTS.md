@@ -104,7 +104,7 @@ storage/                    宿主机运行数据；真实内容不提交 Git
 ├── reports/qc/             质检 JSON 报告
 ├── trash/reports/          可恢复的报告回收站
 ├── exports/                Derived/CV 的 tar.gz 导出产物
-└── system/                 SQLite、上传记录、版本和任务记录
+└── system/                 SQLite、上传记录、版本和任务记录；可单独挂载到 ext4
 
 deploy/                     局域网 Compose 覆盖和部署说明
 docs/                       架构、协作和当前状态文档
@@ -144,13 +144,18 @@ tests/                      自动化测试，结构尽量对应业务模块
 
 - 浏览器/API 对数据集使用 `DS000001` 形式的稳定编号，不直接暴露真实目录作为
   主标识。
-- SQLite 文件位于 `storage/system/platform.sqlite`，映射 DS 编号到
+- SQLite 文件在容器内位于 `/data/system/platform.sqlite`；默认宿主位置仍为
+  `storage/system/platform.sqlite`，服务器可用 `HKC_SYSTEM_PATH` 把整个
+  `system/` 独立挂载到 Linux ext4。它映射 DS 编号到
   `raw/<目录>` 或 `derived/<目录>`；数据集字节不写入 SQLite。
 - 转换结果使用 `CV-...` 任务编号映射 `converted/<CV 编号>`，不占用 DS 编号；
   `conversion_jobs` 只保存任务元数据，HDF5 文件仍保存在普通目录。
 - 业务代码通过 `app.core.config.settings.data_root` 取得数据根目录，禁止写死
   `/home/...`、项目绝对路径或宿主机的 `storage/`。
 - 容器内数据根目录始终是 `/data`；宿主机由 `HKC_STORAGE_PATH` 映射。
+  `/data/system` 由 `HKC_SYSTEM_PATH` 单独映射，默认值
+  `./storage/system` 保持旧部署行为。业务代码仍只使用
+  `settings.data_root / "system"`，不得读取宿主路径变量。
 - `raw/` 不得原地修改。标注、筛除、拆分、合并、重排和去重必须在
   `staging/` 生成完整副本，校验后移入 `derived/` 并登记新 DS 编号。
 - 合并或重排时必须同步 Episode 元数据、frame Parquet、全局 `index`、
@@ -168,6 +173,9 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `compose.yaml` 默认只绑定 `127.0.0.1:8000`；
   `deploy/compose.lan.yaml` 才负责可信局域网绑定；`compose.dev.yaml` 只增加源码热
   重载。
+- `compose.server.yaml` 只负责服务器 18000 端口和日志轮转；训练代理是可选能力，
+  只有宿主执行器就绪后才叠加 `deploy/compose.training-agent.yaml`。Unix socket
+  目录必须位于支持 socket 的 Linux 文件系统，不能放在 NTFS/exFAT 数据盘。
 - 个人 IP、代理和临时镜像源不能写入通用 Compose 文件。
 - `pyproject.toml` 是 Python 直接依赖的唯一来源，不再维护第二份
   `requirements.txt`。
@@ -202,6 +210,8 @@ tests/                      自动化测试，结构尽量对应业务模块
 
 - Python 改动至少运行相关测试和 Ruff 检查；共享逻辑改动运行完整测试。
 - Docker 配置改动必须验证默认、开发和局域网三种 Compose 组合。
+- 修改服务器或训练覆盖时，还必须分别验证服务器组合，以及提供临时执行器目录的
+  训练组合。
 - 测试必须使用隔离的临时 `HKC_DATA_ROOT`，不得修改真实 `storage/`。
 - 不得用真实业务数据作为 Git 测试样本。
 - 完成后更新 `docs/COLLABORATION.md` 顶部交接记录，写清改动、验证、已知问题和
