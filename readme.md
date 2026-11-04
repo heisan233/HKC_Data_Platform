@@ -9,6 +9,10 @@
 当前开发分支是 `integration/hs-lxp-v3.1`，基于一期已合并的 `main`。
 此前集成分支只作为历史参考。
 
+重庆适配工作在独立 `integration/hs-lxp-v3.1-cq` 分支进行：保留 v3.1 的 MySQL
+业务实现，只调整可移植部署配置。本地可通过 `deploy/compose.local-mysql.yaml`
+在 18001 与旧 SQLite 版并行验收；服务器训练执行器改为可选覆盖，不写死旧机器路径。
+
 本目录仍是 Git worktree：它是同一仓库的独立检出目录，不是项目代码内部的一层
 结构。其他 worktree 可以保留，但每个目录有自己的当前分支和未提交文件。
 
@@ -53,6 +57,7 @@ HKC_Data_Platform_v2/
 ├── Dockerfile                  # 应用镜像构建说明
 ├── compose.yaml                # 应用和 MySQL 容器定义
 ├── compose.dev.yaml            # 本地热重载覆盖配置
+├── compose.server.yaml         # 重庆服务器 18000 端口与日志覆盖
 ├── pyproject.toml              # Python 项目和直接依赖声明
 ├── .env.example                # 可公开的配置示例，不包含真实密钥
 └── readme.md                   # 开发、运行、部署和目录规范

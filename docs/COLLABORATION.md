@@ -11,6 +11,33 @@
 > 历史分支只供查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
 
+### 2026-11-04 重庆 MySQL 集成分支本机验收
+
+完成内容：从 `origin/integration/hs-lxp-v3.1` 创建独立
+`integration/hs-lxp-v3.1-cq` worktree。保留同事完成的 MySQL 8.4 管理元数据实现，
+只移植重庆部署边界：服务器覆盖默认发布 `0.0.0.0:18000`，移除旧深圳服务器写死的
+训练 socket；新增可选 `deploy/compose.training-agent.yaml`，未部署宿主执行器时不
+叠加；新增 `deploy/compose.local-mysql.yaml`，用于在 `127.0.0.1:18001` 与旧
+SQLite 版并行验收。没有把 v3.0.2 的 `HKC_SYSTEM_PATH` 或 SQLite 独立挂载带入
+MySQL 版本。
+
+本机隔离：MySQL 版使用独立 Docker 项目 `hkc-v31-mysql`、独立 `storage` 和
+`mysql-data`，MySQL 3306 未发布到宿主机；旧 SQLite 容器继续在
+`127.0.0.1:8000` 运行。私有 `.env` 被 Git 忽略且权限为 600，不包含在本次代码
+差异中。首次 MySQL 数据库只创建指定的 `hei_san` 网页用户；未迁移旧 SQLite
+账号、DS 或任务。
+
+验证：官方 Docker Hub 超时后，使用 DaoCloud 镜像取得并校验 `mysql:8.4`
+`linux/amd64`；应用镜像 `hkc-data-platform:v3.1-cq-local` 构建成功，`pip check`
+通过。默认、开发、局域网、服务器、可选训练执行器和本机并行六种 Compose 组合
+通过 `config --quiet`。全仓库 Ruff 0.16.8 通过；隔离 MySQL 全量 pytest 为
+`124 passed`（1 条既有 Starlette/AnyIO 弃用警告）。两个容器健康，`/healthz` 与
+登录页返回 200；受控停止/启动后用户仍保留，真实登录、工作台和退出通过。
+
+未完成：尚未提交、推送或部署重庆服务器；未迁移真实数据；VLM、训练执行器和
+训练环境仍按后续独立阶段处理。服务器部署前必须重新创建生产 `.env`，使用不同的
+强密码，并在备份后停止旧 SQLite 栈再切换。
+
 ### 2026-11-04 二阶段平台元数据切换 MySQL
 
 完成内容：`app/db/` 的 DS、用户会话、机器人及关联、质检、转换、训练和旧受控词表

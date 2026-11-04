@@ -1,0 +1,12 @@
+# Local side-by-side acceptance override.
+#
+# It keeps the MySQL v3.1 stack on localhost while avoiding the SQLite v3.0.2
+# development port. Persistent directories still come from the local .env.
+services:
+  platform:
+    ports: !override
+      - name: web
+        target: 8000
+        published: "18001"
+        host_ip: 127.0.0.1
+        protocol: tcp

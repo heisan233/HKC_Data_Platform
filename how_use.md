@@ -10,6 +10,54 @@
 > 当前平台已有基础登录鉴权，但没有 HTTPS。局域网模式仍只允许在可信内网使用，
 > 不要映射到公网，也不要在路由器上配置端口转发。
 
+## 当前本机同时运行 SQLite 与 MySQL 版本
+
+当前重庆集成工作目录为：
+
+```text
+/home/heisan/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
+```
+
+本机 MySQL 验收版使用 Docker 项目名 `hkc-v31-mysql`，网页地址是：
+
+```text
+http://127.0.0.1:18001/login
+```
+
+旧 SQLite v3.0.2 仍可保留在 `http://127.0.0.1:8000/login`。两者必须使用不同的
+持久化目录，不能共用可写 `storage/`。在 MySQL 工作目录启动：
+
+```bash
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  up -d --no-build --wait
+```
+
+查看状态与日志：
+
+```bash
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml ps
+
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml logs -f platform mysql
+```
+
+停止时使用完全相同的项目名和配置组合：
+
+```bash
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml down
+```
+
+`.env` 包含本机路径和数据库密码，已被 Git 忽略，不得上传。全新的 MySQL 数据目录
+不会自动继承旧 SQLite 账号和业务记录，需要重新交互创建网页用户。
+
 ## 一、同事第一次拉取并构建集成分支
 
 本节适用于同事在另一台 Ubuntu 电脑或服务器上第一次部署

@@ -1,0 +1,18 @@
+# Optional host training-agent integration.
+#
+# Do not include this override until the host training agent has been deployed.
+# The socket directory must live on a Linux filesystem that supports Unix domain
+# sockets; set the host-specific absolute path only in the deployment .env.
+services:
+  platform:
+    volumes:
+      - type: bind
+        source: "${HKC_TRAINING_AGENT_SOCKET_DIR:?Set HKC_TRAINING_AGENT_SOCKET_DIR in .env}"
+        target: /run/hkc-training-agent
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      HKC_TRAINING_RUNNER_SOCKET: /run/hkc-training-agent/agent.sock
+      HKC_TRAINING_RUNNER_TOKEN_FILE: /run/hkc-training-agent/token
+      HKC_TRAINING_OPERATORS: "${HKC_TRAINING_OPERATORS:-}"

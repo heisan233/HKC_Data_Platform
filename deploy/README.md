@@ -11,16 +11,21 @@
   本地开发时叠加。
 - `deploy/compose.lan.yaml`：把默认 `127.0.0.1` 端口替换成指定可信内网 IPv4；
   本地开发和内网服务器都可以叠加。
-- `compose.server.yaml`：服务器 v3.0 当前实际使用的覆盖配置；内网 18000 端口、
-  训练执行器通信目录只读挂载和训练操作员环境变量。默认宿主路径属于当前服务器，
-  换服务器时通过 `HKC_TRAINING_AGENT_SOCKET_DIR` 指向新服务器的执行器通信目录。
+- `deploy/compose.local-mysql.yaml`：本机并行验收覆盖，将 MySQL 版网页放到
+  `127.0.0.1:18001`，避免占用旧 SQLite 版的 8000 端口。
+- `compose.server.yaml`：重庆服务器覆盖，发布 `0.0.0.0:18000` 并限制日志大小；
+  不再写死任何训练执行器路径。
+- `deploy/compose.training-agent.yaml`：可选的宿主训练执行器覆盖。只有目标机器已经
+  部署执行器时才叠加，并通过 `.env` 设置 socket 目录。
 
 主 `Dockerfile` 构建当前源码时会包含训练页面/API，但不会安装训练依赖。
 `deploy/Dockerfile.training-overlay` 是服务器既有旧镜像的代码叠加方案，并非第二个
 训练环境；新构建完整平台镜像时不必使用它。不要为数据管理、质检再启动重复平台容器。
 
-服务器使用 `compose.yaml`、`compose.server.yaml` 和自己的 `.env`，训练执行器是
-独立的宿主机进程，不由 Compose 创建。运行命令、Conda 环境、基座模型及受控 VLM
+服务器使用 `compose.yaml`、`compose.server.yaml` 和自己的 `.env`。训练执行器是
+独立的宿主机进程，不由 Compose 创建；尚未部署执行器时不要叠加训练覆盖，训练页
+可以查看但不能提交真实训练。执行器就绪后再增加
+`deploy/compose.training-agent.yaml`。运行命令、Conda 环境、基座模型及受控 VLM
 权限见 `deploy/TRAINING_EXECUTOR.md`。不要把服务器的 `.env`、socket 令牌或模型
 权重复制进 Git。
 
@@ -60,6 +65,32 @@ APP_GID=1000
 
 `.env.example` 还给出上传限制、Doctor 超时以及空的 VLM 配置。真实 VLM 地址与
 Token 只写入部署机 `.env`，不要提交 Git。
+
+## 本机并行验收 MySQL 与旧 SQLite 版本
+
+两个版本必须使用不同的 Docker 项目名、端口和持久化目录。不要让它们共享可写的
+`storage/`。例如在 MySQL 分支的私有 `.env` 中分别设置全新的
+`HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH`，然后运行：
+
+```bash
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  up -d --no-build --wait
+```
+
+访问地址为 `http://127.0.0.1:18001/login`。旧 SQLite 版可以继续在
+`http://127.0.0.1:8000/login` 运行。MySQL 不发布宿主 3306 端口，只允许 Compose
+内部网络访问。停止 MySQL 版时必须带相同项目名和文件组合：
+
+```bash
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  down
+```
 
 ## 默认模式与可信局域网模式
 

@@ -259,9 +259,12 @@ MySQL 表，也不改变 Raw/Derived 数据集。
 - `compose.dev.yaml`：挂载 `app/` 并启用 Uvicorn `--reload`；
 - `deploy/compose.lan.yaml`：把 8000 端口绑定到
   `HKC_LAN_BIND_ADDRESS`，供可信内网访问；
-- `compose.server.yaml`：与服务器 v3.0 保持一致，发布内网 18000 端口、只读挂载
-  宿主训练执行器的 Unix socket/令牌目录，并配置训练操作员；默认路径指向该服务器，
-  换机时须通过 `HKC_TRAINING_AGENT_SOCKET_DIR` 覆盖；
+- `deploy/compose.local-mysql.yaml`：本机并行验收覆盖，发布
+  `127.0.0.1:18001`，不占用旧 SQLite 版 8000 端口；
+- `compose.server.yaml`：重庆服务器覆盖，默认发布 `0.0.0.0:18000`，不写死训练
+  执行器路径；
+- `deploy/compose.training-agent.yaml`：可选宿主训练执行器覆盖，只有执行器部署完成后
+  才叠加，并从 `.env` 读取 socket 目录；
 - `.env.example`：可提交的公开模板；
 - `.env`：每台设备单独创建，包含本地目录、IP 和 VLM 配置，不提交 Git；
 - `how_use.md`：换设备、构建、离线镜像、局域网和 VLM 使用说明。
