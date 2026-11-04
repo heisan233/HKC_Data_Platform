@@ -8,11 +8,11 @@ Unix socket 与宿主机执行器通信；缺少执行器时模型显示不可�
 不会创建假的“成功”任务。执行器只接受登记的 X-VLA 基座与预设，并允许在执行器
 公布的范围内调整 `steps`、`batch_size`、`log_freq`；`num_workers`、模型路径、
 命令及其余参数仍固定。训练输出在共享存储的
-`training-runs/`，通过校验的模型包在 `models/`。SQLite 只保存任务快照与状态。
+`training-runs/`，通过校验的模型包在 `models/`。MySQL 只保存任务快照与状态。
 
 新建向导第三步选择执行器已登记的 Conda 训练环境。当前仅有 `lerobot` 一项，
 其 Python 路径只保存在执行器配置中，不由网页输入。平台提交时核对环境 ID、
-可用状态和模型能力，执行器再次拒绝未登记环境；任务 SQLite 保存 `runtime_id`，
+可用状态和模型能力，执行器再次拒绝未登记环境；任务 MySQL 保存 `runtime_id`，
 既有任务迁移为当前唯一的 `lerobot` 环境。GPU/VLM 属于执行器所在服务器的共享
 资源，不是每个 Conda 环境独占一份。未来新增环境需要单独登记与测试。
 
@@ -31,14 +31,14 @@ X-VLA 若将数据集动作补齐到更宽的内部输出维度，离线 MAE 只
 
 训练任务列表中所有状态都有删除入口。排队或运行中的任务会先请求执行器取消，
 在确认任务进入终态后自动移入回收站；取消失败时不标记为待删除。待删除意图持久化在
-SQLite，平台下次同步任务状态时继续完成归档。删除仅设置 SQLite 的 `deleted_at`/`deleted_by`，
+MySQL，平台下次同步任务状态时继续完成归档。删除仅设置 MySQL 的 `deleted_at`/`deleted_by`，
 不会清理执行器日志、训练文件或通过验证的模型版本。默认任务列表不显示回收站记录，
 `GET /training/api/tasks?deleted=true` 可查询回收站，`DELETE /training/api/tasks/{id}`
 及 `POST /training/api/tasks/{id}/restore` 分别用于移入和恢复。
 回收站还可永久删除终态任务：点击“永久删除”立即执行，不再弹出输入任务编号的
 确认框。页面请求仍自动附带同编号请求头，接口
 `POST /training/api/tasks/{id}/purge` 会核对请求头。平台先请求执行器清理该任务
-在 `training-runs/`、`models/` 和私有工作目录中的专属文件，再删除 SQLite 任务记录；
+在 `training-runs/`、`models/` 和私有工作目录中的专属文件，再删除 MySQL 任务记录；
 执行器离线或清理失败时保留回收站记录以便重试。永久删除后相关模型版本及下载入口
 消失、无法恢复；来源 DS、X-VLA 基座和其他任务不受影响。TR 编号不会复用。
 

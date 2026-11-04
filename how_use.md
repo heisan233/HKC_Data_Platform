@@ -13,8 +13,9 @@
 ## 一、同事第一次拉取并构建集成分支
 
 本节适用于同事在另一台 Ubuntu 电脑或服务器上第一次部署
-`integration/hs-lxp-v3.0.2`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
-SQLite、报告、模型或其他 `storage/` 运行数据。
+`integration/hs-lxp-v3.1`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
+MySQL 数据目录、报告、模型或其他运行数据。旧 `platform.sqlite` 原样保留，
+不导入新 MySQL；`registry.sqlite3` 由 HS 独立负责。
 
 ### Git 会带来什么
 
@@ -32,7 +33,8 @@ SQLite、报告、模型或其他 `storage/` 运行数据。
 | 内容 | 新设备上的处理方式 |
 | --- | --- |
 | `.env`、`.env.*` | 从 `.env.example` 新建，重新填写本机路径、UID/GID、IP、VLM 地址和 Token |
-| `storage/` 真实内容 | 新部署保持空目录；迁移时复制完整目录，不能只复制 SQLite |
+| `storage/` 真实内容 | 新部署保持空目录；迁移时复制完整目录 |
+| MySQL 数据目录 | 新部署使用空目录；迁移时与 `storage/` 一起做一致备份 |
 | `HKC_LAN_BIND_ADDRESS` | 使用新设备当前网卡的私有 IPv4，换网络后重新确认 |
 | 外接硬盘挂载 | 在操作系统中重新挂载并配置开机自动挂载，Git 不管理磁盘 |
 | Docker 代理或镜像加速 | 在新设备重新配置 `/etc/docker/daemon.json` 或 systemd，项目不会上传它们 |
@@ -48,7 +50,9 @@ Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设�
 | 变量 | 用途 | 修改后需要什么操作 |
 | --- | --- | --- |
 | `HKC_STORAGE_PATH` | 宿主机持久化目录 | 重新创建容器，并确认目标磁盘已挂载 |
-| `HKC_IMAGE` | Compose 使用的应用镜像标签 | 重新创建容器；离线部署保持 `hkc-data-platform:v3.0-server` |
+| `HKC_MYSQL_DATA_PATH` | MySQL 数据目录 | 重新创建容器，并确认权限和磁盘 |
+| `HKC_MYSQL_DATABASE`、`HKC_MYSQL_USER`、`HKC_MYSQL_PASSWORD`、`HKC_MYSQL_ROOT_PASSWORD` | 新库和账号 | 首次启动前配置；密码不得提交 Git |
+| `HKC_IMAGE` | Compose 使用的应用镜像标签 | 重新创建容器；v3.1 镜像必须包含 MySQL 驱动 |
 | `APP_UID`、`APP_GID` | 构建镜像内的非 root 用户 | 必须重新构建镜像；对已加载的离线镜像无效 |
 | `PIP_INDEX_URL`、`PIP_DEFAULT_TIMEOUT` | 构建时下载 Python 包 | 只在重新构建镜像时使用 |
 | `HKC_LAN_BIND_ADDRESS` | 绑定当前设备的可信内网 IPv4 | 使用局域网覆盖配置重新创建容器 |
@@ -63,7 +67,7 @@ Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设�
 同事开始拉取前，分支负责人必须先在当前开发机完成代码审查、提交和推送：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0.2
+cd ~/vscode_project/HKC/HKC_Data_Platform_v2
 git status --short --branch
 git log -3 --oneline --decorate
 ```
@@ -71,7 +75,7 @@ git log -3 --oneline --decorate
 只有工作区修改已经提交，并且执行以下命令成功后，另一台机器才能取得最新版本：
 
 ```bash
-git push origin integration/hs-lxp-v3.0.2
+git push origin integration/hs-lxp-v3.1
 ```
 
 不要为了推送而执行 `git reset`、`git clean` 或强制覆盖远程分支。需要提交哪些
@@ -95,11 +99,11 @@ mkdir -p ~/vscode_project/HKC
 cd ~/vscode_project/HKC
 
 git clone \
-  --branch integration/hs-lxp-v3.0.2 \
+  --branch integration/hs-lxp-v3.1 \
   https://github.com/heisan233/HKC_Data_Platform.git \
-  HKC_Data_Platform_v3.0.2
+  HKC_Data_Platform_v2
 
-cd HKC_Data_Platform_v3.0.2
+cd HKC_Data_Platform_v2
 git status --short --branch
 git log -1 --oneline --decorate
 ```
@@ -107,16 +111,16 @@ git log -1 --oneline --decorate
 如果同事电脑上已经有这个仓库，不要再次克隆。在工作区没有未提交修改的前提下：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0.2
+cd ~/vscode_project/HKC/HKC_Data_Platform_v2
 git fetch origin
-git switch integration/hs-lxp-v3.0.2
-git pull --ff-only origin integration/hs-lxp-v3.0.2
+git switch integration/hs-lxp-v3.1
+git pull --ff-only origin integration/hs-lxp-v3.1
 ```
 
 如果本地还没有同名分支，则使用：
 
 ```bash
-git switch --track origin/integration/hs-lxp-v3.0.2
+git switch --track origin/integration/hs-lxp-v3.1
 ```
 
 `--ff-only` 会在本地与远程已经分叉时停止，避免自动制造意外合并。遇到这种情况先
@@ -135,10 +139,12 @@ nano .env
 
 ```dotenv
 HKC_STORAGE_PATH=./storage
+HKC_MYSQL_DATA_PATH=./mysql-data
 ```
 
 服务器建议设置为已经备份、权限明确的绝对目录。真实 VLM 地址和 Token 只写入
-本机 `.env`，不得提交 Git，也不要直接复制其他人的 `.env`。
+本机 `.env`，不得提交 Git，也不要直接复制其他人的 `.env`。首次启动前还必须在
+本机 `.env` 填写非空的 `HKC_MYSQL_PASSWORD` 和 `HKC_MYSQL_ROOT_PASSWORD`。
 
 外部存储目录必须在启动前存在，并由 `APP_UID:APP_GID` 对应的用户写入。例如，
 假设额外硬盘已经可靠挂载到 `/mnt/hkc-data`：
@@ -157,8 +163,8 @@ HKC_STORAGE_PATH=/mnt/hkc-data/storage
 数据写到错误磁盘。服务器还应由管理员配置 `/etc/fstab`，并在启动平台前用
 `findmnt` 确认额外硬盘确实已挂载。
 
-新的 Git 克隆不会包含原设备的数据。需要复用数据时，必须单独复制原设备
-`HKC_STORAGE_PATH` 指向的完整目录，不能只复制 SQLite，也不能通过 Git 上传。
+新的 Git 克隆不会包含原设备的数据。需要复用数据时，必须另行备份原设备
+`HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH` 的完整内容；不能通过 Git 上传。
 
 ### 5. 准备基础镜像和 Python 下载源
 
@@ -189,52 +195,26 @@ PIP_DEFAULT_TIMEOUT=120
 
 ### 6. 网络不稳定服务器使用离线镜像
 
-离线镜像包不包含 Compose 文件、`.env` 或 `storage/`，服务器仍需要同一提交版本
-的项目目录。可以通过 Git 获取项目目录，也可以由管理员通过内网或移动硬盘传输
-代码包。
-
-把镜像压缩包和 `.sha256` 文件放在服务器额外硬盘后，先进入文件所在目录校验：
+离线部署必须准备**与 v3.1 代码匹配**的应用镜像，以及 `mysql:8.4` 镜像；
+一期 `hkc-data-platform:v3.0-server` 镜像不包含本次 MySQL 实现，不能用于 v3.1。
+由可联网的构建机在相同架构上构建并导出：
 
 ```bash
-sha256sum --check hkc-data-platform-v3.0-server-amd64.tar.gz.sha256
+docker compose build platform
+docker pull mysql:8.4
+docker save -o hkc-v3.1-images.tar hkc-data-platform:v3.1 mysql:8.4
+sha256sum hkc-v3.1-images.tar > hkc-v3.1-images.tar.sha256
 ```
 
-只有结果显示“成功”后才导入：
+在目标机器校验并导入，再配置本机 `.env`（含两个非空 MySQL 密码和两个独立的
+持久化目录），使用 `docker compose up -d --no-build --wait` 启动。镜像包不包含
+`.env`、`storage/` 或 MySQL 数据目录。
 
 ```bash
-docker load --input hkc-data-platform-v3.0-server-amd64.tar.gz
+sha256sum --check hkc-v3.1-images.tar.sha256
+docker load --input hkc-v3.1-images.tar
+docker compose up -d --no-build --wait
 ```
-
-当前离线包中的正式标签是：
-
-```text
-hkc-data-platform:v3.0-server
-```
-
-该离线镜像已经固定为 `linux/amd64` 和 UID/GID `1000:1000`。服务器的持久化目录
-必须允许 `1000:1000` 写入；单独修改 `.env` 中的 `APP_UID/APP_GID` 不会改变已经
-构建完成的镜像。UID/GID 不匹配时应重新构建镜像，不要让应用容器改成 root。
-
-项目 `compose.yaml` 默认使用同一标签，因此导入后不需要再次 `docker tag`。确认镜像存在：
-
-```bash
-docker image inspect hkc-data-platform:v3.0-server \
-  --format 'ID={{.Id}} OS={{.Os}} ARCH={{.Architecture}} USER={{.Config.User}}'
-```
-
-离线服务器启动时必须加 `--no-build`，避免 Compose 再次联网下载基础镜像或 Python
-依赖。服务器只运行镜像内代码，不叠加 `compose.dev.yaml`：
-
-```bash
-docker compose \
-  -f compose.yaml \
-  -f deploy/compose.lan.yaml \
-  up -d --no-build --force-recreate --wait
-```
-
-注意：把约 378 MB 压缩包放到额外硬盘，并不表示 Docker 解压后的镜像也在额外
-硬盘。执行 `docker load` 前必须确认 Docker/Containerd 的实际数据目录有足够空间；
-不要手工移动 `/var/lib/docker` 或 `/var/lib/containerd`。
 
 ### 7. 第一次构建并以本机开发模式启动
 
@@ -260,7 +240,7 @@ http://127.0.0.1:8000/
 
 #### 创建和检查平台用户
 
-全新 `storage/` 没有默认账号。容器健康后必须由管理员交互创建首个用户。推荐
+全新 MySQL 数据库没有默认账号。容器健康后必须由管理员交互创建首个用户。推荐
 明确写出用户名，密码仍由终端隐藏输入：
 
 ```bash
@@ -287,10 +267,8 @@ docker compose \
 ```
 
 列表只显示 ID、用户名、启用状态、创建时间和最近登录时间，不显示密码哈希、密码或
-会话令牌。用户保存在 `HKC_STORAGE_PATH/system/platform.sqlite`：重启或重建容器
-不会丢失；重新克隆 Git 或使用一个全新存储目录时不会自动带来旧用户，必须重新
-创建。若把完整 `HKC_STORAGE_PATH` 迁移到新设备，用户记录会与其他平台元数据一同
-迁移。
+会话令牌。用户保存在 MySQL 中：重启或重建容器不会丢失；使用全新 MySQL
+数据目录时不会自动带来旧用户，必须重新创建。
 
 正式部署或局域网部署时命令相同，只需在启动平台所用的项目目录中执行：
 
@@ -306,8 +284,8 @@ python -m app.cli.create_user --username <用户名>
 python -m app.cli.list_users
 ```
 
-此时命令写入 `HKC_DATA_ROOT` 指向的 SQLite；未设置时使用项目内 `storage/`。执行前
-务必确认数据根目录，避免误在另一个空目录中创建一套新数据库。
+此时命令写入 `HKC_MYSQL_HOST`、`HKC_MYSQL_PORT`、`HKC_MYSQL_DATABASE` 指定的
+MySQL；执行前务必确认连接配置，避免在错误的数据库中创建账号。
 
 检查容器、依赖和工作台：
 
@@ -326,26 +304,11 @@ curl -fsS http://127.0.0.1:8000/healthz
 
 ### 8. 开发前运行自动化测试
 
-正式运行镜像不包含 pytest/Ruff。可以使用一次性容器检查当前代码，测试数据写入
-`/tmp`，不会读取真实 `storage/`：
-
-```bash
-docker run --rm \
-  --volume "$PWD:/workspace:ro" \
-  --workdir /workspace \
-  --env HKC_DATA_ROOT=/tmp/hkc-test-data \
-  --env PIP_INDEX_URL=https://pypi.org/simple \
-  hkc-data-platform:v3.0-server \
-  sh -lc '
-    python -m pip install --user --no-cache-dir pytest==9.1.1 ruff==0.16.8 &&
-    /home/appuser/.local/bin/ruff check --no-cache app tests &&
-    python -m pytest -q -p no:cacheprovider
-  '
-```
-
-当前 `integration/hs-lxp-v3.0.2` 基线的预期结果是 Ruff 全部通过、pytest `115 passed`。一条来自
-Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取项目 `.env`；
-如果官方 PyPI 较慢，可将测试命令中的地址明确替换成前述中科大地址。
+正式运行镜像不包含 pytest/Ruff。测试须连接**隔离的** MySQL 测试实例，提供
+`HKC_TEST_MYSQL_HOST`、`HKC_TEST_MYSQL_PORT`、
+`HKC_TEST_MYSQL_ROOT_PASSWORD`；测试逐例创建和删除独立数据库。
+完整测试命令见 `tests/README.md`。不可将测试配置指向正式 MySQL 服务或
+真实 `storage/`。
 
 ### 9. 以后获取同事提交的更新
 
@@ -354,7 +317,7 @@ Starlette/AnyIO 的弃用警告不影响功能。`docker run` 不会自动读取
 ```bash
 git status --short --branch
 git fetch origin
-git pull --ff-only origin integration/hs-lxp-v3.0.2
+git pull --ff-only origin integration/hs-lxp-v3.1
 ```
 
 普通 Python/HTML/CSS 修改在开发模式下通常会热重载；如果更新包含 Dockerfile、
@@ -372,7 +335,7 @@ docker compose \
 打开终端，进入包含 `compose.yaml` 的项目根目录：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0.2
+cd ~/vscode_project/HKC/HKC_Data_Platform_v2
 ```
 
 确认位置正确：
@@ -656,7 +619,8 @@ docker compose \
 `down` 会删除应用容器和 Compose 网络，但不会删除：
 
 - 已构建的镜像；
-- 宿主机 `HKC_STORAGE_PATH` 目录中的数据集、SQLite、报告和导出文件；
+- 宿主机 `HKC_STORAGE_PATH` 目录中的数据集、报告和导出文件；
+- 宿主机 `HKC_MYSQL_DATA_PATH` 目录中的 MySQL 数据；
 - 项目代码。
 
 不要增加 `-v`，以免误删以后可能使用的 Docker 卷。
@@ -666,7 +630,7 @@ docker compose \
 如果只是 IP 改变，按下面执行即可：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.0.2
+cd ~/vscode_project/HKC/HKC_Data_Platform_v2
 
 ip -br -4 address show
 

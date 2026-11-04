@@ -97,7 +97,7 @@ def test_select_and_register_keeps_raw_folder(platform):
     assert result.json()["errors"][0]["folder"] == "broken"
     assert (source / "meta/info.json").exists()
     assert not (root / "raw" / "DS000001").exists()
-    assert (root / "system/platform.sqlite").exists()
+    assert not (root / "system/platform.sqlite").exists()
     assert "DS000001" in client.get("/data/raw/").text
     assert "展示样本" in client.get("/data/raw/").text
     assert source.name in client.get("/data/raw/DS000001").text

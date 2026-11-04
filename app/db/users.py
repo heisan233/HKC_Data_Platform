@@ -1,7 +1,7 @@
-"""SQLite users and server-side login sessions.
+"""MySQL users and server-side login sessions.
 
 Passwords are stored as ``scrypt`` hashes with an independent random salt.
-Session cookies contain a random token; SQLite stores only its SHA-256 digest,
+Session cookies contain a random token; MySQL stores only its SHA-256 digest,
 so neither plaintext passwords nor usable session tokens are written to disk.
 """
 
@@ -11,10 +11,10 @@ import base64
 import hashlib
 import hmac
 import secrets
-import sqlite3
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+from app.db.mysql import IntegrityError, connection, ensure_schema
 
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_MAX_LENGTH = 128
@@ -99,53 +99,13 @@ def session_digest(token: str) -> str:
 
 class UserRepository:
     def __init__(self, root: Path):
-        self.path = root / "system" / "platform.sqlite"
+        self.root = root
 
-    @contextmanager
     def connection(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA busy_timeout=30000")
-        db.execute("PRAGMA foreign_keys=ON")
-        try:
-            yield db
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
+        return connection()
 
     def initialize(self) -> None:
-        with self.connection() as db:
-            db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS users (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL COLLATE NOCASE UNIQUE,
-                    password_hash TEXT NOT NULL,
-                    is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    last_login_at TEXT
-                );
-
-                CREATE TABLE IF NOT EXISTS user_sessions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    token_hash TEXT NOT NULL UNIQUE,
-                    user_id INTEGER NOT NULL,
-                    created_at TEXT NOT NULL,
-                    expires_at TEXT NOT NULL,
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS user_sessions_user_idx
-                    ON user_sessions(user_id);
-                CREATE INDEX IF NOT EXISTS user_sessions_expiry_idx
-                    ON user_sessions(expires_at);
-                """
-            )
+        ensure_schema()
 
     def create_user(self, username: str, password: str) -> dict:
         self.initialize()
@@ -161,7 +121,7 @@ class UserRepository:
                     (username, password_hash, timestamp, timestamp),
                 )
                 user_id = cursor.lastrowid
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise ValueError("用户名已经存在") from exc
         return self.get_by_id(user_id)
 
@@ -179,7 +139,7 @@ class UserRepository:
         self.initialize()
         with self.connection() as db:
             row = db.execute(
-                "SELECT * FROM users WHERE username=? COLLATE NOCASE",
+                "SELECT * FROM users WHERE username=?",
                 (username.strip(),),
             ).fetchone()
         if not row or not row["is_active"] or not verify_password(password, row["password_hash"]):

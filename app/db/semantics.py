@@ -1,13 +1,13 @@
-"""SQLite registry for platform-controlled semantic vocabulary."""
+"""MySQL registry for retained platform-controlled semantic vocabulary."""
 
 from __future__ import annotations
 
 import json
 import re
-import sqlite3
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+
+from app.db.mysql import IntegrityError, Row, connection, ensure_schema
 
 DEFINITION_CATEGORIES = frozenset({"scene", "task", "action", "object"})
 DEFINITION_STATUSES = frozenset({"active", "inactive"})
@@ -77,62 +77,13 @@ def _sort_order(value: int) -> int:
 
 class SemanticDefinitionRepository:
     def __init__(self, root: Path):
-        self.path = root / "system" / "platform.sqlite"
+        self.root = root
 
-    @contextmanager
     def connection(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA busy_timeout=30000")
-        db.execute("PRAGMA foreign_keys=ON")
-        try:
-            yield db
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
+        return connection()
 
     def initialize(self) -> None:
-        with self.connection() as db:
-            db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS semantic_definition_numbers (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT
-                );
-
-                CREATE TABLE IF NOT EXISTS semantic_definitions (
-                    id TEXT PRIMARY KEY,
-                    seq INTEGER NOT NULL UNIQUE,
-                    category TEXT NOT NULL
-                        CHECK(category IN ('scene', 'task', 'action', 'object')),
-                    code TEXT NOT NULL COLLATE NOCASE,
-                    name TEXT NOT NULL COLLATE NOCASE,
-                    description TEXT NOT NULL DEFAULT '',
-                    examples_json TEXT NOT NULL DEFAULT '[]',
-                    status TEXT NOT NULL DEFAULT 'active'
-                        CHECK(status IN ('active', 'inactive')),
-                    sort_order INTEGER NOT NULL DEFAULT 100,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    UNIQUE(category, code),
-                    UNIQUE(category, name)
-                );
-
-                CREATE INDEX IF NOT EXISTS semantic_definitions_category_idx
-                    ON semantic_definitions(category, status, sort_order, seq);
-                """
-            )
-            highest = db.execute(
-                "SELECT COALESCE(MAX(seq), 0) FROM semantic_definitions"
-            ).fetchone()[0]
-            current = db.execute(
-                "SELECT COALESCE(MAX(seq), 0) FROM semantic_definition_numbers"
-            ).fetchone()[0]
-            if highest > current:
-                db.execute("INSERT INTO semantic_definition_numbers(seq) VALUES (?)", (highest,))
+        ensure_schema()
 
     def list(self, category: str | None = None, status: str | None = None) -> list[dict]:
         self.initialize()
@@ -183,9 +134,8 @@ class SemanticDefinitionRepository:
         self.initialize()
         try:
             with self.connection() as db:
-                db.execute("BEGIN IMMEDIATE")
                 seq = db.execute(
-                    "INSERT INTO semantic_definition_numbers DEFAULT VALUES"
+                    "INSERT INTO semantic_definition_numbers () VALUES ()"
                 ).lastrowid
                 definition_id = f"SD{seq:06d}"
                 timestamp = utc_now()
@@ -204,7 +154,7 @@ class SemanticDefinitionRepository:
                         timestamp,
                     ),
                 )
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise ValueError(self._integrity_message(exc)) from exc
         return self.get(definition_id)
 
@@ -235,7 +185,7 @@ class SemanticDefinitionRepository:
                        WHERE id=?""",
                     (*values, utc_now(), definition_id),
                 )
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise ValueError(self._integrity_message(exc)) from exc
         return self.get(definition_id) if result.rowcount else None
 
@@ -266,16 +216,16 @@ class SemanticDefinitionRepository:
         )
 
     @staticmethod
-    def _integrity_message(exc: sqlite3.IntegrityError) -> str:
+    def _integrity_message(exc: IntegrityError) -> str:
         message = str(exc).casefold()
-        if "semantic_definitions.category, semantic_definitions.code" in message:
+        if "semantic_definitions_code_idx" in message:
             return "该类别下的机器编码已经存在"
-        if "semantic_definitions.category, semantic_definitions.name" in message:
+        if "semantic_definitions_name_idx" in message:
             return "该类别下的显示名称已经存在"
         return "定义编号、机器编码或显示名称发生冲突"
 
     @staticmethod
-    def _row(row: sqlite3.Row) -> dict:
+    def _row(row: Row) -> dict:
         item = dict(row)
         try:
             item["examples"] = json.loads(item.pop("examples_json"))

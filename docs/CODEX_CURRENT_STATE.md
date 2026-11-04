@@ -1,6 +1,12 @@
-# 合并后项目现状（供同事 Codex 接手）
+# 二阶段项目现状（供同事 Codex 接手）
 
-更新日期：2026-10-27
+更新日期：2026-11-04
+
+二阶段 `integration/hs-lxp-v3.1` 从一期已合并的 `main` 提交 `674cf92` 创建。
+本分支平台管理元数据改用全新 MySQL 8.4 库，不导入、读写或删除旧
+`storage/system/platform.sqlite`。`registry.sqlite3` 由 HS 独立负责。
+以下一期功能说明仍适用，但涉及 SQLite 的历史描述以本段及 `app/db/README.md`
+为准。本机/服务器 MySQL 验收状态应看最新 `docs/COLLABORATION.md` 交接记录。
 
 这份文档只描述当前集成代码，不描述旧分支设想。每次新会话先读取根目录
 `AGENTS.md`，再读本文件。若本文件与源码或测试不一致，先停止修改并把差异告诉
@@ -8,12 +14,12 @@
 
 ## 1. 从哪个版本开始工作
 
-当前集成开发分支：
+当前二阶段开发分支：
 
 ```text
-分支：integration/hs-lxp-v3.0.2
-来源：integration/hs-lxp-v3.0.1
-目录：HKC_Data_Platform_v3.0.2（本地工作区）
+分支：integration/hs-lxp-v3.1
+来源：main / 674cf92
+目录：当前 Git 工作区
 ```
 
 开始任务时先确认：
@@ -24,8 +30,8 @@ git log -1 --oneline --decorate
 ```
 
 `hs_docker`、`lxp_docker_v2` 和 `feat/platform-v2` 是合并前历史。可以用于理解旧
-需求，但不能将旧文件整批复制回当前目录。直到开发者明确通知集成分支已经合入
-`main`，不要从旧 `main` 开始新功能。
+需求，但不能将旧文件整批复制回当前目录。一期功能已合入 `main`；二阶段改动
+在 v3.1 分支进行。
 
 如果工作区已有未提交文件，它们属于当前开发者，必须保留。不要执行
 `git reset --hard`、`git clean` 或 `git checkout -- <文件>`。
@@ -50,7 +56,7 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 
 | 网址 | 模块 | 当前状态 |
 | --- | --- | --- |
-| `/login`、`/logout` | `auth` | SQLite 用户、密码哈希、登录会话和退出 |
+| `/login`、`/logout` | `auth` | MySQL 用户、密码哈希、登录会话和退出 |
 | `/healthz` | 应用入口 | 无需登录的 Docker 存活检查，不返回业务数据 |
 | `/dashboard/` | `dashboard` | 真实 DS、机器人、质检、训练、待办和磁盘容量总览 |
 | `/data/` | `datasets` | 真实 DS 数据集总览和质检状态 |
@@ -62,8 +68,8 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/preprocess/` | `processing` | 真实数据处理、视频画面裁剪和派生版本生成 |
 | `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
 | `/export/` | `conversion`、`export` | Derived DS 转换 HDF5、CV 任务及完整打包下载 |
-| `/training/` | `training` | 已接入真实 DS、SQLite 任务、宿主执行器、离线评估与模型包；执行器离线时不可提交训练 |
-| `/robots/` | `robots` | SQLite 机器人档案、停用/恢复，以及 DS 关联、改绑和解除 |
+| `/training/` | `training` | 已接入真实 DS、MySQL 任务、宿主执行器、离线评估与模型包；执行器离线时不可提交训练 |
+| `/robots/` | `robots` | MySQL 机器人档案、停用/恢复，以及 DS 关联、改绑和解除 |
 | `/semantics/` | `semantics` | 真实 LeRobot v3 Schema 扫描、字段增删、空值占位与索引导入 |
 | `/system/` | `system` | 真实、脱敏、持久化的访问日志与筛选 |
 
@@ -80,7 +86,7 @@ LeRobot v3 ZIP
   → ZIP 安全检查和最低结构检查
   → 解析 robot_type（表单值优先；两处均为空则拒绝）
   → storage/raw/<内部目录名>/
-  → SQLite 登记
+  → MySQL 登记
   → 返回 DS000001 形式的编号
 ```
 
@@ -93,12 +99,12 @@ LeRobot v3 ZIP
 
 ```text
 DS000001
-  → storage/system/platform.sqlite
+  → MySQL datasets 表
   → storage_area + storage_relpath
   → storage/raw/<目录> 或 storage/derived/<目录>
 ```
 
-真实目录名不需要改成 DS 编号。页面、标注、处理和质检使用 DS 编号，通过 SQLite
+真实目录名不需要改成 DS 编号。页面、标注、处理和质检使用 DS 编号，通过 MySQL
 解析真实目录。
 
 ### 格式转换与导出
@@ -108,7 +114,7 @@ DS000001
   → storage/staging/conversion/<CV 编号>/
   → LeRobot v3 内容校验与 HDF5 转换
   → storage/converted/<CV 编号>/
-  → SQLite conversion_jobs 保存任务状态
+  → MySQL conversion_jobs 保存任务状态
 ```
 
 转换结果使用 `CV-...` 任务编号，不分配 DS 编号，也不进入 Raw/Derived 登记表。
@@ -144,7 +150,7 @@ Episode 重新编码 H.264，并同步更新 LeRobot v3 feature 宽高。
 已登记 DS
   → 选择版本化质检方案
   → Doctor / 机器人规则 / 可选 VLM
-  → SQLite 保存任务和人工审核
+  → MySQL 保存任务和人工审核
   → storage/reports/qc/<DS>/<task>.json
 ```
 
@@ -169,7 +175,7 @@ root = settings.data_root
 
 禁止在业务代码写死个人路径。
 
-SQLite 访问代码：
+MySQL 访问代码：
 
 - `app/db/datasets.py`：DS 编号、Raw/Derived 位置、名称、机器人类型、标签和来源；
 - `app/db/conversions.py`：CV 转换任务、进度、状态和结果文件清单；
@@ -179,7 +185,7 @@ SQLite 访问代码：
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
 - `app/db/dataset_robots.py`：DS 与采集机器人的可选关系及派生继承；
 - `app/db/semantics.py`：旧受控词表兼容保留；当前数据定义页不再读写；
-- 真实数据库：`storage/system/platform.sqlite`，被 Git 忽略。
+- 真实数据库：独立 MySQL 服务，宿主数据目录由 `HKC_MYSQL_DATA_PATH` 指定；旧 `platform.sqlite` 原样保留。
 
 平台不提供默认账号。每台全新部署设备启动后，由管理员在容器中交互执行
 `python -m app.cli.create_user` 创建用户，并可用 `python -m app.cli.list_users`
@@ -205,7 +211,7 @@ DS，已有 DS 不自动迁移。关联、改绑和解除只在机器人管理�
 
 ### 数据定义边界
 
-数据定义页是已登记 LeRobot v3 数据集的 Schema 编辑器，不再是 SQLite 受控词表。
+数据定义页是已登记 LeRobot v3 数据集的 Schema 编辑器，不再是 MySQL 受控词表。
 它读取 `info.json`、全部 Episode Parquet 与 frame Parquet，展示 dtype、shape、
 物理类型、来源、空值完整率和训练可用状态。
 
@@ -219,7 +225,7 @@ Feature 同时写入 `info.json.features` 和所有 frame Parquet，支持数值
 删除；其他官方 Feature 允许删除，但必须经过醒目警告和二次确认。第一版不新增
 图片、视频或深度媒体内容；它们需要未来单独实现媒体文件和索引处理。
 
-旧受控词表 SQLite 表只做兼容保留，当前页面不再读写，也不执行破坏性删表迁移。
+旧受控词表接口保留，但新 MySQL 只创建空表；当前页面不再读写。
 
 ### 数据集 Episode 关节曲线
 
@@ -228,7 +234,7 @@ Feature 同时写入 `info.json.features` 和所有 frame Parquet，支持数值
 起点；缺少时间戳时使用 `frame_index / fps`。曲线名称优先使用
 `info.json.features.<字段>.names`，缺少名称时显示“维度 0、维度 1……”；长 Episode
 最多均匀返回 2000 个显示点，但不修改或重写原始数据。该功能为只读展示，不新增
-SQLite 表，也不改变 Raw/Derived 数据集。
+MySQL 表，也不改变 Raw/Derived 数据集。
 
 ### 系统日志边界
 
@@ -260,8 +266,9 @@ SQLite 表，也不改变 Raw/Derived 数据集。
 - `.env`：每台设备单独创建，包含本地目录、IP 和 VLM 配置，不提交 Git；
 - `how_use.md`：换设备、构建、离线镜像、局域网和 VLM 使用说明。
 
-真实数据、SQLite 与 `.env` 不会随 Git 克隆。换设备时必须另行迁移完整
-`HKC_STORAGE_PATH`，或接受一个全新空平台。
+真实数据、MySQL 数据目录与 `.env` 不会随 Git 克隆。换设备时必须分别迁移完整
+`HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH`（或使用一致的数据库备份），
+或接受一个全新空平台。
 
 ## 6. 当前依赖边界
 
@@ -337,7 +344,7 @@ Compose 时必须运行完整测试。测试使用临时目录，绝不能指向
 2026-10-22 的 `integration/hs-v2.1` 功能冻结基线已完成上述验证：Ruff 0.16.8
 全部通过，pytest 9.1.1 为 `70 passed`（另有 1 条 Starlette/AnyIO 上游弃用
 警告）；8 个 JavaScript 文件与默认、开发、局域网三种 Compose 配置均通过检查。
-当前开发容器健康，受控重启后 SQLite 和用户记录保持不变。详细结果见
+当时的开发容器健康，受控重启后 SQLite 和用户记录保持不变。详细结果见
 `docs/LOCAL_ACCEPTANCE_2026-10-22.md`。正式生产镜像仍需在下一次代码合并完成后
 重新构建，并执行不挂载源码的验收。
 

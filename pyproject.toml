@@ -22,6 +22,7 @@ dependencies = [
     "uvicorn[standard]==0.53.0",
     "lerobot-doctor==0.2.0",
     "httpx==0.28.1",
+    "mysql-connector-python==9.5.0",
 ]
 
 [project.optional-dependencies]
@@ -36,7 +37,7 @@ include = ["app*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "real_auth: run with the real SQLite authentication middleware",
+    "real_auth: run with the real MySQL authentication middleware",
 ]
 
 [tool.ruff]

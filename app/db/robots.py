@@ -1,12 +1,12 @@
-"""SQLite registry for independently managed robot records."""
+"""MySQL registry for independently managed robot records."""
 
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+
+from app.db.mysql import IntegrityError, Row, connection, ensure_schema
 
 ROBOT_STATUSES = frozenset({"active", "maintenance", "inactive"})
 
@@ -54,61 +54,13 @@ def _sensors(values: list[str] | None) -> list[str]:
 
 class RobotRepository:
     def __init__(self, root: Path):
-        self.path = root / "system" / "platform.sqlite"
+        self.root = root
 
-    @contextmanager
     def connection(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        db = sqlite3.connect(self.path, timeout=30)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA busy_timeout=30000")
-        db.execute("PRAGMA foreign_keys=ON")
-        try:
-            yield db
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
+        return connection()
 
     def initialize(self) -> None:
-        with self.connection() as db:
-            db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS robot_numbers (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT
-                );
-
-                CREATE TABLE IF NOT EXISTS robots (
-                    id TEXT PRIMARY KEY,
-                    seq INTEGER NOT NULL UNIQUE,
-                    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
-                    robot_type TEXT NOT NULL,
-                    model TEXT NOT NULL DEFAULT '',
-                    serial_number TEXT COLLATE NOCASE,
-                    status TEXT NOT NULL DEFAULT 'active'
-                        CHECK(status IN ('active', 'maintenance', 'inactive')),
-                    network_address TEXT NOT NULL DEFAULT '',
-                    sensors_json TEXT NOT NULL DEFAULT '[]',
-                    notes TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-
-                CREATE UNIQUE INDEX IF NOT EXISTS robots_serial_idx
-                    ON robots(serial_number)
-                    WHERE serial_number IS NOT NULL AND serial_number != '';
-                CREATE INDEX IF NOT EXISTS robots_status_idx ON robots(status);
-                CREATE INDEX IF NOT EXISTS robots_type_idx ON robots(robot_type);
-                """
-            )
-            highest = db.execute("SELECT COALESCE(MAX(seq), 0) FROM robots").fetchone()[0]
-            current = db.execute(
-                "SELECT COALESCE(MAX(seq), 0) FROM robot_numbers"
-            ).fetchone()[0]
-            if highest > current:
-                db.execute("INSERT INTO robot_numbers(seq) VALUES (?)", (highest,))
+        ensure_schema()
 
     def list(self, status: str | None = None) -> list[dict]:
         self.initialize()
@@ -153,8 +105,7 @@ class RobotRepository:
         )
         try:
             with self.connection() as db:
-                db.execute("BEGIN IMMEDIATE")
-                seq = db.execute("INSERT INTO robot_numbers DEFAULT VALUES").lastrowid
+                seq = db.execute("INSERT INTO robot_numbers () VALUES ()").lastrowid
                 robot_id = f"RB{seq:06d}"
                 timestamp = utc_now()
                 db.execute(
@@ -164,7 +115,7 @@ class RobotRepository:
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (robot_id, seq, *values, timestamp, timestamp),
                 )
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise ValueError(self._integrity_message(exc)) from exc
         return self.get(robot_id)
 
@@ -201,7 +152,7 @@ class RobotRepository:
                        WHERE id=?""",
                     (*values, utc_now(), robot_id),
                 )
-        except sqlite3.IntegrityError as exc:
+        except IntegrityError as exc:
             raise ValueError(self._integrity_message(exc)) from exc
         return self.get(robot_id) if result.rowcount else None
 
@@ -239,7 +190,7 @@ class RobotRepository:
         )
 
     @staticmethod
-    def _integrity_message(exc: sqlite3.IntegrityError) -> str:
+    def _integrity_message(exc: IntegrityError) -> str:
         message = str(exc).casefold()
         if "serial_number" in message:
             return "序列号已经被其他机器人使用"
@@ -248,7 +199,7 @@ class RobotRepository:
         return "机器人编号、名称或序列号发生冲突"
 
     @staticmethod
-    def _row(row: sqlite3.Row) -> dict:
+    def _row(row: Row) -> dict:
         item = dict(row)
         try:
             item["sensors"] = json.loads(item.pop("sensors_json"))

@@ -308,21 +308,18 @@ def test_active_training_delete_does_not_mark_pending_when_executor_offline(tmp_
     assert repo.get(task["id"])["delete_requested_at"] is None
 
 
-def test_training_repository_migrates_existing_tasks(tmp_path):
+def test_training_repository_initializes_fresh_mysql_schema(tmp_path):
     repo = TrainingRepository(tmp_path)
     repo.initialize()
-    with repo.connection() as db:
-        db.execute("DROP INDEX training_jobs_deleted_idx")
-        db.execute("ALTER TABLE training_jobs DROP COLUMN deleted_at")
-        db.execute("ALTER TABLE training_jobs DROP COLUMN deleted_by")
-        db.execute("ALTER TABLE training_jobs DROP COLUMN delete_requested_at")
-        db.execute("ALTER TABLE training_jobs DROP COLUMN delete_requested_by")
-        db.execute("ALTER TABLE training_jobs DROP COLUMN runtime_id")
     repo.initialize()
     with repo.connection() as db:
-        columns = {row[1] for row in db.execute("PRAGMA table_info(training_jobs)")}
+        columns = {row["Field"] for row in db.execute("SHOW COLUMNS FROM training_jobs").fetchall()}
+        indexes = {row["Key_name"] for row in db.execute("SHOW INDEX FROM training_jobs").fetchall()}
+        version = db.execute("SELECT version FROM schema_migrations").fetchone()[0]
     assert {"deleted_at", "deleted_by", "delete_requested_at",
             "delete_requested_by", "runtime_id"} <= columns
+    assert "training_jobs_deleted_idx" in indexes
+    assert version == 1
 
 
 def test_training_delete_restore_api_uses_recycle_bin(tmp_path, monkeypatch):

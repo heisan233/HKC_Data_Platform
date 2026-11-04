@@ -4,11 +4,11 @@
 左侧导航或页面一一对应。
 
 `auth` 是全平台共享的登录模块：路由提供登录与退出，中间件保护其他页面/API，
-用户和服务端会话元数据由 `app/db/users.py` 写入同一个平台 SQLite。
+用户和服务端会话元数据由 `app/db/users.py` 写入同一个平台 MySQL 库。
 
 `robots` 是独立机器人档案模块：每条档案有稳定 RB 编号，支持新增、编辑、停用
 和恢复。它还负责把已登记 DS 关联、改绑或解除到具体机器人；数据管理页只读展示
-结果。关系只写入 SQLite，不回写 LeRobot 文件，类型不一致时允许保存但必须告警。
+结果。关系只写入 MySQL，不回写 LeRobot 文件，类型不一致时允许保存但必须告警。
 
 `semantics` 是数据定义模块：读取已登记 DS 的 `info.json`、Episode Parquet 和
 frame Parquet，区分官方字段、核心字段及平台扩展字段。修改始终生成完整 Derived；
@@ -64,7 +64,7 @@ HTML/JavaScript 按钮
 关节曲线；缺失关节名称时按“维度 N”显示，显示抽样不会改变源数据。`quality` 的 `service.py` 负责方案版本、任务快照和统一
 报告，`robot_rules.py` 与 `vlm.py` 分别执行机器人专项与视频规则，
 Doctor 由服务层调用。数据集登记、质检任务和人工复核历史保存在
-`storage/system/platform.sqlite`。
+MySQL。
 
 `system` 提供只读系统管理日志页。认证中间件将已登录访问的用户、模块、HTTP
 方法、纯路径、状态码和耗时写入 `storage/system/logs/platform.jsonl`；不会记录
@@ -99,7 +99,7 @@ Pandas DataFrame 的 `task` 索引，`task_index` 是普通列；Episode 帧数�
 其他转换器。服务通过统一 DS 编号读取已登记的 Derived 来源、校验文件清单并记录
 指纹，单线程后台生成最多每文件 10 个 Episode 的 HDF5；完成后将临时目录原子
 发布到 `converted/<CV 编号>/`，转换结果在数据管理页单独展示，不分配 DS 编号。转换任务使用独立 CV 编号，状态
-写入 SQLite；已有 `system/conversion-jobs/` JSON 记录在首次访问时复制入库，原文件
-保留。`/export/` 页面提供进度和数据集导出按钮，不提供转换结果详情入口。`export`
+写入 MySQL；已有 `system/conversion-jobs/` JSON 记录保留原文件，不自动导入新库。
+`/export/` 页面提供进度和数据集导出按钮，不提供转换结果详情入口。`export`
 服务可将已登记的 Derived 数据集或按 CV 编号定位的转换结果打包到 `storage/exports/`，再供浏览器
 下载。视频帧会转换成 JPEG，旁路标注元数据保存在 HDF5 元数据区。

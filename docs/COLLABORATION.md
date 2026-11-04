@@ -1,16 +1,44 @@
 # HKC 数采平台协作与 Codex 交接文档
 
-更新日期：2026-10-28
+更新日期：2026-11-04
 
 这是一份双方开发者和双方 Codex 共用的交接记录。合并后的当前结构、已完成与
 未完成功能、数据生命周期和接手步骤已经集中到 `docs/CODEX_CURRENT_STATE.md`；
 架构规则以根目录 `AGENTS.md` 为准。本文件后面的按人分工与交接内容包含历史
 背景，不得用它覆盖当前集成源码。
 
-> 当前开发分支是 `integration/hs-lxp-v3.0.2`，来源为已验收的
-> `integration/hs-lxp-v3.0.1`。历史分支只供
-> 查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
+> 当前开发分支是 `integration/hs-lxp-v3.1`，基于一期已合并的 `main`。
+> 历史分支只供查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
+
+### 2026-11-04 二阶段平台元数据切换 MySQL
+
+完成内容：`app/db/` 的 DS、用户会话、机器人及关联、质检、转换、训练和旧受控词表
+接口改为 MySQL 8.4/InnoDB。新增 `app/db/mysql.py` 连接和事务层、
+`migrations/mysql/001_initial.sql` 的 16 张平台表与版本记录、启动建表命令。
+`storage/system/platform.sqlite` 原样保留，不读取、不导入、不删除；
+`registry.sqlite3` 由 HS 负责，不在此次改动范围内。旧转换 JSON 任务也不自动导入。
+新库初始为空，原平台账号、DS 登记和任务记录不会出现在新库；需要重新创建账号、
+按业务需要登记 Raw 目录。大型文件仍保存在 `HKC_STORAGE_PATH`。
+
+部署变更：`compose.yaml` 新增独立 MySQL 容器，数据目录由
+`HKC_MYSQL_DATA_PATH` 指定，与 `storage/` 并列；应用容器等待数据库健康后启动。
+`HKC_MYSQL_PASSWORD` 与 `HKC_MYSQL_ROOT_PASSWORD` 必须在部署机 `.env` 中填写。
+镜像增加 MySQL Connector/Python 和建表脚本。共用接口、Python 依赖、Compose、
+镜像、测试隔离及部署文档均有修改，HS 需要评审这些共享边界。HTTP 路由和 DS/RB/CV/TR
+编号格式未改变，数据库连接后端及空库行为发生变化。
+
+验证：隔离 MySQL 8.4 测试容器中全量 `pytest` 为 `124 passed`（1 条既有
+Starlette/AnyIO 弃用警告），全仓库 Ruff 通过，`git diff --check` 通过。
+默认、开发、局域网和服务器四种 Compose 组合均通过 `config --quiet`。
+本机独立应用容器完成启动建表、`/healthz` 和表版本检查；测试验证旧 SQLite 文件
+字节不变、旧账号不导入，以及并发 DS 编号唯一。真实存储和服务器均未用于测试。
+
+已知边界：尚未使用生产 `.env`、真实数据集或服务器执行人工验收；需部署方配置
+MySQL 持久化目录及密码。此轮未提交、推送或合并代码。
+
+以下“一、项目当前状态”及更早记录是一期历史快照；当前事实以
+`AGENTS.md`、`docs/CODEX_CURRENT_STATE.md` 和上方最新交接记录为准。
 
 ## 一、项目当前状态
 

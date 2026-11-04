@@ -1,4 +1,4 @@
-"""SQLite links between registered datasets and their collecting robot."""
+"""MySQL links between registered datasets and their collecting robot."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.db.datasets import DatasetRepository
+from app.db.mysql import ensure_schema
 from app.db.robots import RobotRepository
 
 
@@ -37,24 +38,7 @@ class DatasetRobotRepository:
         self.robots = RobotRepository(root)
 
     def initialize(self) -> None:
-        self.datasets.initialize()
-        self.robots.initialize()
-        with self.datasets.connection() as db:
-            db.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS dataset_robot_links (
-                    dataset_id TEXT PRIMARY KEY,
-                    robot_id TEXT NOT NULL,
-                    linked_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    updated_by TEXT NOT NULL DEFAULT '',
-                    FOREIGN KEY (dataset_id) REFERENCES datasets(id) ON DELETE CASCADE,
-                    FOREIGN KEY (robot_id) REFERENCES robots(id) ON DELETE RESTRICT
-                );
-                CREATE INDEX IF NOT EXISTS dataset_robot_links_robot_idx
-                    ON dataset_robot_links(robot_id, dataset_id);
-                """
-            )
+        ensure_schema()
 
     @staticmethod
     def _row(row) -> dict | None:
@@ -94,9 +78,8 @@ class DatasetRobotRepository:
         self.initialize()
         timestamp = _now()
         with self.datasets.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
             robot = db.execute(
-                "SELECT id,status FROM robots WHERE id=?", (robot_id,)
+                "SELECT id,status FROM robots WHERE id=? FOR UPDATE", (robot_id,)
             ).fetchone()
             if robot is None:
                 raise ValueError("机器人不存在")
@@ -116,10 +99,10 @@ class DatasetRobotRepository:
                     """INSERT INTO dataset_robot_links
                        (dataset_id,robot_id,linked_at,updated_at,updated_by)
                        VALUES (?,?,?,?,?)
-                       ON CONFLICT(dataset_id) DO UPDATE SET
-                         robot_id=excluded.robot_id,
-                         updated_at=excluded.updated_at,
-                         updated_by=excluded.updated_by""",
+                       AS incoming ON DUPLICATE KEY UPDATE
+                         robot_id=incoming.robot_id,
+                         updated_at=incoming.updated_at,
+                         updated_by=incoming.updated_by""",
                     (dataset_id, robot_id, timestamp, timestamp, actor),
                 )
         return [self.get(dataset_id) for dataset_id in ids]
@@ -147,10 +130,9 @@ class DatasetRobotRepository:
         self.initialize()
         placeholders = ",".join("?" for _ in sources)
         with self.datasets.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
             rows = db.execute(
                 f"""SELECT dataset_id,robot_id FROM dataset_robot_links
-                    WHERE dataset_id IN ({placeholders})""",
+                    WHERE dataset_id IN ({placeholders}) FOR UPDATE""",
                 sources,
             ).fetchall()
             robot_ids = {row["robot_id"] for row in rows}
@@ -161,7 +143,7 @@ class DatasetRobotRepository:
                 """INSERT INTO dataset_robot_links
                    (dataset_id,robot_id,linked_at,updated_at,updated_by)
                    VALUES (?,?,?,?,?)
-                   ON CONFLICT(dataset_id) DO NOTHING""",
+                   ON DUPLICATE KEY UPDATE dataset_id=dataset_id""",
                 (dataset_id, robot_ids.pop(), timestamp, timestamp, "system:derived"),
             )
         return self.get(dataset_id)

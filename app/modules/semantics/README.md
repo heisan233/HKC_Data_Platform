@@ -43,7 +43,7 @@ CSV/Parquet 导入必须包含 `episode_index`、`frame_index` 和映射值列�
 - 平台新增字段可以删除；其他官方 Feature 必须经过醒目警告和二次确认；
 - 删除数值 Feature 时同步清理 `info.json.features`、物理列和 `stats.json`。
 
-旧 `app/db/semantics.py` 仅为已有 SQLite 兼容保留，当前页面不再读写它，也不会
+旧 `app/db/semantics.py` 接口暂保留，当前页面不再读写它，也不会
 破坏性删除旧表。
 
 ## 文件职责

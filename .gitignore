@@ -35,6 +35,7 @@ htmlcov/
 !/storage/**/
 !/storage/README.md
 !/storage/**/.gitkeep
+/mysql-data/
 
 # Legacy local dataset directory used by the previous prototype
 /datas/

@@ -1,4 +1,4 @@
-"""Single-worker conversion jobs with SQLite metadata and file-based results."""
+"""Single-worker conversion jobs with MySQL metadata and file-based results."""
 
 from __future__ import annotations
 
@@ -40,20 +40,6 @@ PROFILES = ({
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
-
-
-def _job_path(root: Path, task_id: str) -> Path:
-    if not _ID.fullmatch(task_id):
-        raise ValueError("转换任务编号不合法")
-    return root / "system" / "conversion-jobs" / f"{task_id}.json"
-
-
-def _read(root: Path, task_id: str) -> dict | None:
-    path = _job_path(root, task_id)
-    if path.is_symlink() or not path.is_file():
-        return None
-    record = json.loads(path.read_text(encoding="utf-8"))
-    return record if isinstance(record, dict) and record.get("id") == task_id else None
 
 
 def _inventory(folder: Path) -> list[tuple[str, os.stat_result]]:
@@ -132,16 +118,6 @@ def initialize(root: Path) -> None:
             return
         repo = ConversionRepository(root)
         repo.initialize()
-        directory = root / "system" / "conversion-jobs"
-        if directory.is_dir() and not directory.is_symlink():
-            for path in sorted(directory.glob("CV-*.json")):
-                try:
-                    task = _read(root, path.stem)
-                    if task is None or task.get("status") not in {"QUEUED", "RUNNING", "COMPLETED", "FAILED"}:
-                        continue
-                    repo.import_legacy(task)
-                except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
-                    _logger.warning("跳过无法迁移的转换任务：%s", path.name)
         repo.interrupted(_now())
         _initialized.add(root)
         for task in repo.list(limit=10000):

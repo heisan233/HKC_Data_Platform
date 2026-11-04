@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.db.datasets import DatasetRepository
+from app.db.mysql import ensure_schema
 
 
 def _now() -> str:
@@ -19,75 +20,12 @@ class QualityRepository(DatasetRepository):
         super().__init__(root)
 
     def initialize(self) -> None:
-        super().initialize()
-        with self.connection() as db:
-            db.executescript("""
-                CREATE TABLE IF NOT EXISTS qc_plans (
-                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
-                    id TEXT UNIQUE,
-                    name TEXT NOT NULL,
-                    robot_type TEXT NOT NULL,
-                    current_version INTEGER NOT NULL DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    archived_at TEXT
-                );
-                CREATE TABLE IF NOT EXISTS qc_plan_versions (
-                    plan_id TEXT NOT NULL,
-                    version INTEGER NOT NULL,
-                    config_json TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    PRIMARY KEY (plan_id, version),
-                    FOREIGN KEY (plan_id) REFERENCES qc_plans(id)
-                );
-                CREATE TABLE IF NOT EXISTS qc_tasks (
-                    id TEXT PRIMARY KEY,
-                    dataset_id TEXT NOT NULL,
-                    plan_id TEXT NOT NULL,
-                    plan_version INTEGER NOT NULL,
-                    snapshot_json TEXT NOT NULL,
-                    raw_fingerprint TEXT NOT NULL,
-                    status TEXT NOT NULL,
-                    phase TEXT NOT NULL,
-                    outcome TEXT,
-                    decision TEXT,
-                    error TEXT,
-                    created_at TEXT NOT NULL,
-                    started_at TEXT,
-                    completed_at TEXT,
-                    updated_at TEXT NOT NULL,
-                    archived_at TEXT,
-                    hidden_at TEXT,
-                    FOREIGN KEY (dataset_id) REFERENCES datasets(id),
-                    FOREIGN KEY (plan_id) REFERENCES qc_plans(id)
-                );
-                CREATE INDEX IF NOT EXISTS qc_tasks_dataset_idx ON qc_tasks(dataset_id, created_at);
-                CREATE TABLE IF NOT EXISTS qc_reviews (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id TEXT NOT NULL,
-                    decision TEXT NOT NULL,
-                    reason TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (task_id) REFERENCES qc_tasks(id)
-                );
-                CREATE TABLE IF NOT EXISTS qc_runtime_control (
-                    id INTEGER PRIMARY KEY CHECK (id=1),
-                    vlm_paused INTEGER NOT NULL DEFAULT 0
-                );
-                INSERT OR IGNORE INTO qc_runtime_control(id,vlm_paused) VALUES (1,0);
-            """)
-            columns = {row["name"] for row in db.execute("PRAGMA table_info(qc_plans)")}
-            if "archived_at" not in columns:
-                db.execute("ALTER TABLE qc_plans ADD COLUMN archived_at TEXT")
-            task_columns = {row["name"] for row in db.execute("PRAGMA table_info(qc_tasks)")}
-            if "hidden_at" not in task_columns:
-                db.execute("ALTER TABLE qc_tasks ADD COLUMN hidden_at TEXT")
+        ensure_schema()
 
     def create_plan(self, name: str, robot_type: str, config: dict) -> dict:
         self.initialize()
         timestamp = _now()
         with self.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
             cursor = db.execute(
                 "INSERT INTO qc_plans(name,robot_type,created_at,updated_at) VALUES (?,?,?,?)",
                 (name, robot_type, timestamp, timestamp),
@@ -104,9 +42,8 @@ class QualityRepository(DatasetRepository):
                     expected_version: int) -> dict | None:
         self.initialize()
         with self.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT current_version,archived_at FROM qc_plans WHERE id=?", (plan_id,)
+                "SELECT current_version,archived_at FROM qc_plans WHERE id=? FOR UPDATE", (plan_id,)
             ).fetchone()
             if row is None:
                 return None
@@ -205,7 +142,7 @@ class QualityRepository(DatasetRepository):
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.connection() as db:
             rows = db.execute(
-                "SELECT id FROM qc_tasks" + where + " ORDER BY created_at DESC,rowid DESC", values
+                "SELECT id FROM qc_tasks" + where + " ORDER BY created_at DESC,seq DESC", values
             ).fetchall()
         return [self.get_task(row["id"]) for row in rows]
 
@@ -230,8 +167,7 @@ class QualityRepository(DatasetRepository):
         """Change only task-list visibility; preserve task, report, and reviews."""
         self.initialize()
         with self.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT id FROM qc_tasks WHERE id=?", (task_id,)).fetchone()
+            row = db.execute("SELECT id FROM qc_tasks WHERE id=? FOR UPDATE", (task_id,)).fetchone()
             if row is None:
                 return None
             timestamp = _now()
@@ -244,12 +180,13 @@ class QualityRepository(DatasetRepository):
         self.initialize()
         timestamp = _now()
         with self.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT status,snapshot_json FROM qc_tasks WHERE id=?",
+            paused = db.execute(
+                "SELECT vlm_paused FROM qc_runtime_control WHERE id=1 FOR UPDATE"
+            ).fetchone()[0]
+            row = db.execute("SELECT status,snapshot_json FROM qc_tasks WHERE id=? FOR UPDATE",
                              (task_id,)).fetchone()
             if row is None or row["status"] != "QUEUED":
                 return False
-            paused = db.execute("SELECT vlm_paused FROM qc_runtime_control WHERE id=1").fetchone()[0]
             if paused and self.uses_vlm(json.loads(row["snapshot_json"])):
                 return False
             cursor = db.execute("""UPDATE qc_tasks
@@ -272,7 +209,6 @@ class QualityRepository(DatasetRepository):
         """Block future VLM task claims, then report already running VLM tasks."""
         self.initialize()
         with self.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
             db.execute("UPDATE qc_runtime_control SET vlm_paused=1 WHERE id=1")
             rows = db.execute(
                 "SELECT id,snapshot_json FROM qc_tasks WHERE status='RUNNING'"
@@ -288,8 +224,7 @@ class QualityRepository(DatasetRepository):
     def review(self, task_id: str, decision: str, reason: str) -> dict | None:
         timestamp = _now()
         with self.connection() as db:
-            db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT status FROM qc_tasks WHERE id=?", (task_id,)).fetchone()
+            row = db.execute("SELECT status FROM qc_tasks WHERE id=? FOR UPDATE", (task_id,)).fetchone()
             if row is None or row["status"] != "COMPLETED":
                 return None
             db.execute(

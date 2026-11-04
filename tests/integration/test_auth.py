@@ -1,6 +1,5 @@
-"""Real SQLite login, cookie session, logout, and access-protection tests."""
+"""Real MySQL login, cookie session, logout, and access-protection tests."""
 
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -48,10 +47,10 @@ def test_protected_page_and_api_require_login(auth_platform):
 
 
 def test_password_is_hashed_and_duplicate_username_is_rejected(auth_platform):
-    _, repository, root = auth_platform
+    _, repository, _ = auth_platform
 
     user = repository.create_user("hei_san", "test-password")
-    with sqlite3.connect(root / "system" / "platform.sqlite") as database:
+    with repository.connection() as database:
         stored = database.execute(
             "SELECT password_hash FROM users WHERE id=?",
             (user["id"],),
@@ -66,7 +65,7 @@ def test_password_is_hashed_and_duplicate_username_is_rejected(auth_platform):
 
 
 def test_login_session_and_logout(auth_platform):
-    client, repository, root = auth_platform
+    client, repository, _ = auth_platform
     repository.create_user("hei_san", "test-password")
 
     invalid = client.post(
@@ -92,7 +91,7 @@ def test_login_session_and_logout(auth_platform):
 
     token = client.cookies.get(SESSION_COOKIE_NAME)
     assert token
-    with sqlite3.connect(root / "system" / "platform.sqlite") as database:
+    with repository.connection() as database:
         stored_token = database.execute(
             "SELECT token_hash FROM user_sessions"
         ).fetchone()[0]
@@ -121,7 +120,7 @@ def test_login_session_and_logout(auth_platform):
     logout = client.post("/logout", follow_redirects=False)
     assert logout.status_code == 303
     assert logout.headers["location"] == "/login"
-    with sqlite3.connect(root / "system" / "platform.sqlite") as database:
+    with repository.connection() as database:
         assert database.execute("SELECT COUNT(*) FROM user_sessions").fetchone()[0] == 0
 
     protected = client.get("/dashboard/", follow_redirects=False)

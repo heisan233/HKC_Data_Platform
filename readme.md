@@ -6,11 +6,8 @@
 
 ## 当前集成开发基线
 
-当前开发分支是 `integration/hs-lxp-v3.0.2`，由已验收的
-`integration/hs-lxp-v3.0.1` 创建；本目录 `HKC_Data_Platform_v3.0.2` 是独立
-worktree。此前集成分支均保留为回退点。
-在使用者明确完成验收并合入 `main` 前，旧 `main`、`hs_docker`、
-`lxp_docker_v2` 与 `feat/platform-v2` 只作为历史参考，不能用于覆盖当前目录。
+当前开发分支是 `integration/hs-lxp-v3.1`，基于一期已合并的 `main`。
+此前集成分支只作为历史参考。
 
 本目录仍是 Git worktree：它是同一仓库的独立检出目录，不是项目代码内部的一层
 结构。其他 worktree 可以保留，但每个目录有自己的当前分支和未提交文件。
@@ -20,17 +17,18 @@ Platform v2 已完成目录迁移，并已接入登录、上传、数据管理�
 系统管理的真实脱敏访问日志。工作台仍有明确的占位内容。所有入口、路由、模板和静态资源已经移入 `app/`。后续功能应继续遵守下面
 的实际目录结构，避免重新在项目根目录堆放业务文件：
 
-数据集和运行结果保存在 `storage/`。数据管理使用 SQLite 登记编号及目录映射，
-数据库文件位于 `storage/system/platform.sqlite`；大型数据文件不写入数据库。
-`migrations/` 仍是后续数据库结构升级预留目录。
+数据集和运行结果保存在 `storage/`。平台管理元数据使用独立 MySQL 8.4 服务，
+数据目录由 `HKC_MYSQL_DATA_PATH` 指定。旧 `storage/system/platform.sqlite`
+原样保留，不导入、不读写；`registry.sqlite3` 不在此次变更范围内。
+大型数据文件不写入数据库；`migrations/mysql/` 保存建表脚本。
 
 ```text
-HKC_Data_Platform_v3.0.2/
+HKC_Data_Platform_v2/
 ├── app/
 │   ├── main.py                 # FastAPI 应用入口，只负责组装应用和注册路由
 │   ├── web.py                  # 多个页面共享的 Jinja2 模板对象
 │   ├── core/                   # 路径、环境配置等全项目共用的基础代码
-│   ├── db/                     # 数据集登记 SQLite 访问代码
+│   ├── db/                     # MySQL 管理元数据访问代码
 │   ├── modules/                # 按业务能力组织代码，不与 HTML 严格一一对应
 │   │   ├── dashboard/          # 工作台
 │   │   ├── datasets/           # DS 登记、列表、详情、状态和报告
@@ -49,11 +47,11 @@ HKC_Data_Platform_v3.0.2/
 │   ├── templates/              # Jinja2 HTML 模板
 │   └── static/                 # 浏览器直接加载的 CSS、JavaScript、图片
 ├── tests/                      # 单元、接口和集成测试
-├── migrations/                 # 未来数据库表结构升级脚本预留
+├── migrations/                 # MySQL 建表与后续升级脚本
 ├── deploy/                     # 本地与服务器部署配置
 ├── storage/                    # 数据集、处理结果和平台运行数据，实际内容不提交 Git
 ├── Dockerfile                  # 应用镜像构建说明
-├── compose.yaml                # 通用、单应用容器定义
+├── compose.yaml                # 应用和 MySQL 容器定义
 ├── compose.dev.yaml            # 本地热重载覆盖配置
 ├── pyproject.toml              # Python 项目和直接依赖声明
 ├── .env.example                # 可公开的配置示例，不包含真实密钥
@@ -64,12 +62,12 @@ HKC_Data_Platform_v3.0.2/
 
 1. `app/modules/` 保存“平台能够做什么”的 Python 代码，例如上传、质检和转换。
 2. `storage/` 保存真正的数据集、处理结果、报告和平台产生的普通文件。
-3. `app/db/` 保存登记库的数据库访问代码；SQLite 文件在 `storage/system/`。
-4. `migrations/` 未来保存“如何升级数据库表结构”的脚本；它不是旧数据存档。
+3. `app/db/` 保存 MySQL 访问代码；MySQL 数据目录与 `storage/` 分开。
+4. `migrations/mysql/` 保存平台表结构脚本；它不是旧数据存档。
 
 原始数据集上传、数据管理、Episode/task/Subtask 标注、Episode 数据处理
 和数据质检已经读写真实 LeRobot v3 文件。数据管理扫描真实存储目录，
-并通过 SQLite 分配 DS 编号；转换已接入真实 Derived 数据，打包导出结果保存到 `storage/exports/`，
+并通过 MySQL 分配 DS 编号；转换已接入真实 Derived 数据，打包导出结果保存到 `storage/exports/`，
 训练等页面仍可能使用演示常量。
 
 ### `modules` 与页面、按钮的关系
@@ -96,7 +94,7 @@ qc.html 中的按钮
 ### 当前文件存储方案
 
 - 其他采集流程放入 `storage/raw/` 的 VLA 数据集，登记时不移动原始目录。
-- 数据管理在 SQLite 中分配 DS 编号，保存编号到 Raw 目录的映射。
+- 数据管理在 MySQL 中分配 DS 编号，保存编号到 Raw 目录的映射。
 - 质检可读取已登记的 Raw 和 Derived 数据集；统一报告保存在 `storage/reports/qc/<DS 编号>/`。
 - 数据管理首页显示待人工审核数量；Raw 列表按最新质检任务显示未质检、待审核、已审核通过、打回重采等状态。质检完成本身不等于人工通过。
 - 正在上传、解压或校验的内容放在 `storage/staging/`。
@@ -105,7 +103,7 @@ qc.html 中的按钮
 - 从页面移除的质检报告进入
   `storage/trash/reports/<DS 编号>/`，同时记录原路径和移入时间；报告可在回收站
   页面恢复，不提供永久清空功能。
-- 数据集内容由目录结构和 LeRobot 自身元数据提供；登记与展示信息保存在 SQLite。
+- 数据集内容由目录结构和 LeRobot 自身元数据提供；登记与展示信息保存在 MySQL。
 
 ### 文件放置规则
 
@@ -132,8 +130,8 @@ Platform v2 首期暂时把网页/API 和数据集基础自检放在同一个应
 质检或数据处理影响网页稳定性，再将任务执行模块拆为独立 Worker 容器，而不必
 重写业务逻辑。
 
-所有 `storage/` 内容必须持久化到容器外部；删除或重建应用容器不应导致数据集、
-任务记录或质检报告丢失。登记库是同一存储卷中的 SQLite 文件，不需要独立数据库容器。
+所有 `storage/` 和 MySQL 数据目录都必须持久化到容器外部；删除或重建应用容器
+不应导致数据集、任务记录或质检报告丢失。
 
 ### 运行依赖与镜像边界
 
@@ -155,13 +153,14 @@ Python 直接依赖只在 `pyproject.toml` 中维护并固定版本：FastAPI/Uv
 
 ### 当前启动方式
 
-直接使用本机 Python 时，从项目根目录运行：
+直接使用本机 Python 时，先配置 `HKC_MYSQL_HOST`、`HKC_MYSQL_PORT`、
+`HKC_MYSQL_DATABASE`、`HKC_MYSQL_USER`、`HKC_MYSQL_PASSWORD`，再从项目根目录运行：
 
 ```bash
 python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-使用首期单应用容器运行：
+使用应用与 MySQL 两个容器运行；先在本机 `.env` 中填写两个非空 MySQL 密码：
 
 ```bash
 cp .env.example .env
@@ -169,7 +168,8 @@ docker compose -f compose.yaml -f compose.dev.yaml up --build
 ```
 
 `.env` 中的 `HKC_STORAGE_PATH` 决定宿主机持久化目录，默认是项目内 `./storage`；
-容器内部始终使用 `/data`。上传大小、解压大小和 ZIP 文件数限制也可在 `.env`
+`HKC_MYSQL_DATA_PATH` 决定独立的 MySQL 持久化目录，默认是 `./mysql-data`。
+容器内部数据集路径始终使用 `/data`。上传大小、解压大小和 ZIP 文件数限制也可在 `.env`
 调整。真实 VLM 地址和 Token 只能写入 `.env`。
 
 默认端口只绑定 `127.0.0.1`。需要让可信局域网中的其他机器临时访问时，不要直接
@@ -177,13 +177,13 @@ docker compose -f compose.yaml -f compose.dev.yaml up --build
 `deploy/compose.lan.yaml` 覆盖配置。当前已有基础登录与服务端会话，但没有
 HTTPS，仍禁止开放到公网。
 
-机器人管理页 `/robots/` 使用同一个平台 SQLite 保存独立机器人档案，为每条记录
+机器人管理页 `/robots/` 使用同一个平台 MySQL 库保存独立机器人档案，为每条记录
 分配 `RB000001` 形式编号。注册/编辑只包含 SN、名称、类型、IP 地址和备注，新记录
 默认在用；状态通过停用/恢复操作管理。页面支持搜索和状态筛选，并且
 不预置演示机器人，也不会自动连接或控制真实设备。一台机器人可关联多个 DS；
 关联、改绑和解除只在机器人管理页操作，数据管理页只读显示 RB 编号与名称。类型
 不一致允许关联但会告警，派生 DS 在来源关系唯一一致时自动继承。关系仅保存在
-SQLite，不修改数据集文件或 `meta/info.json`。
+MySQL，不修改数据集文件或 `meta/info.json`。
 
 数据定义页 `/semantics/` 是真实 LeRobot v3 Schema 编辑器。它扫描 `info.json`、
 Episode/frame Parquet，显示字段来源、dtype、shape、物理类型、完整率和训练可用
@@ -199,7 +199,7 @@ docker compose exec platform \
   python -m app.cli.create_user --username <用户名>
 ```
 
-密码使用 scrypt 哈希保存，浏览器 Cookie 只携带随机会话令牌；SQLite 只保存该
+密码使用 scrypt 哈希保存，浏览器 Cookie 只携带随机会话令牌；MySQL 只保存该
 令牌的摘要。命令只允许隐藏式交互输入密码，不提供密码参数。管理员可以执行
 `docker compose exec platform python -m app.cli.list_users` 检查账号摘要；该输出
 不包含密码哈希或会话令牌。完整说明见 `how_use.md`，真实用户名和密码不得提交
@@ -221,13 +221,13 @@ http://127.0.0.1:8000/ingestion/
 局域网模式则把 `127.0.0.1` 换成开发机的可信内网 IPv4 地址。页面接受一个完整
 的 LeRobot v3.0 `.zip`，需要填写平台显示名称；`robot_type` 和备注可选。服务端不会把完整 ZIP
 载入内存，而是分块写入 `storage/staging/`。只有同时通过以下检查才会移动到
-`storage/raw/<内部目录名>/`，随后由 SQLite 自动登记并返回稳定的 `DS000001`
+`storage/raw/<内部目录名>/`，随后由 MySQL 自动登记并返回稳定的 `DS000001`
 形式平台编号：
 
 上传页的 `robot_type` 规则是：文本框填写时，以表单值为准，并在进入 Raw 前覆盖
 临时解压副本的 `meta/info.json`；文本框留空时沿用压缩包中的非空值。如果压缩包
 缺少该字段、值为 `null` 或空字符串，同时文本框也留空，平台拒绝入库并要求手动
-填写。这样 SQLite、重新扫描、质检和后续导出始终读取同一个类型值。
+填写。这样 MySQL、重新扫描、质检和后续导出始终读取同一个类型值。
 
 - 有效且未加密的 ZIP，不包含绝对路径、`../` 路径穿越或符号链接；
 - 一个压缩包中只有一个数据集（允许外层有一个同名总目录）；
@@ -257,7 +257,7 @@ http://127.0.0.1:8000/annotation/
 
 工作流程如下：
 
-1. 页面从 SQLite 列出已登记的 DS 编号，再映射到 `storage/raw/` 或
+1. 页面从 MySQL 列出已登记的 DS 编号，再映射到 `storage/raw/` 或
    `storage/derived/` 的真实目录；未登记的旧测试目录不会自动导入。
 2. 选择数据集后，平台读取 `meta/tasks.parquet`、Episode 元数据和视频索引。
    其中 task 按 LeRobot 官方结构作为 Pandas DataFrame 索引读取，Episode 帧数
@@ -389,7 +389,7 @@ VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.pa
 每个 HDF5 文件最多包含 10 个 Episode。来源只读，任务临时目录位于
 `storage/staging/conversion/`，成功结果位于 `storage/converted/<CV 编号>/`，
 导出时先在 `storage/staging/export/` 打包，再原子发布到 `storage/exports/`；相同文件快照复用已有压缩包。
-任务状态与结果管理元数据位于 SQLite 的 `storage/system/platform.sqlite`；旧 JSON 任务记录首次访问时复制入库并保留原文件。视频/图像帧转换为 JPEG，
+任务状态与结果管理元数据位于 MySQL；旧 JSON 任务记录不自动导入。视频/图像帧转换为 JPEG，
 `meta/annotations/` 旁路标注作为元数据文件保存到 HDF5。
 
 接口为 `GET /export/api/profiles`、`GET /export/api/datasets`、`GET /export/api/exportable-datasets`、`POST /export/api/conversions`

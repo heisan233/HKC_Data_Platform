@@ -5,7 +5,7 @@
 
 ## 配置分层
 
-- `compose.yaml`：唯一应用容器、完整运行依赖、持久化存储及仅本机端口；适合
+- `compose.yaml`：应用与 MySQL 两个容器、完整运行依赖、持久化存储及仅本机端口；适合
   正式运行，也是所有覆盖配置的基础。
 - `compose.dev.yaml`：只把 `app/` 只读挂载进容器并启用 Uvicorn 热重载；只在
   本地开发时叠加。
@@ -44,16 +44,19 @@ id -g
 ```
 
 将输出写入 `.env` 的 `APP_UID`、`APP_GID`。默认数据目录是项目内
-`./storage`；服务器可设置绝对路径，例如：
+`./storage`，MySQL 数据目录是 `./mysql-data`；服务器可设置绝对路径，例如：
 
 ```dotenv
 HKC_STORAGE_PATH=/srv/hkc-data-platform/storage
+HKC_MYSQL_DATA_PATH=/srv/hkc-data-platform/mysql-data
 APP_UID=1000
 APP_GID=1000
 ```
 
 目标目录必须由这组数字 UID/GID 写入。容器内部路径始终为 `/data`，业务代码和
-数据集记录中不得出现宿主机绝对路径。已有 `.env` 时不要用示例文件覆盖它。
+数据集记录中不得出现宿主机绝对路径。MySQL 容器会管理自己的数据目录权限。
+首次启动前须在 `.env` 中设置非空的 `HKC_MYSQL_PASSWORD` 和
+`HKC_MYSQL_ROOT_PASSWORD`。已有 `.env` 时不要用示例文件覆盖它。
 
 `.env.example` 还给出上传限制、Doctor 超时以及空的 VLM 配置。真实 VLM 地址与
 Token 只写入部署机 `.env`，不要提交 Git。
@@ -81,9 +84,9 @@ docker compose exec platform \
 docker compose exec platform python -m app.cli.list_users
 ```
 
-列表不会显示密码哈希或会话令牌。账号位于持久化目录的
-`system/platform.sqlite`；重新创建容器不会删除账号，但换用全新持久化目录时必须
-重新创建。详细说明见项目根目录 `how_use.md`。
+列表不会显示密码哈希或会话令牌。账号位于 MySQL 数据库中；重新创建容器不会
+删除账号，但换用全新 MySQL 数据目录时必须重新创建。详细说明见项目根目录
+`how_use.md`。
 
 ### 1. 查找本机的可信内网地址
 
@@ -132,7 +135,8 @@ docker compose \
   up -d --build --wait
 ```
 
-如果服务器已经通过 `docker load` 导入 `hkc-data-platform:v3.0-server`，则不要重新
+如果服务器已经通过 `docker load` 导入与当前源码匹配的 `hkc-data-platform:v3.1`
+和 `mysql:8.4`，则不要重新
 联网构建，使用：
 
 ```bash
@@ -142,7 +146,7 @@ docker compose \
   up -d --no-build --force-recreate --wait
 ```
 
-`compose.yaml` 默认使用 `hkc-data-platform:v3.0-server`；如需使用其他受控标签，只在
+`compose.yaml` 默认使用 `hkc-data-platform:v3.1`；如需使用其他受控标签，只在
 部署机 `.env` 中设置 `HKC_IMAGE`。
 
 在另一台同网段机器的浏览器中访问：
@@ -236,23 +240,24 @@ docker compose ps
 
 ## 更新、备份与迁移设备
 
-代码、镜像和 `storage/` 是三类不同内容。更换服务器时需要同时迁移 Git 项目和
-`HKC_STORAGE_PATH` 指向的完整目录；只推送或拉取镜像不会包含数据集、SQLite、
-报告或回收站。
+代码、镜像、`storage/` 和 MySQL 数据目录是四类不同内容。更换服务器时需要
+迁移 Git 项目、完整 `HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH`，或使用一致的
+MySQL 数据库备份；只推送或拉取镜像不会包含业务数据。
 
 备份前先停止写入：
 
 ```bash
-docker compose stop platform
+docker compose stop platform mysql
 ```
 
-然后由管理员备份 `HKC_STORAGE_PATH` 的整个目录，完成后再启动：
+然后由管理员备份 `HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH` 的整个目录，
+完成后再启动：
 
 ```bash
 docker compose up -d --wait
 ```
 
-禁止只复制 `platform.sqlite` 而遗漏 Raw/Derived/报告文件，也不要在运行上传、
+禁止只复制旧 `platform.sqlite` 而遗漏 MySQL 和 Raw/Derived/报告文件，也不要在运行上传、
 标注发布、数据处理或质检任务时制作不一致的文件级备份。
 
 更新代码后按顺序执行：拉取/切换到已验收版本、检查 `.env`、执行

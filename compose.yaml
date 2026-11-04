@@ -1,5 +1,26 @@
 services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${HKC_MYSQL_DATABASE:-hkc_platform}
+      MYSQL_USER: ${HKC_MYSQL_USER:-hkc_app}
+      MYSQL_PASSWORD: ${HKC_MYSQL_PASSWORD:-}
+      MYSQL_ROOT_PASSWORD: ${HKC_MYSQL_ROOT_PASSWORD:-}
+    volumes:
+      - type: bind
+        source: ${HKC_MYSQL_DATA_PATH:-./mysql-data}
+        target: /var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   platform:
+    depends_on:
+      mysql:
+        condition: service_healthy
     build:
       context: .
       dockerfile: Dockerfile
@@ -8,10 +29,15 @@ services:
         APP_GID: ${APP_GID:-1000}
         PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
         PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
-    image: ${HKC_IMAGE:-hkc-data-platform:v3.0-server}
+    image: ${HKC_IMAGE:-hkc-data-platform:v3.1}
     init: true
     environment:
       HKC_DATA_ROOT: /data
+      HKC_MYSQL_HOST: mysql
+      HKC_MYSQL_PORT: 3306
+      HKC_MYSQL_DATABASE: ${HKC_MYSQL_DATABASE:-hkc_platform}
+      HKC_MYSQL_USER: ${HKC_MYSQL_USER:-hkc_app}
+      HKC_MYSQL_PASSWORD: ${HKC_MYSQL_PASSWORD:-}
       VLM_BASE_URL: ${VLM_BASE_URL:-}
       VLM_API_TOKEN: ${VLM_API_TOKEN:-EMPTY}
       QC_DOCTOR_TIMEOUT_SECONDS: ${QC_DOCTOR_TIMEOUT_SECONDS:-1800}

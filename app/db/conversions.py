@@ -1,4 +1,4 @@
-"""SQLite state for format conversion jobs; outputs are keyed by CV task IDs."""
+"""MySQL state for format conversion jobs; outputs are keyed by CV task IDs."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from app.db.datasets import DatasetRepository
+from app.db.mysql import ensure_schema
 
 
 class ConversionRepository:
@@ -13,25 +14,7 @@ class ConversionRepository:
         self.datasets = DatasetRepository(root)
 
     def initialize(self) -> None:
-        self.datasets.initialize()
-        with self.datasets.connection() as db:
-            db.execute("""CREATE TABLE IF NOT EXISTS conversion_jobs (
-                id TEXT PRIMARY KEY,
-                profile_id TEXT NOT NULL,
-                source_dataset_id TEXT NOT NULL,
-                source_name TEXT NOT NULL,
-                source_fingerprint TEXT NOT NULL,
-                status TEXT NOT NULL,
-                completed_episodes INTEGER NOT NULL,
-                total_episodes INTEGER NOT NULL,
-                files_json TEXT NOT NULL DEFAULT '[]',
-                error TEXT,
-                created_at TEXT NOT NULL,
-                started_at TEXT,
-                finished_at TEXT
-            )""")
-            db.execute("""CREATE INDEX IF NOT EXISTS conversion_jobs_created_idx
-                ON conversion_jobs(created_at DESC)""")
+        ensure_schema()
 
     @staticmethod
     def _row(row) -> dict | None:
@@ -103,20 +86,3 @@ class ConversionRepository:
                 error=NULL, finished_at=? WHERE id=?""",
                 (manifest["total_episodes"], json.dumps(manifest["files"]),
                  timestamp, task["id"]))
-
-    def import_legacy(self, task: dict) -> bool:
-        """Copy a former JSON task once; the JSON file remains as backup."""
-        self.initialize()
-        with self.datasets.connection() as db:
-            result = db.execute("""INSERT OR IGNORE INTO conversion_jobs
-                (id, profile_id, source_dataset_id, source_name, source_fingerprint,
-                 status, completed_episodes, total_episodes, files_json, error,
-                 created_at, started_at, finished_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (task["id"], "lerobot-v3-hdf5", task["source_dataset_id"],
-                 task.get("source_name", task["source_dataset_id"]),
-                 task.get("source_fingerprint", ""), task["status"],
-                 task.get("completed_episodes", 0), task.get("total_episodes", 0),
-                 json.dumps(task.get("files", [])), task.get("error"),
-                 task["created_at"], task.get("started_at"), task.get("finished_at")))
-        return bool(result.rowcount)

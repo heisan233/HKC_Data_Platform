@@ -1,4 +1,4 @@
-"""User administration command tests with an isolated SQLite database."""
+"""User administration command tests with an isolated MySQL database."""
 
 from pathlib import Path
 

@@ -220,7 +220,7 @@ def test_broken_video_fails_without_publishing_result(tmp_path: Path, monkeypatc
         assert not (tmp_path / "staging" / "conversion" / task["id"]).exists()
 
 
-def test_completed_legacy_json_job_is_shown_without_registration(tmp_path: Path) -> None:
+def test_old_json_job_is_not_imported_into_fresh_mysql(tmp_path: Path) -> None:
     folder = tmp_path / "system" / "conversion-jobs"
     folder.mkdir(parents=True)
     legacy = folder / "CV-ABCDEF123456.json"
@@ -240,10 +240,8 @@ def test_completed_legacy_json_job_is_shown_without_registration(tmp_path: Path)
         "error": None, "created_at": "2026-10-01T00:00:00+00:00",
         "started_at": None, "finished_at": "2026-10-01T00:01:00+00:00",
     }, ensure_ascii=False), encoding="utf-8")
-    assert len(service.list_tasks(tmp_path)) == 1
-    task = service.get_task(tmp_path, "CV-ABCDEF123456")
-    assert task["id"] == "CV-ABCDEF123456"
-    assert len(service.list_tasks(tmp_path)) == 1
-    assert len(service.list_results(tmp_path)) == 1
+    assert service.list_tasks(tmp_path) == []
+    assert service.get_task(tmp_path, "CV-ABCDEF123456") is None
+    assert service.list_results(tmp_path) == []
     assert DatasetRepository(tmp_path).list() == []
     assert legacy.is_file()

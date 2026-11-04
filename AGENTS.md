@@ -12,14 +12,11 @@
 
 ## 1. 当前共同基线
 
-- `integration/hs-lxp-v3.0.2` 是当前机器人—数据集关联开发分支，来源于已验收的
-  `integration/hs-lxp-v3.0.1` 模型训练集成分支。后者来源于
-  `integration/hs-lxp-v3.0`，并以已冻结验收的
-  `integration/hs-v2.1` 为基线，合入 LXP 的 `integration/hs-lxp-v2.5` 格式转换、
-  导出和数据管理扩展。
+- `integration/hs-lxp-v3.1` 是二阶段共同开发分支，从已合入一期功能的 `main`
+  提交 `674cf92` 创建。`integration/hs-lxp-v3.0.2` 及其来源分支保留为历史参考。
 - `integration/hs-v2.1` 与 `integration/hs-lxp-v2.5` 是本轮两个来源分支，保留为
   只读回退点；不得将任一来源分支整批覆盖回当前集成分支。
-- 在使用者明确完成验收并将它合入 `main` 之前，`main` 不是当前功能基线。
+- `main` 是一期已合并基线；二阶段功能先在 `integration/hs-lxp-v3.1` 开发和验收。
 - `hs_docker`、`lxp_docker_v2`、`feat/platform-v2` 和更早分支只用于查看历史，
   不得把其中的目录或文件整批覆盖回当前集成分支。
 - 开始工作前必须执行 `git status --short --branch` 和 `git log -1 --oneline`；
@@ -30,14 +27,14 @@
 ## 2. 当前产品与技术事实
 
 - 技术栈：Python 3.11、FastAPI、Uvicorn、Jinja2、原生 JavaScript/CSS。
-- 当前部署形态：一个应用镜像、一个应用容器。网页/API、SQLite 登记和基础质检
-  暂时在同一容器中运行；没有 PostgreSQL、Redis 或独立 Docker Worker。
+- 当前二阶段代码部署形态：一个应用容器加一个 MySQL 容器。网页/API 和基础质检
+  仍在应用容器中运行；没有 PostgreSQL、Redis 或独立 Docker Worker。
   X-VLA 训练执行器是独立的宿主机进程。
-- 大型 VLA 数据集始终保存在普通文件夹中。SQLite 只保存稳定 DS 编号、真实目录
+- 大型 VLA 数据集始终保存在普通文件夹中。MySQL 只保存稳定 DS 编号、真实目录
   映射、来源关系、质检任务和人工审核等管理元数据。
 - 当前真实数据集格式以 LeRobot v3 为准；已支持把已登记的 Derived DS 转换为
   HDF5。不要假定 LeRobot v2、ROS bag、MCAP 或 RLDS 已经实现。
-- 当前已有 SQLite 用户、scrypt 密码哈希和服务端 Cookie 会话保护，但没有 HTTPS；
+- 当前已有 MySQL 用户、scrypt 密码哈希和服务端 Cookie 会话保护，但没有 HTTPS；
   仍只能开放到可信内网，禁止宣称可安全暴露到公网。
 - 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。首期 X-VLA 使用宿主机已有的
   LeRobot Conda 环境，由独立训练执行器通过 Unix socket 与平台通信；以后新增
@@ -45,7 +42,7 @@
 
 ## 3. 已完成与未完成边界
 
-已连接真实文件或 SQLite 的功能：
+已连接真实文件或 MySQL 的功能：
 
 - `auth`：无默认账号的用户表、密码哈希、服务端会话、登录、退出和全站访问保护；
 - `robots`：独立机器人档案、稳定 RB 编号、新增/编辑、停用/恢复，以及 DS 的
@@ -89,7 +86,7 @@ app/
 ├── main.py                 FastAPI 入口，只注册路由和静态目录
 ├── web.py                  共享 Jinja2 模板对象
 ├── core/                   路径、配置等跨模块基础能力
-├── db/                     SQLite 访问代码，不存放数据库文件
+├── db/                     MySQL 访问代码，不存放数据库文件
 ├── modules/                按业务能力组织 Python 代码
 ├── templates/              Jinja2 HTML 模板
 └── static/                 CSS、JavaScript 和网页图片
@@ -104,11 +101,13 @@ storage/                    宿主机运行数据；真实内容不提交 Git
 ├── reports/qc/             质检 JSON 报告
 ├── trash/reports/          可恢复的报告回收站
 ├── exports/                Derived/CV 的 tar.gz 导出产物
-└── system/                 SQLite、上传记录、版本和任务记录
+└── system/                 上传记录、版本和文件式任务记录
+
+mysql-data/                 MySQL 容器私有数据目录，独立于 storage/，不提交 Git
 
 deploy/                     局域网 Compose 覆盖和部署说明
 docs/                       架构、协作和当前状态文档
-migrations/                 未来 SQLite 表结构升级脚本，不是旧数据仓库
+migrations/                 MySQL 表结构脚本，不是旧数据仓库
 tests/                      自动化测试，结构尽量对应业务模块
 ```
 
@@ -134,7 +133,7 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `router.py`：HTTP 参数、状态码、页面/API 响应；不得堆放复杂文件处理。
 - `service.py`：业务流程、文件扫描、构建、校验和外部调用。
 - `schemas.py`：Pydantic 请求/响应结构。
-- `app/db/*.py`：SQLite 表初始化和查询。
+- `app/db/*.py`：MySQL 表初始化和查询。
 - `templates/` 决定页面结构，`static/js/` 负责浏览器交互；业务数据必须通过模块
   API 获得，不能只在 JavaScript 中伪造。
 - 共享 LeRobot v3 元数据读取逻辑优先放在
@@ -144,8 +143,10 @@ tests/                      自动化测试，结构尽量对应业务模块
 
 - 浏览器/API 对数据集使用 `DS000001` 形式的稳定编号，不直接暴露真实目录作为
   主标识。
-- SQLite 文件位于 `storage/system/platform.sqlite`，映射 DS 编号到
-  `raw/<目录>` 或 `derived/<目录>`；数据集字节不写入 SQLite。
+- MySQL 数据目录由 `HKC_MYSQL_DATA_PATH` 映射，独立于 `HKC_STORAGE_PATH`。
+  MySQL 映射 DS 编号到 `raw/<目录>` 或 `derived/<目录>`；数据集字节不写入数据库。
+  旧 `storage/system/platform.sqlite` 保留原样，不导入新库，也不再被平台读写。
+  `registry.sqlite3` 由 HS 单独负责，不在本次变更范围内。
 - 转换结果使用 `CV-...` 任务编号映射 `converted/<CV 编号>`，不占用 DS 编号；
   `conversion_jobs` 只保存任务元数据，HDF5 文件仍保存在普通目录。
 - 业务代码通过 `app.core.config.settings.data_root` 取得数据根目录，禁止写死
@@ -155,12 +156,12 @@ tests/                      自动化测试，结构尽量对应业务模块
   `staging/` 生成完整副本，校验后移入 `derived/` 并登记新 DS 编号。
 - 合并或重排时必须同步 Episode 元数据、frame Parquet、全局 `index`、
   `episode_index`、task 索引、旁路标注以及必要的视频映射。
-- `detected/` 已废止。质检状态由 SQLite 与 `reports/qc/` 表达，不复制完整数据集。
+- `detected/` 已废止。质检状态由 MySQL 与 `reports/qc/` 表达，不复制完整数据集。
 - 当前不允许永久删除数据集或报告。
 
 ## 7. Git、密钥与配置
 
-- 不得提交 `.env`、Token、密码、公司 VLM 地址、真实数据集、SQLite、报告、模型、
+- 不得提交 `.env`、Token、密码、公司 VLM 地址、真实数据集、数据库目录、报告、模型、
   导出包、缓存或日志。
 - 用户必须通过 `python -m app.cli.create_user` 在部署机交互创建；不得在源码、
   Compose、文档或测试中加入默认账号及真实密码。

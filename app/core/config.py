@@ -6,7 +6,7 @@
 * Docker 启动时，``HKC_DATA_ROOT=/data``；Compose 默认把宿主机 ``./storage``
   挂载到 ``/data``，部署机可用 ``HKC_STORAGE_PATH`` 改变宿主机位置。
 
-数据集文件与 SQLite 登记库都位于这个存储根目录；数据库文件在 system/ 下。
+数据集文件位于这个存储根目录；二阶段平台管理元数据使用独立 MySQL 服务。
 """
 
 import os

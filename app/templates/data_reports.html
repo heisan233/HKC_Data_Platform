@@ -4,7 +4,7 @@
 <link rel="stylesheet" href="/static/css/data.css?v=20261021-reports2">
 <div class="dm-wrap" id="dm-reports-page">
   <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>Reports</nav>
-  <section class="dm-hero"><div><span class="dm-eyebrow">QC REPORTS</span><h2>{{ '报告回收站' if view == 'trash' else '质检报告' }}</h2><p>{% if view == 'trash' %}报告保存在 trash/reports/&lt;ID&gt;/，可恢复且不影响 SQLite 中的任务和人工审核记录。{% else %}按已登记数据集查看 reports/qc/&lt;ID&gt;/ 中的实际文件。移除操作只会放入回收站。{% endif %}</p></div></section>
+  <section class="dm-hero"><div><span class="dm-eyebrow">QC REPORTS</span><h2>{{ '报告回收站' if view == 'trash' else '质检报告' }}</h2><p>{% if view == 'trash' %}报告保存在 trash/reports/&lt;ID&gt;/，可恢复且不影响 MySQL 中的任务和人工审核记录。{% else %}按已登记数据集查看 reports/qc/&lt;ID&gt;/ 中的实际文件。移除操作只会放入回收站。{% endif %}</p></div></section>
   <div id="dm-report-feedback" class="dm-feedback" role="status" hidden></div>
   <section class="dm-panel"><div class="dm-toolbar"><div class="dm-tabs"><a class="{% if view == 'active' %}active{% endif %}" href="/data/reports/">当前报告 <b>{{ active_count }}</b></a><a class="{% if view == 'trash' %}active{% endif %}" href="/data/reports/?view=trash">回收站 <b>{{ trash_count }}</b></a></div></div></section>
   {% for group in groups %}
