@@ -8,6 +8,9 @@
 `HKC_TEST_MYSQL_HOST` 和 `HKC_TEST_MYSQL_ROOT_PASSWORD`；可选端口为
 `HKC_TEST_MYSQL_PORT`。测试夹具逐个创建和删除 `hkc_test_*` 数据库，不连接正式库。
 
+截至 2026-11-05，多用户与个人中心完成后的全量结果为 `131 passed`，另有一条
+Starlette/AnyIO 上游弃用警告；Ruff 0.16.8 全仓库通过。
+
 `tests/integration/test_data_management.py` 使用临时 `storage/` 和测试 MySQL 库测试
 目录扫描、编号登记、路径安全、报告关联，以及真实 Parquet Episode 关节曲线读取；
 不会访问真实业务数据。
