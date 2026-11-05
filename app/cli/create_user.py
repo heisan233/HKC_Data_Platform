@@ -22,7 +22,7 @@ def main(argv: list[str] | None = None) -> int:
         user = UserRepository(settings.data_root).create_user(username, password)
     except ValueError as exc:
         parser.error(str(exc))
-    print(f"用户已创建：{user['username']}")
+    print(f"用户已创建：{user['username']}（首次登录必须修改初始密码）")
     return 0
 
 

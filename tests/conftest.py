@@ -68,9 +68,12 @@ def isolated_shared_services(
         lambda _request: {
             "id": 1,
             "username": "test_user",
+            "display_name": "测试用户",
             "is_active": 1,
+            "must_change_password": 0,
             "created_at": "2026-01-01T00:00:00+00:00",
             "updated_at": "2026-01-01T00:00:00+00:00",
             "last_login_at": None,
+            "password_changed_at": None,
         },
     )

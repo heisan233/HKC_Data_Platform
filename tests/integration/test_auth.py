@@ -66,7 +66,7 @@ def test_password_is_hashed_and_duplicate_username_is_rejected(auth_platform):
 
 def test_login_session_and_logout(auth_platform):
     client, repository, _ = auth_platform
-    repository.create_user("hei_san", "test-password")
+    repository.create_user("hei_san", "test-password", must_change_password=False)
 
     invalid = client.post(
         "/login",
@@ -129,7 +129,7 @@ def test_login_session_and_logout(auth_platform):
 
 def test_login_rejects_external_redirect(auth_platform):
     client, repository, _ = auth_platform
-    repository.create_user("hei_san", "test-password")
+    repository.create_user("hei_san", "test-password", must_change_password=False)
 
     response = client.post(
         "/login",
@@ -143,3 +143,133 @@ def test_login_rejects_external_redirect(auth_platform):
 
     assert response.status_code == 303
     assert response.headers["location"] == "/dashboard/"
+
+
+def test_initial_password_requires_change_before_platform_access(auth_platform):
+    client, repository, _ = auth_platform
+    repository.create_user("new_user", "initial-password")
+
+    response = client.post(
+        "/login",
+        data={"username": "new_user", "password": "initial-password"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/account/password"
+    assert client.get("/account/password").status_code == 200
+
+    page = client.get("/dashboard/", follow_redirects=False)
+    assert page.status_code == 303
+    assert page.headers["location"] == "/account/password"
+    api = client.get("/annotation/api/datasets", headers={"Accept": "application/json"})
+    assert api.status_code == 403
+    assert api.json()["password_change_required"] is True
+
+    changed = client.post(
+        "/account/password",
+        data={
+            "current_password": "initial-password",
+            "new_password": "changed-password",
+            "confirmation": "changed-password",
+        },
+        follow_redirects=False,
+    )
+    assert changed.status_code == 303
+    assert changed.headers["location"] == "/login?password_changed=1"
+    assert repository.authenticate("new_user", "initial-password") is None
+    user = repository.authenticate("new_user", "changed-password")
+    assert user and not user["must_change_password"]
+    assert client.get("/dashboard/", follow_redirects=False).status_code == 303
+
+    login = client.post(
+        "/login",
+        data={"username": "new_user", "password": "changed-password"},
+        follow_redirects=False,
+    )
+    assert login.headers["location"] == "/dashboard/"
+
+
+def test_profile_update_and_password_change_revoke_all_user_sessions(auth_platform):
+    client_a, repository, _ = auth_platform
+    repository.create_user(
+        "operator_1",
+        "current-password",
+        display_name="操作员一",
+        must_change_password=False,
+    )
+    client_b = TestClient(app)
+    for client in (client_a, client_b):
+        response = client.post(
+            "/login",
+            data={"username": "operator_1", "password": "current-password"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+    updated = client_a.post(
+        "/account/profile",
+        data={"display_name": "一号操作员"},
+        follow_redirects=False,
+    )
+    assert updated.headers["location"] == "/account/?profile_updated=1"
+    assert repository.get_by_username("operator_1")["display_name"] == "一号操作员"
+    assert client_a.post("/account/profile", data={"display_name": "   "}).status_code == 400
+
+    unchanged = client_a.post(
+        "/account/password",
+        data={
+            "current_password": "current-password",
+            "new_password": "current-password",
+            "confirmation": "current-password",
+        },
+    )
+    assert unchanged.status_code == 400
+    assert "不能与当前密码相同" in unchanged.text
+
+    changed = client_a.post(
+        "/account/password",
+        data={
+            "current_password": "current-password",
+            "new_password": "new-password-123",
+            "confirmation": "new-password-123",
+        },
+        follow_redirects=False,
+    )
+    assert changed.status_code == 303
+    assert client_a.get("/dashboard/", follow_redirects=False).status_code == 303
+    assert client_b.get("/dashboard/", follow_redirects=False).status_code == 303
+    assert repository.authenticate("operator_1", "current-password") is None
+    assert repository.authenticate("operator_1", "new-password-123")
+
+
+def test_two_users_have_independent_concurrent_sessions(auth_platform):
+    client_a, repository, _ = auth_platform
+    client_b = TestClient(app)
+    repository.create_user("user_a", "password-a", must_change_password=False)
+    repository.create_user("user_b", "password-b", must_change_password=False)
+
+    client_a.post("/login", data={"username": "user_a", "password": "password-a"})
+    client_b.post("/login", data={"username": "user_b", "password": "password-b"})
+    token_a = client_a.cookies.get(SESSION_COOKIE_NAME)
+    token_b = client_b.cookies.get(SESSION_COOKIE_NAME)
+    assert token_a and token_b and token_a != token_b
+    assert "user_a" in client_a.get("/account/").text
+    assert "user_b" in client_b.get("/account/").text
+
+    client_a.post("/logout")
+    assert client_a.get("/dashboard/", follow_redirects=False).status_code == 303
+    assert client_b.get("/dashboard/").status_code == 200
+
+
+def test_disabling_user_revokes_sessions_and_enable_restores_login(auth_platform):
+    client, repository, _ = auth_platform
+    repository.create_user("operator_2", "test-password", must_change_password=False)
+    client.post("/login", data={"username": "operator_2", "password": "test-password"})
+    assert client.get("/dashboard/").status_code == 200
+
+    repository.set_active("operator_2", False)
+    assert client.get("/dashboard/", follow_redirects=False).status_code == 303
+    assert repository.authenticate("operator_2", "test-password") is None
+
+    repository.set_active("operator_2", True)
+    assert repository.authenticate("operator_2", "test-password")

@@ -19,6 +19,8 @@
         .header h1 { font-size: 20px; color: #1a3c5e; }
         .header .user { display: flex; align-items: center; gap: 16px; font-size: 14px; }
         .header .user form { margin: 0; }
+        .account-link { color: #2b7de9; text-decoration: none; }
+        .account-link:hover { text-decoration: underline; }
         .logout-button { border: 0; background: transparent; color: #2b7de9; cursor: pointer; font-size: 14px; }
         .logout-button:hover { text-decoration: underline; }
         .content { padding: 24px 32px; flex: 1; min-width: 0; }
@@ -69,7 +71,7 @@
             <header class="header">
                 <h1>{% block page_title %}工作台{% endblock %}</h1>
                 <div class="user">
-                    <span>👤 {{ request.state.user.username }}</span>
+                    <a class="account-link" href="/account/">👤 {{ request.state.user.display_name }}</a>
                     <form method="post" action="/logout">
                         <button class="logout-button" type="submit">退出登录</button>
                     </form>

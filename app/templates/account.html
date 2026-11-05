@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block page_title %}个人中心{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/account.css?v=20261105-1">{% endblock %}
+{% block content %}
+<main class="account-wrap">
+  <section class="account-hero">
+    <div><span>USER PROFILE</span><h2>{{ user.display_name }}</h2><p>管理个人显示信息和登录密码。</p></div>
+    <div class="account-id"><small>登录用户名</small><strong>{{ user.username }}</strong></div>
+  </section>
+
+  <div class="account-grid">
+    <section class="account-card">
+      <div class="account-heading"><span>01</span><div><h3>个人信息</h3><p>用户名不可修改，显示名称用于页面问候和用户入口。</p></div></div>
+      {% if profile_message %}<div class="account-alert account-success">{{ profile_message }}</div>{% endif %}
+      {% if profile_error %}<div class="account-alert account-error">{{ profile_error }}</div>{% endif %}
+      <form method="post" action="/account/profile" class="account-form">
+        <label>用户名<input value="{{ user.username }}" disabled></label>
+        <label>显示名称<input name="display_name" value="{{ user.display_name }}" maxlength="64" required></label>
+        <button type="submit">保存显示名称</button>
+      </form>
+      <dl class="account-meta">
+        <div><dt>账号状态</dt><dd>{{ '启用' if user.is_active else '停用' }}</dd></div>
+        <div><dt>创建时间</dt><dd>{{ user.created_at|local_datetime }}</dd></div>
+        <div><dt>最近登录</dt><dd>{{ user.last_login_at|local_datetime }}</dd></div>
+        <div><dt>最近改密</dt><dd>{{ user.password_changed_at|local_datetime }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="account-card" id="password">
+      <div class="account-heading"><span>02</span><div><h3>修改密码</h3><p>新密码至少 8 位；修改成功后全部会话都会注销。</p></div></div>
+      {% if password_error %}<div class="account-alert account-error">{{ password_error }}</div>{% endif %}
+      <form method="post" action="/account/password" class="account-form">
+        <label>当前密码<input type="password" name="current_password" autocomplete="current-password" required></label>
+        <label>新密码<input type="password" name="new_password" minlength="8" maxlength="128" autocomplete="new-password" required></label>
+        <label>再次输入新密码<input type="password" name="confirmation" minlength="8" maxlength="128" autocomplete="new-password" required></label>
+        <button type="submit">修改密码并重新登录</button>
+      </form>
+    </section>
+  </div>
+</main>
+{% endblock %}

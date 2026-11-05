@@ -21,3 +21,16 @@ def current_user(root: Path, token: str | None) -> dict | None:
 
 def end_session(root: Path, token: str | None) -> None:
     UserRepository(root).revoke_session(token)
+
+
+def update_display_name(root: Path, user_id: int, display_name: str) -> dict:
+    return UserRepository(root).update_display_name(user_id, display_name)
+
+
+def change_password(
+    root: Path,
+    user_id: int,
+    current_password: str,
+    new_password: str,
+) -> None:
+    UserRepository(root).change_password(user_id, current_password, new_password)

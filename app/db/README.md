@@ -1,13 +1,14 @@
 # `app/db` 数据库访问层
 
-二阶段平台元数据使用 MySQL 8.4/InnoDB。`mysql.py` 负责连接、事务和首次建表，
-建表脚本位于 `migrations/mysql/001_initial.sql`。应用启动命令先执行
+二阶段平台元数据使用 MySQL 8.4/InnoDB。`mysql.py` 负责连接、事务和顺序迁移，
+表结构脚本位于 `migrations/mysql/`。应用启动命令先执行
 `python -m app.cli.init_mysql`；仓储调用 `initialize()` 时也会幂等检查结构。
 
 - `datasets.py`：DS 编号、Raw/Derived 位置、展示信息和来源关系；
 - `conversions.py`：CV 转换任务状态；
 - `quality.py`：质检方案、版本、任务、运行控制和人工审核；
-- `users.py`：无默认网页用户的账号、scrypt 密码哈希和服务端会话摘要；
+- `users.py`：无默认网页用户的账号、显示名称、首次改密状态、scrypt 密码哈希和
+  服务端会话摘要；
 - `robots.py`、`dataset_robots.py`：机器人档案和 DS 关联；
 - `training.py`：训练任务、评估和模型包管理元数据；
 - `semantics.py`：旧受控词表接口保留，当前 Schema 页面不使用它。

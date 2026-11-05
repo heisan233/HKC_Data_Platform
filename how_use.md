@@ -304,7 +304,8 @@ docker compose \
 `--password` 参数，禁止把密码写入 Git、`.env`、Compose、文档或命令参数。
 
 同一命令既能创建首个用户，也能继续创建其他用户。用户名不区分英文字母大小写，
-重复创建会明确失败且不会覆盖旧密码。创建后可安全查看账号摘要：
+重复创建会明确失败且不会覆盖旧密码。新用户首次登录后只能进入修改初始密码页面；
+设置至少 8 位的新密码并重新登录后，才可访问平台其他页面。创建后可安全查看账号摘要：
 
 ```bash
 docker compose \
@@ -314,9 +315,30 @@ docker compose \
   python -m app.cli.list_users
 ```
 
-列表只显示 ID、用户名、启用状态、创建时间和最近登录时间，不显示密码哈希、密码或
-会话令牌。用户保存在 MySQL 中：重启或重建容器不会丢失；使用全新 MySQL
+列表只显示 ID、用户名、显示名称、启用状态、初始密码状态、创建时间和最近登录时间，
+不显示密码哈希、密码或会话令牌。用户保存在 MySQL 中：重启或重建容器不会丢失；使用全新 MySQL
 数据目录时不会自动带来旧用户，必须重新创建。
+
+重置密码、停用和重新启用用户：
+
+```bash
+# 重置为新的初始密码；终端会隐藏输入，用户下次登录必须自行改密
+docker compose exec platform \
+  python -m app.cli.reset_user_password --username <用户名>
+
+# 停用后立即注销该用户全部浏览器会话
+docker compose exec platform \
+  python -m app.cli.disable_user --username <用户名>
+
+# 重新启用；原密码或重置后的初始密码规则保持不变
+docker compose exec platform \
+  python -m app.cli.enable_user --username <用户名>
+```
+
+平台不提供公开注册、网页后台用户管理或账号删除。普通用户登录后点击页面右上角的
+显示名称进入 `/account/`，可修改显示名称和密码。用户名不可修改，显示名称不能为空。
+修改密码成功后，该用户在所有浏览器和设备上的会话都会失效，必须使用新密码重新
+登录；退出登录只结束当前浏览器会话。
 
 正式部署或局域网部署时命令相同，只需在启动平台所用的项目目录中执行：
 
@@ -330,6 +352,9 @@ docker compose exec platform \
 ```bash
 python -m app.cli.create_user --username <用户名>
 python -m app.cli.list_users
+python -m app.cli.reset_user_password --username <用户名>
+python -m app.cli.disable_user --username <用户名>
+python -m app.cli.enable_user --username <用户名>
 ```
 
 此时命令写入 `HKC_MYSQL_HOST`、`HKC_MYSQL_PORT`、`HKC_MYSQL_DATABASE` 指定的

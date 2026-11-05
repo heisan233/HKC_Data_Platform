@@ -17,12 +17,14 @@
         .login-box button:hover { background: #1a6cd6; }
         .login-box .error { color: #ff4d4f; font-size: 13px; margin-top: 8px; text-align: center; }
         .login-box .error { min-height: 20px; }
+        .login-box .message { margin-bottom: 16px; padding: 10px 12px; border-radius: 6px; background: #edf9f1; color: #287a48; font-size: 13px; text-align: center; }
     </style>
 </head>
 <body>
     <div class="login-box">
         <h1>HKC 数采平台</h1>
         <div class="sub">机器人数据采集与管理平台</div>
+        {% if message %}<div class="message">{{ message }}</div>{% endif %}
         <form method="post" action="/login">
             <input type="hidden" name="next" value="{{ next_path }}">
             <label for="username">用户名</label>

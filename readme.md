@@ -205,10 +205,12 @@ docker compose exec platform \
 ```
 
 密码使用 scrypt 哈希保存，浏览器 Cookie 只携带随机会话令牌；MySQL 只保存该
-令牌的摘要。命令只允许隐藏式交互输入密码，不提供密码参数。管理员可以执行
-`docker compose exec platform python -m app.cli.list_users` 检查账号摘要；该输出
-不包含密码哈希或会话令牌。完整说明见 `how_use.md`，真实用户名和密码不得提交
-Git 或写入文档。
+令牌的摘要。创建与重置密码命令只允许隐藏式交互输入密码，不提供密码参数。新建
+或被重置密码的用户首次登录后必须设置自己的新密码；修改密码会注销该用户全部
+会话。用户可以在 `/account/` 修改非空显示名称和密码，登录用户名不可修改。管理员
+通过终端执行 `list_users`、`reset_user_password`、`disable_user` 和 `enable_user`
+查看、重置、停用及启用账号；平台不提供网页注册、网页用户管理或账号删除。
+完整说明见 `how_use.md`，真实用户名和密码不得提交 Git 或写入文档。
 
 容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`；默认情况下
 `./storage` 会挂载到 `/data`。修改 Python 或模板后，开发覆盖配置中的
@@ -574,7 +576,8 @@ async def root():
 </div>
 ```
 
-`templates/login.html` 和 `templates/settings.html` 仍保留，目前没有注册使用它们的认证路由。当前应用没有登录状态、用户身份校验或权限控制。
+上述内容是旧版历史说明。当前版本已经提供 MySQL 用户、登录、退出、个人中心、
+首次改密和全站访问保护；不存在公开注册入口，也尚未划分管理员与普通用户角色。
 
 ### 4.2 修复模板响应参数不兼容
 

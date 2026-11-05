@@ -163,8 +163,10 @@ tests/                      自动化测试，结构尽量对应业务模块
 
 - 不得提交 `.env`、Token、密码、公司 VLM 地址、真实数据集、数据库目录、报告、模型、
   导出包、缓存或日志。
-- 用户必须通过 `python -m app.cli.create_user` 在部署机交互创建；不得在源码、
-  Compose、文档或测试中加入默认账号及真实密码。
+- 用户必须通过部署机终端命令交互管理：`create_user` 创建、
+  `reset_user_password` 重置密码、`enable_user` 启用、`disable_user` 停用；不得在
+  源码、Compose、文档或测试中加入默认账号及真实密码。新建或重置密码的用户必须
+  首次登录改密，现有迁移用户不得被强制改密。
 - `.env.example` 只保存公开占位值；换设备时从它新建 `.env`。
 - `compose.yaml` 默认只绑定 `127.0.0.1:8000`；
   `deploy/compose.lan.yaml` 才负责可信局域网绑定；`compose.dev.yaml` 只增加源码热

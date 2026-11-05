@@ -315,11 +315,11 @@ def test_training_repository_initializes_fresh_mysql_schema(tmp_path):
     with repo.connection() as db:
         columns = {row["Field"] for row in db.execute("SHOW COLUMNS FROM training_jobs").fetchall()}
         indexes = {row["Key_name"] for row in db.execute("SHOW INDEX FROM training_jobs").fetchall()}
-        version = db.execute("SELECT version FROM schema_migrations").fetchone()[0]
+        version = db.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
     assert {"deleted_at", "deleted_by", "delete_requested_at",
             "delete_requested_by", "runtime_id"} <= columns
     assert "training_jobs_deleted_idx" in indexes
-    assert version == 1
+    assert version == 2
 
 
 def test_training_delete_restore_api_uses_recycle_bin(tmp_path, monkeypatch):

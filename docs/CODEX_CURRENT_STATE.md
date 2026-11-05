@@ -1,8 +1,9 @@
 # 二阶段项目现状（供同事 Codex 接手）
 
-更新日期：2026-11-04
+更新日期：2026-11-05
 
-二阶段 `integration/hs-lxp-v3.1` 从一期已合并的 `main` 提交 `674cf92` 创建。
+二阶段基础分支 `integration/hs-lxp-v3.1` 从一期已合并的 `main` 提交 `674cf92`
+创建；当前重庆集成与后续多用户开发位于 `integration/hs-lxp-v3.1-cq`。
 本分支平台管理元数据改用全新 MySQL 8.4 库，不导入、读写或删除旧
 `storage/system/platform.sqlite`。`registry.sqlite3` 由 HS 独立负责。
 以下一期功能说明仍适用，但涉及 SQLite 的历史描述以本段及 `app/db/README.md`
@@ -17,7 +18,7 @@
 当前二阶段开发分支：
 
 ```text
-分支：integration/hs-lxp-v3.1
+分支：integration/hs-lxp-v3.1-cq
 来源：main / 674cf92
 目录：当前 Git 工作区
 ```
@@ -56,7 +57,8 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 
 | 网址 | 模块 | 当前状态 |
 | --- | --- | --- |
-| `/login`、`/logout` | `auth` | MySQL 用户、密码哈希、登录会话和退出 |
+| `/login`、`/logout` | `auth` | MySQL 用户、密码哈希、登录会话、首次改密和退出 |
+| `/account/` | `auth` | 修改显示名称和密码；改密后注销该用户全部会话 |
 | `/healthz` | 应用入口 | 无需登录的 Docker 存活检查，不返回业务数据 |
 | `/dashboard/` | `dashboard` | 真实 DS、机器人、质检、训练、待办和磁盘容量总览 |
 | `/data/` | `datasets` | 真实 DS 数据集总览和质检状态 |
@@ -181,15 +183,18 @@ MySQL 访问代码：
 - `app/db/conversions.py`：CV 转换任务、进度、状态和结果文件清单；
 - `app/db/quality.py`：质检方案版本、任务、状态和人工审核；
 - `app/db/training.py`：TR 任务编号、固定快照、状态、评估和模型包引用；
-- `app/db/users.py`：用户、scrypt 密码哈希和服务端登录会话；
+- `app/db/users.py`：用户、显示名称、首次改密、scrypt 密码哈希和服务端登录会话；
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
 - `app/db/dataset_robots.py`：DS 与采集机器人的可选关系及派生继承；
 - `app/db/semantics.py`：旧受控词表兼容保留；当前数据定义页不再读写；
 - 真实数据库：独立 MySQL 服务，宿主数据目录由 `HKC_MYSQL_DATA_PATH` 指定；旧 `platform.sqlite` 原样保留。
 
 平台不提供默认账号。每台全新部署设备启动后，由管理员在容器中交互执行
-`python -m app.cli.create_user` 创建用户，并可用 `python -m app.cli.list_users`
-查看不含认证秘密的账号摘要；密码不得写入 Git、命令历史或文档。
+`python -m app.cli.create_user` 创建用户，并使用 `list_users`、
+`reset_user_password`、`disable_user`、`enable_user` 管理账号；这些操作不在网页
+开放。新建或重置密码的用户必须首次登录改密，迁移前已有用户保持原密码且不强制
+改密。用户可在 `/account/` 修改显示名称与密码；改密会注销该用户全部会话。
+密码不得写入 Git、命令历史或文档。
 除 `/login`、`/healthz` 和静态资源外，页面与 API 都需要有效会话。当前仍没有
 HTTPS，因此只能在可信内网使用。
 

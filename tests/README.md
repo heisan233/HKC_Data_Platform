@@ -13,15 +13,17 @@
 不会访问真实业务数据。
 
 `tests/integration/test_auth.py` 使用独立 MySQL 测试库验证无默认账号、密码哈希、
-登录 Cookie、退出和访问保护。其他业务测试通过 `tests/conftest.py` 注入测试用户，
-不会读取或修改旧 `storage/system/platform.sqlite` 中的账号与会话。
+登录 Cookie、退出、首次强制改密、个人资料、全部会话失效、停用/启用和多用户并发
+会话。`test_mysql_backend.py` 还验证旧版用户升级后密码不变且不会被强制改密。其他
+业务测试通过 `tests/conftest.py` 注入测试用户，不会读取或修改旧
+`storage/system/platform.sqlite` 中的账号与会话。
 
 `tests/integration/test_system.py` 验证真实访问日志落盘、4xx/5xx 分级、页面筛选，
 以及查询参数不会写入日志。认证中间件的日志根目录在每个测试中指向临时目录，
 不会污染正式 `storage/system/logs/`。
 
-`tests/unit/test_user_cli.py` 验证管理员创建用户时必须交互输入并确认密码，以及用户
-列表不会输出密码、密码哈希或会话令牌。测试同样只使用独立 MySQL 测试库。
+`tests/unit/test_user_cli.py` 验证终端创建、重置、停用、启用用户及交互式密码确认，
+并验证用户列表不会输出密码、密码哈希或会话令牌。测试同样只使用独立 MySQL 测试库。
 
 `tests/integration/test_robots.py` 使用独立 MySQL 测试库验证机器人档案为空时不再展示
 演示数据，以及真实创建、列表、编辑、停用、恢复、唯一性与“无永久删除”边界。

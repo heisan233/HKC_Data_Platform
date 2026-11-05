@@ -13,6 +13,7 @@ from app.modules.system.service import write_request_log
 
 PUBLIC_PATHS = frozenset({"/login", "/healthz", "/static"})
 PUBLIC_PREFIXES = ("/static/",)
+PASSWORD_CHANGE_PATHS = frozenset({"/account/password", "/logout"})
 
 
 def _current_user(request: Request) -> dict | None:
@@ -47,6 +48,17 @@ class LoginRequiredMiddleware(BaseHTTPMiddleware):
             return RedirectResponse(f"/login?next={quote(target, safe='')}", status_code=303)
 
         request.state.user = user
+        if user["must_change_password"] and path not in PASSWORD_CHANGE_PATHS:
+            if _is_api_request(request):
+                return JSONResponse(
+                    {
+                        "detail": "请先修改初始密码",
+                        "password_change_required": True,
+                    },
+                    status_code=403,
+                )
+            return RedirectResponse("/account/password", status_code=303)
+
         started = perf_counter()
         try:
             response = await call_next(request)
