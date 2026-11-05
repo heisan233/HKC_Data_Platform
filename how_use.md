@@ -55,13 +55,54 @@ docker compose --env-file .env -p hkc-v31-mysql \
   -f deploy/compose.local-mysql.yaml down
 ```
 
+### 本机 MySQL 验收版用户管理
+
+本机 `18001` 版本必须始终带上项目名 `hkc-v31-mysql` 和三份 Compose 配置，不能
+直接使用简写的 `docker compose exec platform`。创建用户：
+
+```bash
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform \
+  python -m app.cli.create_user --username <用户名>
+```
+
+查看、重置密码、停用和启用用户：
+
+```bash
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform python -m app.cli.list_users
+
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform python -m app.cli.reset_user_password --username <用户名>
+
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform python -m app.cli.disable_user --username <用户名>
+
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform python -m app.cli.enable_user --username <用户名>
+```
+
+`<用户名>` 必须替换为实际用户名，例如 `test_user`，不能只写到 `--username`。
+创建和重置密码时，终端会隐藏密码输入。
+
 `.env` 包含本机路径和数据库密码，已被 Git 忽略，不得上传。全新的 MySQL 数据目录
 不会自动继承旧 SQLite 账号和业务记录，需要重新交互创建网页用户。
 
 ## 一、同事第一次拉取并构建集成分支
 
 本节适用于同事在另一台 Ubuntu 电脑或服务器上第一次部署
-`integration/hs-lxp-v3.1`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
+`integration/hs-lxp-v3.1-cq`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
 MySQL 数据目录、报告、模型或其他运行数据。旧 `platform.sqlite` 原样保留，
 不导入新 MySQL；`registry.sqlite3` 由 HS 独立负责。
 
@@ -115,7 +156,7 @@ Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设�
 同事开始拉取前，分支负责人必须先在当前开发机完成代码审查、提交和推送：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v2
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
 git status --short --branch
 git log -3 --oneline --decorate
 ```
@@ -123,7 +164,7 @@ git log -3 --oneline --decorate
 只有工作区修改已经提交，并且执行以下命令成功后，另一台机器才能取得最新版本：
 
 ```bash
-git push origin integration/hs-lxp-v3.1
+git push origin integration/hs-lxp-v3.1-cq
 ```
 
 不要为了推送而执行 `git reset`、`git clean` 或强制覆盖远程分支。需要提交哪些
@@ -147,11 +188,11 @@ mkdir -p ~/vscode_project/HKC
 cd ~/vscode_project/HKC
 
 git clone \
-  --branch integration/hs-lxp-v3.1 \
+  --branch integration/hs-lxp-v3.1-cq \
   https://github.com/heisan233/HKC_Data_Platform.git \
-  HKC_Data_Platform_v2
+  HKC_Data_Platform_v3.1-cq
 
-cd HKC_Data_Platform_v2
+cd HKC_Data_Platform_v3.1-cq
 git status --short --branch
 git log -1 --oneline --decorate
 ```
@@ -159,16 +200,16 @@ git log -1 --oneline --decorate
 如果同事电脑上已经有这个仓库，不要再次克隆。在工作区没有未提交修改的前提下：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v2
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
 git fetch origin
-git switch integration/hs-lxp-v3.1
-git pull --ff-only origin integration/hs-lxp-v3.1
+git switch integration/hs-lxp-v3.1-cq
+git pull --ff-only origin integration/hs-lxp-v3.1-cq
 ```
 
 如果本地还没有同名分支，则使用：
 
 ```bash
-git switch --track origin/integration/hs-lxp-v3.1
+git switch --track origin/integration/hs-lxp-v3.1-cq
 ```
 
 `--ff-only` 会在本地与远程已经分叉时停止，避免自动制造意外合并。遇到这种情况先
@@ -291,6 +332,9 @@ http://127.0.0.1:8000/
 全新 MySQL 数据库没有默认账号。容器健康后必须由管理员交互创建首个用户。推荐
 明确写出用户名，密码仍由终端隐藏输入：
 
+> 本节命令适用于使用相同默认 Compose 组合启动的环境。当前开发机的 `18001`
+> MySQL 验收版请使用文档开头“本机 MySQL 验收版用户管理”的完整命令。
+
 ```bash
 docker compose \
   -f compose.yaml \
@@ -390,7 +434,7 @@ curl -fsS http://127.0.0.1:8000/healthz
 ```bash
 git status --short --branch
 git fetch origin
-git pull --ff-only origin integration/hs-lxp-v3.1
+git pull --ff-only origin integration/hs-lxp-v3.1-cq
 ```
 
 普通 Python/HTML/CSS 修改在开发模式下通常会热重载；如果更新包含 Dockerfile、
@@ -408,7 +452,7 @@ docker compose \
 打开终端，进入包含 `compose.yaml` 的项目根目录：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v2
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
 ```
 
 确认位置正确：
@@ -703,7 +747,7 @@ docker compose \
 如果只是 IP 改变，按下面执行即可：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v2
+cd ~/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
 
 ip -br -4 address show
 

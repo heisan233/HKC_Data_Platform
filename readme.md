@@ -6,20 +6,21 @@
 
 ## 当前集成开发基线
 
-当前开发分支是 `integration/hs-lxp-v3.1`，基于一期已合并的 `main`。
-此前集成分支只作为历史参考。
+当前开发分支是 `integration/hs-lxp-v3.1-cq`，基于二阶段 MySQL 分支
+`integration/hs-lxp-v3.1`；更早的集成分支只作为历史参考。
 
-重庆适配工作在独立 `integration/hs-lxp-v3.1-cq` 分支进行：保留 v3.1 的 MySQL
+重庆适配和多用户工作在该分支进行：保留 v3.1 的 MySQL
 业务实现，只调整可移植部署配置。本地可通过 `deploy/compose.local-mysql.yaml`
 在 18001 与旧 SQLite 版并行验收；服务器训练执行器改为可选覆盖，不写死旧机器路径。
 
 本目录仍是 Git worktree：它是同一仓库的独立检出目录，不是项目代码内部的一层
 结构。其他 worktree 可以保留，但每个目录有自己的当前分支和未提交文件。
 
-Platform v2 已完成目录迁移，并已接入登录、上传、数据管理、标注、处理、质检、
-机器人档案、数据定义、HDF5 转换、打包导出和 X-VLA 训练等真实功能；工作台和
-系统管理的真实脱敏访问日志。工作台仍有明确的占位内容。所有入口、路由、模板和静态资源已经移入 `app/`。后续功能应继续遵守下面
-的实际目录结构，避免重新在项目根目录堆放业务文件：
+当前平台已完成目录迁移，并接入多用户登录、上传、数据管理、标注、处理、质检、
+机器人档案、数据定义、HDF5 转换、打包导出和 X-VLA 训练等真实功能；工作台读取
+真实聚合数据，系统管理展示真实脱敏访问日志。所有入口、路由、模板和静态资源已
+移入 `app/`。后续功能应继续遵守下面的实际目录结构，避免重新在项目根目录堆放
+业务文件：
 
 数据集和运行结果保存在 `storage/`。平台管理元数据使用独立 MySQL 8.4 服务，
 数据目录由 `HKC_MYSQL_DATA_PATH` 指定。旧 `storage/system/platform.sqlite`
@@ -27,7 +28,7 @@ Platform v2 已完成目录迁移，并已接入登录、上传、数据管理�
 大型数据文件不写入数据库；`migrations/mysql/` 保存建表脚本。
 
 ```text
-HKC_Data_Platform_v2/
+HKC_Data_Platform_v3.1-cq/
 ├── app/
 │   ├── main.py                 # FastAPI 应用入口，只负责组装应用和注册路由
 │   ├── web.py                  # 多个页面共享的 Jinja2 模板对象
@@ -36,7 +37,7 @@ HKC_Data_Platform_v2/
 │   ├── modules/                # 按业务能力组织代码，不与 HTML 严格一一对应
 │   │   ├── dashboard/          # 工作台
 │   │   ├── datasets/           # DS 登记、列表、详情、状态和报告
-│   │   ├── ingestion/          # 网页上传和机器人 HTTP 上传
+│   │   ├── ingestion/          # 网页 ZIP 上传和统一上传服务
 │   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
 │   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
 │   │   ├── annotation/         # Episode/task/Subtask 标注与派生发布
@@ -73,7 +74,8 @@ HKC_Data_Platform_v2/
 原始数据集上传、数据管理、Episode/task/Subtask 标注、Episode 数据处理
 和数据质检已经读写真实 LeRobot v3 文件。数据管理扫描真实存储目录，
 并通过 MySQL 分配 DS 编号；转换已接入真实 Derived 数据，打包导出结果保存到 `storage/exports/`，
-训练等页面仍可能使用演示常量。
+训练页面使用真实 MySQL 任务与宿主执行器接口；宿主执行器未部署时会明确显示不可用，
+不会生成虚假的成功任务。
 
 ### `modules` 与页面、按钮的关系
 
@@ -129,7 +131,7 @@ qc.html 中的按钮
 
 ### 首期容器边界
 
-Platform v2 首期暂时把网页/API 和数据集基础自检放在同一个应用镜像、同一个
+当前版本暂时把网页/API 和数据集基础自检放在同一个应用镜像、同一个
 应用容器中，以降低本地开发复杂度。代码仍需保持模块边界，耗时操作通过统一
 任务接口调用，避免直接写进页面路由。后续如果 LeRobot Doctor、视频扫描、VLM
 质检或数据处理影响网页稳定性，再将任务执行模块拆为独立 Worker 容器，而不必
@@ -405,21 +407,20 @@ VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.pa
 `GET /export/conversions/{task_id}/files/{filename}`，以及完整打包下载
 `GET /export/archive/{dataset_id}`（Derived 使用 DS 编号，转换结果使用 CV 编号）。
 
-### 当前尚未完成
+### 当前已知边界
 
-- `ingestion` 已实现独立 ZIP 上传页；质检页批量上传已复用同一校验服务。
-- 机器人 HTTP 上传仍待实现；格式转换读取已登记的 Derived 数据集，打包导出接受 Derived 的 DS 编号或转换结果的 CV 编号。
-- `app/db/` 已供数据集登记使用；`migrations/` 仍为后续结构升级预留。
-- 数据管理、质检、标注和数据处理已统一使用 DS 编号访问登记层。
-- PostgreSQL、Redis 和独立 Worker 暂不加入首期 Compose。
-- `semantics` 已实现真实 LeRobot v3 Schema 扫描、Episode/逐帧字段增删、空值占位、
-  索引导入和 Derived 发布；第一版不新增图片、视频或深度媒体文件。
-- `/export/` 已提供已登记 Derived 数据集的 LeRobot v3.0 → HDF5 格式转换，以及
-  Derived 数据集或转换结果的完整压缩包下载。
+- 机器人直接调用的 HTTP 采集上传接口仍待实现；当前真实入口是网页单个 ZIP 上传
+  和复用统一服务的批量上传。
+- 格式转换当前只支持已登记 Derived DS 的 LeRobot v3.0 → HDF5；不支持图片、视频
+  或深度媒体字段的新增转换。
+- 真实训练依赖独立宿主执行器、Conda/CUDA 环境和模型权重；未部署执行器时不能
+  提交真实训练。
+- PostgreSQL、Redis 和独立 Worker 暂不加入当前 Compose。
+- 当前没有管理员/普通用户角色，也不提供网页注册、网页用户管理或账号删除。
 
 当前本地功能冻结与验收结果见
 `docs/LOCAL_ACCEPTANCE_2026-10-22.md`。附录中的 v1 Windows/Conda 内容只用于
-历史追溯，不能作为 Platform v2 的运行或功能状态说明。
+历史追溯，不能作为当前版本的运行或功能状态说明。
 
 ## 附录：v1 原型历史记录
 
@@ -467,7 +468,7 @@ HKC_Data_Platform/
 | Starlette | 1.6.0 | FastAPI 底层 Web 组件与模板响应 |
 | Uvicorn | 0.53.0 | ASGI 服务启动 |
 | Jinja2 | 3.1.6 | HTML 模板渲染 |
-| python-multipart | 0.0.32 | 表单和文件上传解析；当前无认证版本暂不需要 |
+| python-multipart | 0.0.32 | 表单和文件上传解析；当时的 v1 无认证原型暂不需要 |
 | pytest | 9.1.1 | 可选测试工具 |
 | httpx | 0.28.1 | 可选 HTTP 客户端与测试依赖 |
 | Ruff | 0.16.8 | 可选代码检查和格式化工具 |
@@ -674,7 +675,8 @@ routers/training.py
 
 ### 找不到 `routers.auth`
 
-确认 `main.py` 中已经去掉 `auth` 导入和认证路由注册。当前版本不需要该文件。
+这条只适用于当时的 v1 原型：确认 `main.py` 中已经去掉 `auth` 导入和认证路由注册。
+当前 v3.1-cq 已有完整 `app/modules/auth/`，不能照此删除认证模块。
 
 ### `TypeError: unhashable type: 'dict'`
 

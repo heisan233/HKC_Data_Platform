@@ -12,11 +12,13 @@
 
 ## 1. 当前共同基线
 
-- `integration/hs-lxp-v3.1` 是二阶段共同开发分支，从已合入一期功能的 `main`
-  提交 `674cf92` 创建。`integration/hs-lxp-v3.0.2` 及其来源分支保留为历史参考。
+- `integration/hs-lxp-v3.1-cq` 是当前重庆适配和多用户功能的共同开发分支；它基于
+  二阶段 MySQL 分支 `integration/hs-lxp-v3.1`。`integration/hs-lxp-v3.0.2` 及其
+  来源分支保留为历史参考。
 - `integration/hs-v2.1` 与 `integration/hs-lxp-v2.5` 是本轮两个来源分支，保留为
   只读回退点；不得将任一来源分支整批覆盖回当前集成分支。
-- `main` 是一期已合并基线；二阶段功能先在 `integration/hs-lxp-v3.1` 开发和验收。
+- `main` 是一期已合并基线；当前二阶段功能先在 `integration/hs-lxp-v3.1-cq`
+  开发和验收，不直接写入 `main`。
 - `hs_docker`、`lxp_docker_v2`、`feat/platform-v2` 和更早分支只用于查看历史，
   不得把其中的目录或文件整批覆盖回当前集成分支。
 - 开始工作前必须执行 `git status --short --branch` 和 `git log -1 --oneline`；
@@ -44,7 +46,8 @@
 
 已连接真实文件或 MySQL 的功能：
 
-- `auth`：无默认账号的用户表、密码哈希、服务端会话、登录、退出和全站访问保护；
+- `auth`：无默认账号的用户表、显示名称、首次强制改密、密码哈希、服务端会话、
+  个人中心、登录、退出和全站访问保护；
 - `robots`：独立机器人档案、稳定 RB 编号、新增/编辑、停用/恢复，以及 DS 的
   关联、改绑和解除；
 - `ingestion`：单个 LeRobot v3 ZIP 上传、批量包装接口、安全解压、上传阶段
@@ -170,7 +173,7 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `.env.example` 只保存公开占位值；换设备时从它新建 `.env`。
 - `compose.yaml` 默认只绑定 `127.0.0.1:8000`；
   `deploy/compose.lan.yaml` 才负责可信局域网绑定；`compose.dev.yaml` 只增加源码热
-  重载。
+  重载，并只读挂载 `app/` 与 `migrations/`，启动前仍会执行 MySQL 迁移。
 - 个人 IP、代理和临时镜像源不能写入通用 Compose 文件。
 - `pyproject.toml` 是 Python 直接依赖的唯一来源，不再维护第二份
   `requirements.txt`。

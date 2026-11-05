@@ -3,10 +3,15 @@
 执行器与平台容器分离，使用已经存在且通过 GPU 检查的 LeRobot Python；启动脚本
 **不会安装、升级或修改 Conda 包**。它只接受 X-VLA 基座微调和内置预设，不接受
 网页传入任意路径、命令或 shell 参数。平台容器只通过单独挂载的 Unix socket
-调用执行器。本服务器数据盘是 exFAT，不能保存 socket/0600 令牌；通信目录必须
-位于支持 Unix 权限和 socket 的 ext4/XFS 文件系统。
+调用执行器。无论业务数据盘是什么文件系统，通信目录都必须位于支持 Unix 权限和
+socket 的 ext4/XFS 文件系统；不得把 socket 或 0600 令牌放到 exFAT/NTFS 数据盘。
 
-当前服务器已只读核对过：LeRobot 环境 `/home/z123/miniconda3/envs/lerobot` 可识别
+> 下方 `/home/z123`、`/externalDisk`、RTX 4090 D 和 `qwen3vl.service` 是原深圳
+> 服务器的历史验收记录，不是重庆服务器默认配置。重庆服务器尚未部署训练执行器
+> 时，不得照抄这些路径或服务名；应先只读确认 GPU、Conda 环境、模型权重、
+> tokenizer、VLM 服务和可写文件系统，再创建服务器私有配置。
+
+原深圳服务器曾只读核对：LeRobot 环境 `/home/z123/miniconda3/envs/lerobot` 可识别
 RTX 4090 D；完整基座位于 `/externalDisk/data/model/xvla-base`；tokenizer 副本位于
 `/externalDisk/data/hkc_storage/pretrain/bart-large`。这些是**部署机的配置值**，
 不是平台通用代码中的固定路径。其他服务器须重新提供各自的三个路径。
@@ -50,7 +55,7 @@ exFAT。任务成功且模型包校验完成后，执行器会删除该任务的
 `head` 优先作为主视角，多余于基座槽位的相机会被明确拒绝。训练 checkpoint 的
 预处理器保存该映射，离线评估会使用相同映射。
 
-本服务器的 VLM 是系统级 `qwen3vl.service`。管理员可仅授权运行执行器的账户
+原深圳服务器的 VLM 是系统级 `qwen3vl.service`。管理员可仅授权运行执行器的账户
 执行 `/usr/bin/systemctl start qwen3vl.service` 和
 `/usr/bin/systemctl stop qwen3vl.service`；执行器会先以 `sudo -n -l` 核对这两条
 权限，未授权时页面按钮仍禁用。不得把 `sudo` 密码写入应用或执行器。
@@ -58,7 +63,7 @@ exFAT。任务成功且模型包校验完成后，执行器会删除该任务的
 关闭并恢复闸门。关闭期间新 VLM 质检保留排队；恢复服务后自动重新提交这些任务。
 普通无 VLM 的质检不受此闸门影响。执行器不接受网页提交的服务名或任意命令。
 
-服务器当前使用 `deploy/hkc-training-agent.service` 用户级 systemd 服务，变量在
+原深圳服务器曾使用 `deploy/hkc-training-agent.service` 用户级 systemd 服务，变量在
 仅属于该用户的 `~/.config/hkc-training-agent.env`。要保证用户注销后和服务器开机、
 用户尚未登录时仍运行，管理员还须为该用户启用 linger。
 

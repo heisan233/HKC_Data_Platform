@@ -261,7 +261,8 @@ MySQL 表，也不改变 Raw/Derived 数据集。
 ## 5. 配置与部署
 
 - `compose.yaml`：生产式基础配置，默认只允许本机 `127.0.0.1:8000`；
-- `compose.dev.yaml`：挂载 `app/` 并启用 Uvicorn `--reload`；
+- `compose.dev.yaml`：只读挂载 `app/` 和 `migrations/`，先执行 MySQL 迁移，再启用
+  Uvicorn `--reload`；
 - `deploy/compose.lan.yaml`：把 8000 端口绑定到
   `HKC_LAN_BIND_ADDRESS`，供可信内网访问；
 - `deploy/compose.local-mysql.yaml`：本机并行验收覆盖，发布

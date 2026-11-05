@@ -7,8 +7,8 @@
 
 - `compose.yaml`：应用与 MySQL 两个容器、完整运行依赖、持久化存储及仅本机端口；适合
   正式运行，也是所有覆盖配置的基础。
-- `compose.dev.yaml`：只把 `app/` 只读挂载进容器并启用 Uvicorn 热重载；只在
-  本地开发时叠加。
+- `compose.dev.yaml`：把 `app/` 与 `migrations/` 只读挂载进容器，启动时先执行
+  MySQL 迁移，再启用 Uvicorn 热重载；只在本地开发时叠加。
 - `deploy/compose.lan.yaml`：把默认 `127.0.0.1` 端口替换成指定可信内网 IPv4；
   本地开发和内网服务器都可以叠加。
 - `deploy/compose.local-mysql.yaml`：本机并行验收覆盖，将 MySQL 版网页放到
@@ -92,6 +92,10 @@ docker compose --env-file .env -p hkc-v31-mysql \
   down
 ```
 
+这个本机验收栈执行用户命令时也必须带相同的项目名和配置组合。完整可复制命令见
+根目录 `how_use.md` 的“本机 MySQL 验收版用户管理”，不能直接使用
+`docker compose exec platform` 简写。
+
 ## 默认模式与可信局域网模式
 
 项目默认的 `compose.yaml` 将网页发布到 `127.0.0.1:8000`，只有本机能够访问。
@@ -109,11 +113,26 @@ docker compose exec platform \
 ```
 
 密码输入不会显示在终端，命令也不接受密码参数；不要把密码写在命令、Compose、
-`.env` 或文档中。继续创建其他账号时重复执行同一命令。使用下面的命令确认账号：
+`.env` 或文档中。新用户首次登录必须修改初始密码。继续创建其他账号时重复执行
+同一命令。使用下面的命令确认账号：
 
 ```bash
 docker compose exec platform python -m app.cli.list_users
 ```
+
+重置密码、停用和启用用户：
+
+```bash
+docker compose exec platform \
+  python -m app.cli.reset_user_password --username <用户名>
+docker compose exec platform \
+  python -m app.cli.disable_user --username <用户名>
+docker compose exec platform \
+  python -m app.cli.enable_user --username <用户名>
+```
+
+重置密码会注销全部会话并要求用户下次登录改密；停用也会立即注销该用户全部
+会话。用户可在 `/account/` 修改显示名称和密码，用户名不可修改。
 
 列表不会显示密码哈希或会话令牌。账号位于 MySQL 数据库中；重新创建容器不会
 删除账号，但换用全新 MySQL 数据目录时必须重新创建。详细说明见项目根目录
