@@ -621,14 +621,13 @@ def model_package(root: Path, task_id: str) -> Path:
 
 
 def is_operator(username: str) -> bool:
-    allowed = {item.strip() for item in os.getenv("HKC_TRAINING_OPERATORS", "").split(",")
-               if item.strip()}
-    return username in allowed
+    # The router is protected by LoginRequiredMiddleware, which supplies active users.
+    return bool(username)
 
 
 def vlm_control(root: Path, username: str, operation: str) -> dict:
     if not is_operator(username):
-        raise TrainingError("仅配置的训练操作员可控制 VLM 服务", 403)
+        raise TrainingError("仅已登录的平台用户可控制 VLM 服务", 403)
     if operation not in {"stop", "start"}:
         raise TrainingError("不支持的 VLM 操作", 422)
     state = environment(root)

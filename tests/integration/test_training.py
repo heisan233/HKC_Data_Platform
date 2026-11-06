@@ -191,8 +191,14 @@ def test_evaluation_trace_only_exposes_registered_heldout_episode(tmp_path, monk
     assert client.get(url).status_code == 404
 
 
+def test_all_authenticated_users_can_control_vlm(monkeypatch):
+    monkeypatch.delenv("HKC_TRAINING_OPERATORS", raising=False)
+    assert training.is_operator("hkc")
+    assert training.is_operator("future_user")
+    assert not training.is_operator("")
+
+
 def test_vlm_button_pauses_and_resumes_vlm_quality_queue(tmp_path, monkeypatch):
-    monkeypatch.setenv("HKC_TRAINING_OPERATORS", "operator")
     monkeypatch.setattr(training, "environment", lambda _root: {
         "online": True, "vlm": {"controllable": True},
     })
@@ -210,7 +216,6 @@ def test_vlm_button_pauses_and_resumes_vlm_quality_queue(tmp_path, monkeypatch):
 
 
 def test_vlm_stop_timeout_keeps_quality_gate_closed(tmp_path, monkeypatch):
-    monkeypatch.setenv("HKC_TRAINING_OPERATORS", "operator")
     monkeypatch.setattr(training, "environment", lambda _root: {
         "online": True, "vlm": {"controllable": True},
     })

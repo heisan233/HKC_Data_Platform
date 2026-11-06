@@ -12,6 +12,30 @@
 > 历史分支只供查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
 
+### 2026-11-06 重庆 VLM 启停开关接通（服务器工作区，未提交）
+
+按平台用户统一授权：`training.service.is_operator` 现在对已登录用户名返回真，
+实际请求仍由全站登录中间件验证启用状态及首次改密要求，并要求二次确认头。
+训练页面同步改为“平台用户”，清除已失效的 `HKC_TRAINING_OPERATORS` 配置项；
+新增测试覆盖当前与未来用户名。共享接口 `GET /training/api/catalog` 的
+`can_control_vlm` 权限语义变化，VLM 启停 API 路径和请求格式不变。
+
+服务器上的模型 Compose 仍独立于平台项目，位于 `/srv/hkc-ai/models/`；
+新增外部覆盖文件，把平台容器连接到宿主机私有训练执行器 socket。
+宿主机 systemd 服务 `hkc-qwen3vl.service` 管理现有 VLM Compose，执行器通过
+仅限该服务 start/stop 的 sudoers 授权操作。执行器和 VLM 服务均开机启动，避免平台启动后质检模型缺席；页面停用仅临时
+释放显存，重启服务器会恢复 VLM。X-VLA 训练依赖仍未配置，页面应如实显示其
+不可用。
+
+服务器人工验证：平台、MySQL 容器健康；执行器在线，VLM 运行状态可读，
+`hkc`、`hei_san` 及未来用户名通过权限判断；两轮停用/恢复均使容器状态与
+质检队列暂停状态同步，恢复后 VLM API 可用。第二轮确认正常停用的 systemd
+状态为 `inactive`。默认、开发、局域网及可选执行器 Compose 组合解析通过；
+Python 编译、浏览器脚本语法和 `git diff --check` 通过。临时 MySQL 与测试
+容器隔离运行的 VLM 相关测试为 `3 passed, 15 deselected`，Ruff 对改动的 Python
+文件通过；NTFS 挂载将普通 `.py` 映射为可执行，本次检查忽略 EXE002 误报。
+临时测试容器和网络已清理。没有修改本地电脑项目、提交或推送。
+
 ### 2026-11-05 多用户与个人中心开发
 
 当前直接在 `integration/hs-lxp-v3.1-cq` 开发，没有再创建分支。新增 MySQL 结构

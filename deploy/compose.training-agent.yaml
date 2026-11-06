@@ -15,4 +15,3 @@ services:
     environment:
       HKC_TRAINING_RUNNER_SOCKET: /run/hkc-training-agent/agent.sock
       HKC_TRAINING_RUNNER_TOKEN_FILE: /run/hkc-training-agent/token
-      HKC_TRAINING_OPERATORS: "${HKC_TRAINING_OPERATORS:-}"
