@@ -265,19 +265,11 @@ def summary(root: Path, name: str, registered: dict | None = None, area: str = "
 
 
 def catalog(root: Path) -> tuple[list[dict], list[dict]]:
-    """Return unregistered raw folders and all DS-registered datasets."""
+    """Return active DS records; the first element is kept for legacy callers."""
     repo = DatasetRepository(root)
     records = repo.list()
-    registered_raw = {
-        row["storage_relpath"] for row in records if row["storage_area"] == "raw"
-    }
-    raw = root / "raw"
-    raw.mkdir(parents=True, exist_ok=True)
-    pending = [summary(root, path.name) for path in sorted(raw.iterdir(), key=lambda p: p.name)
-               if path.is_dir() and not path.is_symlink() and not path.name.startswith(".")
-               and path.name not in registered_raw]
     managed = [summary(root, row["storage_relpath"], row, row["storage_area"]) for row in records]
-    return pending, managed
+    return [], managed
 
 
 def register_selected(root: Path, folders: list[str], names: dict[str, str] | None = None) -> dict:
@@ -659,3 +651,16 @@ def restore_trashed_report(root: Path, dataset_id: str, filename: str) -> dict:
         "original_path": expected,
         "restored": True,
     }
+
+
+def purge_trashed_report(root: Path, dataset_id: str, filename: str) -> dict:
+    folder = _report_storage_folder(root, dataset_id, trashed=True)
+    file = trashed_report_file(root, dataset_id, filename)
+    if folder is None or file is None:
+        raise ValueError("回收站报告不存在")
+    metadata = _trash_metadata_file(folder, filename)
+    if metadata.is_symlink():
+        raise ValueError("回收站报告元数据路径不安全")
+    metadata.unlink(missing_ok=True)
+    file.unlink()
+    return {"dataset_id": dataset_id, "filename": filename, "purged": True}

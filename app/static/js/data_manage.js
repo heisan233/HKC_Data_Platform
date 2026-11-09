@@ -14,45 +14,15 @@
   };
   const json = body => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
-  const registerPage = document.getElementById('dm-register-page');
-  if (registerPage && document.getElementById('dm-register')) {
-    const checks = [...document.querySelectorAll('.dm-folder-check:not(:disabled)')];
-    const all = document.getElementById('dm-select-all');
-    const button = document.getElementById('dm-register');
-    const count = document.getElementById('dm-selection-count');
-    const update = () => {
-      const selected = checks.filter(box => box.isConnected && box.checked).length;
-      count.textContent = `已选 ${selected} 项`;
-      button.disabled = selected === 0;
-      const available = checks.filter(box => box.isConnected).length;
-      all.checked = available > 0 && selected === available;
-      all.indeterminate = selected > 0 && selected < available;
-    };
-    checks.forEach(box => box.addEventListener('change', update));
-    all.addEventListener('change', () => { checks.forEach(box => { box.checked = all.checked; }); update(); });
-    button.addEventListener('click', async () => {
-      const folders = checks.filter(box => box.isConnected && box.checked).map(box => box.value);
-      if (!folders.length) return;
-      const names = Object.fromEntries(checks.filter(box => box.isConnected && box.checked).map(box => [
-        box.value, box.closest('tr').querySelector('.dm-register-name').value.trim()
-      ]));
-      button.disabled = true;
-      show(`正在登记 ${folders.length} 个目录…`);
-      try {
-        const result = await request('/data/api/register', { method: 'POST', ...json({ folders, names }) });
-        const ok = result.registered.map(row => `${row.folder} → ${row.id}`).join('；');
-        const errors = result.errors.map(row => `${row.folder}：${row.message}`).join('；');
-        if (errors) show(`已登记 ${result.registered.length} 项。${ok}。未登记：${errors}`, true);
-        else show(`登记完成：${ok}`);
-        result.registered.forEach(row => {
-          const box = checks.find(item => item.value === row.folder);
-          if (box) box.closest('tr').remove();
-        });
-        if (result.registered.length && !errors) setTimeout(() => location.reload(), 1200);
-      } catch (error) { show(error.message, true); }
-      finally { update(); }
-    });
-  }
+  document.querySelectorAll('.dm-trash-dataset').forEach(button => button.addEventListener('click', async () => {
+    if (button.disabled) return;
+    button.disabled = true;
+    show(`正在将 ${button.dataset.datasetId} 移入回收站…`);
+    try {
+      await request(`/data/api/datasets/${encodeURIComponent(button.dataset.datasetId)}`, { method: 'DELETE' });
+      location.reload();
+    } catch (error) { show(error.message, true); button.disabled = false; }
+  }));
 
   const detail = document.getElementById('dm-detail-page');
   if (detail) {

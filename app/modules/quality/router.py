@@ -55,7 +55,7 @@ def root() -> Path:
 
 def task_or_404(task_id: str) -> dict:
     task = service.initialize(root()).get_task(task_id)
-    if task is None:
+    if task is None or DatasetRepository(root()).get(task["dataset_id"]) is None:
         raise HTTPException(404, "质检任务不存在")
     return task
 
@@ -67,7 +67,9 @@ def qc_page(request: Request):
     managed = [item for item in managed if item["availability"] == "unavailable"]
     plans = repo.list_plans()
     show_hidden = request.query_params.get("hidden") == "1"
-    all_tasks = repo.list_tasks(visibility="hidden" if show_hidden else "visible")
+    active_ids = {item["id"] for item in DatasetRepository(root()).list()}
+    all_tasks = [task for task in repo.list_tasks(visibility="hidden" if show_hidden else "visible")
+                 if task["dataset_id"] in active_ids]
     try:
         page = max(1, int(request.query_params.get("page", "1")))
     except ValueError:
@@ -201,8 +203,10 @@ def create_tasks(body: BatchTaskBody):
 
 @router.get("/api/tasks")
 def list_tasks(dataset_id: str | None = None, hidden: bool = False):
-    return service.initialize(root()).list_tasks(
+    active_ids = {item["id"] for item in DatasetRepository(root()).list()}
+    return [task for task in service.initialize(root()).list_tasks(
         dataset_id, visibility="hidden" if hidden else "visible")
+        if task["dataset_id"] in active_ids]
 
 
 @router.get("/api/tasks/{task_id}")
@@ -215,9 +219,7 @@ def get_task(task_id: str):
 @router.post("/api/tasks/{task_id}/hide")
 def hide_task(task_id: str):
     repo = service.initialize(root())
-    task = repo.get_task(task_id)
-    if task is None:
-        raise HTTPException(404, "质检任务不存在")
+    task = task_or_404(task_id)
     if task["status"] not in {"COMPLETED", "FAILED", "INTERRUPTED"}:
         raise HTTPException(409, "任务尚未结束，不能移出列表")
     repo.set_task_visibility(task_id, hidden=True)
@@ -226,6 +228,7 @@ def hide_task(task_id: str):
 
 @router.post("/api/tasks/{task_id}/show")
 def show_task(task_id: str):
+    task_or_404(task_id)
     task = service.initialize(root()).set_task_visibility(task_id, hidden=False)
     if task is None:
         raise HTTPException(404, "质检任务不存在")
@@ -240,4 +243,5 @@ def review_task(task_id: str, body: ReviewBody):
 
 @router.post("/api/tasks/{task_id}/rerun")
 def rerun_task(task_id: str):
+    task_or_404(task_id)
     return service.rerun_task(root(), task_id)

@@ -83,11 +83,13 @@ def _storage(root: Path) -> dict:
 def dashboard_snapshot(root: Path) -> dict:
     """Build one truthful, read-only overview from existing platform records."""
 
-    pending_folders, managed = datasets.catalog(root)
+    _, managed = datasets.catalog(root)
     dataset_records = DatasetRepository(root).list()
     by_id = {item["id"]: item for item in managed}
 
-    qc_tasks = QualityRepository(root).list_tasks(visibility="all")
+    active_ids = {item["id"] for item in dataset_records}
+    qc_tasks = [task for task in QualityRepository(root).list_tasks(visibility="all")
+                if task["dataset_id"] in active_ids]
     latest_qc: dict[str, dict] = {}
     for task in qc_tasks:
         latest_qc.setdefault(task["dataset_id"], task)
@@ -125,13 +127,6 @@ def dashboard_snapshot(root: Path) -> dict:
     failed_training = sum(task["status"] == "FAILED" for task in training_tasks)
     todo = [
         {
-            "label": "待登记 Raw 目录",
-            "count": len(pending_folders),
-            "hint": "目录已存在，但尚未获得 DS 编号",
-            "href": "/data/manage/",
-            "tone": "warning",
-        },
-        {
             "label": "待人工审核",
             "count": qc_counts["review"],
             "hint": "自动质检完成，等待最终判定",
@@ -149,7 +144,7 @@ def dashboard_snapshot(root: Path) -> dict:
             "label": "异常数据集",
             "count": invalid,
             "hint": "目录缺失、元数据无效或登记后发生变化",
-            "href": "/data/manage/?view=registered",
+            "href": "/data/manage/",
             "tone": "danger",
         },
         {

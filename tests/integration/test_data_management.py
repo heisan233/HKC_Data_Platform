@@ -10,10 +10,12 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.db.dataset_robots import DatasetRobotRepository
+from app.db.datasets import DatasetRepository
 from app.db.quality import QualityRepository
 from app.db.robots import RobotRepository
 from app.main import app
 from app.modules.datasets import router as data_router
+from app.modules.datasets import service as dataset_service
 from app.modules.quality import router as quality_router
 from app.modules.quality.service import raw_fingerprint
 
@@ -86,8 +88,8 @@ def test_select_and_register_keeps_raw_folder(platform):
     dataset(root, "broken", valid=False)
     page = client.get("/data/manage/")
     assert page.status_code == 200
-    assert source.name in page.text
-    assert "broken" in page.text
+    assert source.name not in page.text
+    assert "broken" not in page.text
 
     result = client.post("/data/api/register", json={
         "folders": [source.name, "broken"], "names": {source.name: "展示样本"},
@@ -105,6 +107,95 @@ def test_select_and_register_keeps_raw_folder(platform):
     duplicate = client.post("/data/api/register", json={"folders": [source.name]})
     assert duplicate.json()["registered"] == []
     assert "已经登记" in duplicate.json()["errors"][0]["message"]
+
+
+def test_unregistered_ui_is_replaced_by_unified_trash(platform):
+    client, root = platform
+    dataset(root, "legacy")
+    assert "待登记" not in client.get("/data/").text
+    assert "待登记" not in client.get("/data/manage/").text
+    assert "回收站" in client.get("/data/").text
+    assert client.get("/data/manage/?view=registered").status_code == 200
+
+
+def test_dataset_trash_restore_and_purge_keep_id_retired(platform):
+    client, root = platform
+    source = dataset(root, "source")
+    client.post("/data/api/register", json={"folders": ["source"]})
+    repo = QualityRepository(root)
+    plan = repo.create_plan("测试方案", "zhiyan", {})
+    task = repo.create_task("DS000001", plan, {}, raw_fingerprint(source))
+    repo.set_task(task["id"], status="COMPLETED", outcome="PASS")
+    report = root / "reports" / "qc" / "DS000001" / f"{task['id']}.json"
+    report.parent.mkdir(parents=True)
+    report.write_text('{"status":"COMPLETED"}', encoding="utf-8")
+
+    removed = client.delete("/data/api/datasets/DS000001")
+    assert removed.status_code == 200
+    assert not source.exists()
+    assert not report.exists()
+    assert (root / "trash/datasets/DS000001/content/meta/info.json").exists()
+    assert (root / "trash/datasets/DS000001/reports" / report.name).exists()
+    assert "DS000001" not in client.get("/data/manage/").text
+    assert "DS000001" in client.get("/data/trash/").text
+    assert client.get("/data/raw/DS000001").status_code == 404
+    assert client.get(f"/qc/reports/{task['id']}").status_code == 404
+    assert client.get("/qc/api/tasks").json() == []
+
+    restored = client.post("/data/api/datasets/DS000001/restore")
+    assert restored.status_code == 200
+    assert source.exists() and report.exists()
+    assert "DS000001" in client.get("/data/manage/").text
+
+    assert client.delete("/data/api/datasets/DS000001").status_code == 200
+    purged = client.post("/data/api/datasets/DS000001/purge")
+    assert purged.status_code == 200
+    assert not (root / "trash/datasets/DS000001").exists()
+    assert DatasetRepository(root).get("DS000001", include_deleted=True) is None
+    assert repo.get_task(task["id"]) is None
+    newer = dataset(root, "newer")
+    assert newer.exists()
+    assert client.post("/data/api/register", json={"folders": ["newer"]}).json()[
+        "registered"][0]["id"] == "DS000002"
+
+
+def test_dataset_purge_blocks_lineage_and_running_qc(platform):
+    client, root = platform
+    source = dataset(root, "source")
+    client.post("/data/api/register", json={"folders": ["source"]})
+    plan = QualityRepository(root).create_plan("测试方案", "zhiyan", {})
+    task = QualityRepository(root).create_task("DS000001", plan, {}, raw_fingerprint(source))
+    assert client.delete("/data/api/datasets/DS000001").status_code == 409
+    QualityRepository(root).set_task(task["id"], status="COMPLETED", outcome="PASS")
+    child = dataset(root, "child")
+    dataset_service.register_dataset(root, "raw", child.name, "child", ["DS000001"])
+    assert client.delete("/data/api/datasets/DS000001").status_code == 200
+    blocked = client.post("/data/api/datasets/DS000001/purge")
+    assert blocked.status_code == 409
+    assert "派生数据集" in blocked.json()["detail"]
+    assert client.post("/data/api/datasets/DS000001/restore").status_code == 200
+
+
+def test_dataset_trash_rolls_back_when_report_move_fails(platform, monkeypatch):
+    client, root = platform
+    source = dataset(root, "source")
+    client.post("/data/api/register", json={"folders": ["source"]})
+    report = root / "reports/qc/DS000001/manual.json"
+    report.parent.mkdir(parents=True)
+    report.write_text("{}", encoding="utf-8")
+    original_replace = Path.replace
+
+    def fail_report_move(path, destination):
+        if path == report.parent:
+            raise OSError("simulated move failure")
+        return original_replace(path, destination)
+
+    monkeypatch.setattr(Path, "replace", fail_report_move)
+    response = client.delete("/data/api/datasets/DS000001")
+    assert response.status_code == 500
+    assert source.exists() and report.exists()
+    assert DatasetRepository(root).get("DS000001") is not None
+    assert not (root / "trash/datasets/DS000001/content").exists()
 
 
 def test_dataset_pages_show_read_only_collecting_robot(platform):
@@ -291,6 +382,40 @@ def test_delete_qc_report_preserves_task_and_review(platform):
     assert repo.reviews(task["id"])[0]["reason"] == "人工确认"
     assert client.get(f"/qc/reports/{task['id']}/download").status_code == 200
     assert client.get(f"/data/reports/DS000001/{report.name}").status_code == 200
+
+
+def test_report_purge_only_removes_file_and_trash_metadata(platform):
+    client, root = platform
+    dataset(root, "source")
+    client.post("/data/api/register", json={"folders": ["source"]})
+    report = root / "reports/qc/DS000001/manual.json"
+    report.parent.mkdir(parents=True)
+    report.write_text('{"status":"COMPLETED"}', encoding="utf-8")
+    assert client.delete("/data/reports/DS000001/manual.json").status_code == 200
+    trash = root / "trash/reports/DS000001/manual.json"
+    assert trash.is_file()
+    assert "manual.json" in client.get("/data/trash/?view=reports").text
+    assert client.post("/data/reports/trash/DS000001/manual.json/purge").status_code == 200
+    assert not trash.exists()
+    assert not (root / "trash/reports/DS000001/.manual.json.trash-meta.json").exists()
+    assert DatasetRepository(root).get("DS000001") is not None
+    assert "manual.json" not in client.get("/data/trash/?view=reports").text
+
+
+def test_individually_trashed_report_stays_separate_on_dataset_restore(platform):
+    client, root = platform
+    dataset(root, "source")
+    client.post("/data/api/register", json={"folders": ["source"]})
+    report = root / "reports/qc/DS000001/manual.json"
+    report.parent.mkdir(parents=True)
+    report.write_text('{"status":"COMPLETED"}', encoding="utf-8")
+    assert client.delete("/data/reports/DS000001/manual.json").status_code == 200
+    assert client.delete("/data/api/datasets/DS000001").status_code == 200
+    assert client.post("/data/api/datasets/DS000001/restore").status_code == 200
+    assert not report.exists()
+    assert (root / "trash/reports/DS000001/manual.json").exists()
+    assert client.post("/data/reports/trash/DS000001/manual.json/restore").status_code == 200
+    assert report.exists()
 
 
 def test_report_delete_rejects_other_files(platform):

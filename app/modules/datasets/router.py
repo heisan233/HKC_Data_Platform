@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 from app.core.config import settings
@@ -11,6 +11,7 @@ from app.db.datasets import DatasetRepository
 from app.db.quality import QualityRepository
 from app.modules.conversion import service as conversion_service
 from app.modules.datasets import service
+from app.modules.datasets import trash as dataset_trash
 from app.modules.quality.status import attach_status
 from app.web import templates
 
@@ -47,11 +48,15 @@ def record_or_404(dataset_id: str) -> dict:
 
 @router.get("/")
 def data_page(request: Request):
-    pending, managed = service.catalog(storage_root())
+    _, managed = service.catalog(storage_root())
     attach_status(storage_root(), managed)
     converted = conversion_service.list_results(storage_root())
+    trashed_datasets = DatasetRepository(storage_root()).list(deleted=True)
+    trashed_reports = dataset_trash.report_groups(storage_root())
     return templates.TemplateResponse(request=request, name="data.html", context={
-        "pending": pending, "managed": managed, "converted": converted,
+        "managed": managed, "converted": converted,
+        "trash_dataset_count": len(trashed_datasets),
+        "trash_report_count": sum(len(group["reports"]) for group in trashed_reports),
         "review_count": sum(item.get("qc_state") == "review" for item in managed),
         "passed_count": sum(item.get("qc_state") == "passed" for item in managed),
         "recapture_count": sum(item.get("qc_state") == "recapture" for item in managed),
@@ -60,11 +65,10 @@ def data_page(request: Request):
 
 
 @router.get("/manage/")
-def manage_page(request: Request, q: str = "", view: str = "pending"):
-    pending, managed = service.catalog(storage_root())
-    if view == "registered":
-        attach_status(storage_root(), managed)
-    rows = pending if view != "registered" else managed
+def manage_page(request: Request, q: str = ""):
+    _, managed = service.catalog(storage_root())
+    attach_status(storage_root(), managed)
+    rows = managed
     term = q.strip().casefold()
     if term:
         rows = [row for row in rows if term in " ".join(
@@ -73,14 +77,60 @@ def manage_page(request: Request, q: str = "", view: str = "pending"):
                 "collector_robot_id", "collector_robot_name",
             )).casefold()]
     return templates.TemplateResponse(request=request, name="data_manage.html", context={
-        "items": rows, "pending_count": len(pending), "registered_count": len(managed),
-        "view": "registered" if view == "registered" else "pending", "query": q.strip(),
+        "items": rows, "registered_count": len(managed), "query": q.strip(),
     })
 
 
 @router.post("/api/register")
 def register(body: Registration):
+    # Kept for legacy Raw recovery; new uploads and publications register automatically.
     return service.register_selected(storage_root(), body.folders, body.names)
+
+
+@router.delete("/api/datasets/{dataset_id}")
+def trash_dataset(request: Request, dataset_id: str):
+    try:
+        return dataset_trash.trash_dataset(storage_root(), dataset_id,
+                                           request.state.user["username"])
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, "数据集移入回收站失败") from exc
+
+
+@router.post("/api/datasets/{dataset_id}/restore")
+def restore_dataset(dataset_id: str):
+    try:
+        return dataset_trash.restore_dataset(storage_root(), dataset_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, "数据集恢复失败") from exc
+
+
+@router.post("/api/datasets/{dataset_id}/purge")
+def purge_dataset(dataset_id: str):
+    try:
+        return dataset_trash.purge_dataset(storage_root(), dataset_id)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, "数据集永久清除失败，可在回收站重试") from exc
+
+
+@router.get("/trash/")
+def trash_page(request: Request, view: str = "datasets"):
+    records = DatasetRepository(storage_root()).list(deleted=True)
+    groups = dataset_trash.report_groups(storage_root())
+    datasets = []
+    for record in records:
+        datasets.append({**record, "purge_blocker": dataset_trash.purge_blocker(storage_root(), record)})
+    return templates.TemplateResponse(request=request, name="data_trash.html", context={
+        "view": "reports" if view == "reports" else "datasets",
+        "datasets": datasets, "groups": groups,
+        "dataset_count": len(records),
+        "report_count": sum(len(group["reports"]) for group in groups),
+    })
 
 
 @router.patch("/api/datasets/{dataset_id}")
@@ -201,26 +251,19 @@ def dataset_video(dataset_id: str, video_path: str):
 
 @router.get("/reports/")
 def reports_page(request: Request, view: str = "active"):
-    _, managed = service.catalog(storage_root())
-    view = "trash" if view == "trash" else "active"
     if view == "trash":
-        groups = [
-            {"dataset": row, "reports": service.trashed_reports_for(storage_root(), row["id"])}
-            for row in managed
-        ]
-    else:
-        groups = [
-            {"dataset": row, "reports": service.reports_for(storage_root(), row["id"])}
-            for row in managed
-        ]
+        return RedirectResponse("/data/trash/?view=reports", status_code=303)
+    _, managed = service.catalog(storage_root())
+    groups = [
+        {"dataset": row, "reports": service.reports_for(storage_root(), row["id"])}
+        for row in managed
+    ]
     groups = [group for group in groups if group["reports"]]
     return templates.TemplateResponse(request=request, name="data_reports.html", context={
         "groups": groups,
-        "view": view,
+        "view": "active",
         "active_count": sum(row["report_count"] for row in managed),
-        "trash_count": sum(
-            len(service.trashed_reports_for(storage_root(), row["id"])) for row in managed
-        ),
+        "trash_count": sum(len(group["reports"]) for group in dataset_trash.report_groups(storage_root())),
     })
 
 
@@ -267,7 +310,8 @@ def delete_report(dataset_id: str, filename: str):
 
 @router.get("/reports/trash/{dataset_id}/{filename}")
 def trashed_report(dataset_id: str, filename: str, download: bool = False):
-    record_or_404(dataset_id)
+    if DatasetRepository(storage_root()).get(dataset_id, include_deleted=True) is None:
+        raise HTTPException(404, "数据集不存在")
     file = service.trashed_report_file(storage_root(), dataset_id, filename)
     if file is None:
         raise HTTPException(404, "回收站报告不存在")
@@ -291,3 +335,15 @@ def restore_report(dataset_id: str, filename: str):
         raise HTTPException(409, str(exc)) from exc
     except OSError as exc:
         raise HTTPException(500, "恢复报告失败") from exc
+
+
+@router.post("/reports/trash/{dataset_id}/{filename}/purge")
+def purge_report(dataset_id: str, filename: str):
+    if DatasetRepository(storage_root()).get(dataset_id, include_deleted=True) is None:
+        raise HTTPException(404, "数据集不存在")
+    try:
+        return service.purge_trashed_report(storage_root(), dataset_id, filename)
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(500, "报告永久清除失败") from exc

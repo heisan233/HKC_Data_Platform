@@ -33,8 +33,8 @@
   <section class="dash-flow" aria-label="数据资产概览">
     <div class="dash-section-head"><div><span>DATASETS</span><h3>数据资产概览</h3></div><small>共 {{ stats.episodes }} Episodes · {{ stats.frames }} Frames</small></div>
     <div class="dash-flow-steps">
-      <a href="/data/manage/?view=registered"><b>DS</b><span>全部数据集</span><strong>{{ stats.datasets }}</strong></a>
-      <a href="/data/manage/?view=registered"><b>✓</b><span>可用</span><strong>{{ stats.available }}</strong></a>
+      <a href="/data/manage/"><b>DS</b><span>全部数据集</span><strong>{{ stats.datasets }}</strong></a>
+      <a href="/data/manage/"><b>✓</b><span>可用</span><strong>{{ stats.available }}</strong></a>
       <a href="/qc/"><b>QC</b><span>不可用</span><strong>{{ stats.unavailable }}</strong></a>
       <a href="/training/"><b>TR</b><span>完成训练</span><strong>{{ stats.training_completed }}</strong></a>
     </div>
@@ -61,7 +61,7 @@
   </div>
 
   <section class="dash-panel">
-    <div class="dash-section-head"><div><span>RECENT DATASETS</span><h3>最近登记的数据集</h3></div><a href="/data/manage/?view=registered">查看全部 →</a></div>
+    <div class="dash-section-head"><div><span>RECENT DATASETS</span><h3>最近登记的数据集</h3></div><a href="/data/manage/">查看全部 →</a></div>
     <div class="dash-table-wrap"><table class="dash-table">
       <thead><tr><th>数据集</th><th>可用性</th><th>规模</th><th>采集机器人</th><th>质检状态</th><th>登记时间</th><th></th></tr></thead>
       <tbody>

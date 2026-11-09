@@ -47,7 +47,8 @@ class DatasetRepository:
         """Ensure the fresh MySQL schema exists without scanning dataset folders."""
         ensure_schema()
 
-    def list(self, storage_area: str | None = None, *, availability: str | None = None) -> list[dict]:
+    def list(self, storage_area: str | None = None, *, availability: str | None = None,
+             deleted: bool | None = False) -> list[dict]:
         self.initialize()
         if availability is not None and availability not in AVAILABILITY:
             raise ValueError("数据集可用性不合法")
@@ -61,6 +62,8 @@ class DatasetRepository:
             if availability:
                 clauses.append("availability=?")
                 params.append(availability)
+            if deleted is not None:
+                clauses.append("deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL")
             where = " WHERE " + " AND ".join(clauses) if clauses else ""
             rows = db.execute("SELECT * FROM datasets" + where + " ORDER BY seq DESC", params).fetchall()
             labels = db.execute("SELECT dataset_id,label FROM dataset_status_labels").fetchall()
@@ -69,10 +72,12 @@ class DatasetRepository:
             by_id.setdefault(label["dataset_id"], []).append(label["label"])
         return [self._row(row, by_id.get(row["id"], [])) for row in rows]
 
-    def get(self, dataset_id: str) -> dict | None:
+    def get(self, dataset_id: str, *, include_deleted: bool = False) -> dict | None:
         self.initialize()
         with self.connection() as db:
-            row = db.execute("SELECT * FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+            row = db.execute("SELECT * FROM datasets WHERE id=?" +
+                             ("" if include_deleted else " AND deleted_at IS NULL"),
+                             (dataset_id,)).fetchone()
             labels = db.execute("SELECT label FROM dataset_status_labels WHERE dataset_id=?",
                                 (dataset_id,)).fetchall() if row else []
         return self._row(row, [label["label"] for label in labels]) if row else None
@@ -179,6 +184,47 @@ class DatasetRepository:
 
         self.initialize()
         with self.connection() as db:
+            result = db.execute("DELETE FROM datasets WHERE id=?", (dataset_id,))
+        return bool(result.rowcount)
+
+    def trash(self, dataset_id: str, username: str) -> dict | None:
+        self.initialize()
+        with self.connection() as db:
+            result = db.execute("""UPDATE datasets SET deleted_at=?,deleted_by=?,updated_at=?
+                WHERE id=? AND deleted_at IS NULL""",
+                (utc_now(), username, utc_now(), dataset_id))
+        return self.get(dataset_id, include_deleted=True) if result.rowcount else None
+
+    def restore(self, dataset_id: str) -> dict | None:
+        self.initialize()
+        with self.connection() as db:
+            result = db.execute("""UPDATE datasets SET deleted_at=NULL,deleted_by=NULL,
+                purge_requested_at=NULL,updated_at=?
+                WHERE id=? AND deleted_at IS NOT NULL AND purge_requested_at IS NULL""",
+                (utc_now(), dataset_id))
+        return self.get(dataset_id) if result.rowcount else None
+
+    def request_purge(self, dataset_id: str) -> dict | None:
+        self.initialize()
+        with self.connection() as db:
+            result = db.execute("""UPDATE datasets SET purge_requested_at=?,updated_at=?
+                WHERE id=? AND deleted_at IS NOT NULL AND purge_requested_at IS NULL""",
+                (utc_now(), utc_now(), dataset_id))
+        return self.get(dataset_id, include_deleted=True) if result.rowcount else None
+
+    def finish_purge(self, dataset_id: str) -> bool:
+        """Remove only an archived DS after its files have been cleared."""
+        self.initialize()
+        with self.connection() as db:
+            row = db.execute("SELECT id FROM datasets WHERE id=? AND purge_requested_at IS NOT NULL FOR UPDATE",
+                             (dataset_id,)).fetchone()
+            if row is None:
+                return False
+            db.execute("DELETE r FROM qc_reviews r JOIN qc_tasks t ON r.task_id=t.id WHERE t.dataset_id=?",
+                       (dataset_id,))
+            db.execute("DELETE FROM qc_tasks WHERE dataset_id=?", (dataset_id,))
+            db.execute("DELETE FROM dataset_robot_links WHERE dataset_id=?", (dataset_id,))
+            db.execute("DELETE FROM dataset_status_labels WHERE dataset_id=?", (dataset_id,))
             result = db.execute("DELETE FROM datasets WHERE id=?", (dataset_id,))
         return bool(result.rowcount)
 

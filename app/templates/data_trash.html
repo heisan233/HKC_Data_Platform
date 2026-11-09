@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block page_title %}数据管理 · 回收站{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css?v=20261109-trash1">
+<div class="dm-wrap" id="dm-trash-page">
+  <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>回收站</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">RECYCLE BIN</span><h2>回收站</h2><p>数据集与报告可恢复。永久清除会立即执行，文件和对应记录无法恢复。</p></div></section>
+  <div id="dm-trash-feedback" class="dm-feedback" role="status" hidden></div>
+  <section class="dm-panel"><div class="dm-toolbar"><div class="dm-tabs"><a class="{% if view == 'datasets' %}active{% endif %}" href="/data/trash/">数据集 <b>{{ dataset_count }}</b></a><a class="{% if view == 'reports' %}active{% endif %}" href="/data/trash/?view=reports">单独移入的报告 <b>{{ report_count }}</b></a></div></div></section>
+  {% if view == 'datasets' %}
+  <section class="dm-panel"><div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>原目录</th><th>移入时间</th><th>清除限制</th><th>操作</th></tr></thead><tbody>
+    {% for item in datasets %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong></td><td><code>{{ item.storage_area }}/{{ item.storage_relpath }}</code></td><td>{{ item.deleted_at|local_datetime }}</td><td>{% if item.purge_requested_at %}<span class="dm-badge dm-warn">清除未完成，可重试</span>{% elif item.purge_blocker %}<span class="dm-badge dm-warn">{{ item.purge_blocker }}</span>{% else %}可永久清除{% endif %}</td><td><div class="dm-report-actions">{% if not item.purge_requested_at %}<button type="button" class="dm-restore-dataset" data-dataset-id="{{ item.id }}">恢复</button>{% endif %}<button type="button" class="dm-purge-dataset" data-dataset-id="{{ item.id }}" {% if item.purge_blocker %}disabled{% endif %}>{{ '重试清除' if item.purge_requested_at else '永久清除' }}</button></div></td></tr>
+    {% else %}<tr><td colspan="5" class="dm-empty">数据集回收站为空。</td></tr>{% endfor %}
+  </tbody></table></div></section>
+  {% else %}
+    {% for group in groups %}
+    <section class="dm-panel"><div class="dm-panel-head"><h3>{{ group.dataset.id }} · {{ group.dataset.name }}</h3><p>{{ group.reports|length }} 份报告{% if group.dataset.deleted_at %} · 数据集也在回收站，须先恢复数据集才能恢复报告{% endif %}</p></div>
+      <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>报告文件</th><th>移入时间</th><th>大小</th><th>操作</th></tr></thead><tbody>
+        {% for report in group.reports %}<tr><td><strong>{{ report.name }}</strong><small>{{ report.original_path }}</small></td><td>{{ report.trashed_at|local_datetime }}</td><td>{{ report.size }}</td><td><div class="dm-report-actions"><a href="/data/reports/trash/{{ group.dataset.id }}/{{ report.name|urlencode }}">查看</a><a href="/data/reports/trash/{{ group.dataset.id }}/{{ report.name|urlencode }}?download=true">下载</a><button type="button" class="dm-restore-report" data-dataset-id="{{ group.dataset.id }}" data-filename="{{ report.name }}" aria-label="恢复报告 {{ report.name }}" {% if group.dataset.deleted_at %}disabled{% endif %}>恢复</button><button type="button" class="dm-purge-report" data-dataset-id="{{ group.dataset.id }}" data-filename="{{ report.name }}" aria-label="永久清除报告 {{ report.name }}">永久清除</button></div></td></tr>{% endfor %}
+      </tbody></table></div>
+    </section>
+    {% else %}<section class="dm-panel dm-empty">报告回收站为空。</section>{% endfor %}
+  {% endif %}
+</div>
+<script src="/static/js/data_trash.js"></script>
+{% endblock %}
