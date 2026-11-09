@@ -64,6 +64,7 @@ def task_or_404(task_id: str) -> dict:
 def qc_page(request: Request):
     repo = service.initialize(root())
     _, managed = datasets.catalog(root())
+    managed = [item for item in managed if item["availability"] == "unavailable"]
     plans = repo.list_plans()
     show_hidden = request.query_params.get("hidden") == "1"
     all_tasks = repo.list_tasks(visibility="hidden" if show_hidden else "visible")

@@ -51,7 +51,7 @@ def _qc_state(item: dict, task: dict | None) -> str:
         return "error"
     if task["status"] == "COMPLETED":
         if task["decision"] == "PASS":
-            return "passed"
+            return "passed" if item["availability"] == "available" else "recheck"
         if task["decision"] == "RECAPTURE":
             return "recapture"
         return "review"
@@ -99,8 +99,8 @@ def dashboard_snapshot(root: Path) -> dict:
     robot_rows = robots.list_robots(root)
     training_tasks = TrainingRepository(root).list(deleted=False)
 
-    raw_count = sum(item["storage_area"] == "raw" for item in managed)
-    derived_count = sum(item["storage_area"] == "derived" for item in managed)
+    available_count = sum(item["availability"] == "available" for item in managed)
+    unavailable_count = len(managed) - available_count
     total_episodes = sum(
         item["episodes"] for item in managed if isinstance(item.get("episodes"), int)
     )
@@ -193,8 +193,8 @@ def dashboard_snapshot(root: Path) -> dict:
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "stats": {
             "datasets": len(managed),
-            "raw": raw_count,
-            "derived": derived_count,
+            "available": available_count,
+            "unavailable": unavailable_count,
             "episodes": total_episodes,
             "frames": total_frames,
             "robots": len(robot_rows),

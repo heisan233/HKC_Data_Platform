@@ -4,7 +4,7 @@
 表结构脚本位于 `migrations/mysql/`。应用启动命令先执行
 `python -m app.cli.init_mysql`；仓储调用 `initialize()` 时也会幂等检查结构。
 
-- `datasets.py`：DS 编号、Raw/Derived 位置、展示信息和来源关系；
+- `datasets.py`：DS 编号、真实目录映射、可用性、状态标签、展示信息和来源关系；
 - `conversions.py`：CV 转换任务状态；
 - `quality.py`：质检方案、版本、任务、运行控制和人工审核；
 - `users.py`：无默认网页用户的账号、显示名称、首次改密状态、scrypt 密码哈希和

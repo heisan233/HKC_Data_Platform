@@ -195,7 +195,7 @@ def test_filter_creates_derived_dataset_without_changing_source(tmp_path: Path) 
     assert info["total_episodes"] == 2
     assert info["total_frames"] == 4
     assert output["dataset_id"] == "DS000002"
-    assert registered["storage_area"] == "derived"
+    assert registered["storage_area"] == "data"
     assert registered["storage_relpath"] == output["storage_name"]
     assert registered["source_dataset_ids"] == ["DS000001"]
     assert [row["episode_index"] for row in frames] == [0, 0, 1, 1]

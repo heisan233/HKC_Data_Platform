@@ -166,7 +166,7 @@
             else if (dataset.collector_robot_id) collector = `${escapeHtml(dataset.collector_robot_id)} · ${escapeHtml(dataset.collector_robot_name)}<small>选择后将改绑</small>`;
             return `<tr class="${selected ? "robot-dataset-linked" : ""}">
                 <td>${selected || inactive ? "—" : `<input type="checkbox" data-bind-dataset="${escapeHtml(dataset.id)}" aria-label="选择 ${escapeHtml(dataset.id)}">`}</td>
-                <td><strong>${escapeHtml(dataset.id)} · ${escapeHtml(dataset.name)}</strong><small>${escapeHtml(dataset.storage_area)}</small></td>
+                <td><strong>${escapeHtml(dataset.id)} · ${escapeHtml(dataset.name)}</strong><small>${dataset.availability === "available" ? "可用" : "不可用"}</small></td>
                 <td>${escapeHtml(dataset.robot_type)}${dataset.type_mismatch ? '<span class="robot-type-warning">与机器人类型不一致</span>' : ""}</td>
                 <td>${collector}</td>
                 <td>${selected ? `<button type="button" data-unlink-dataset="${escapeHtml(dataset.id)}">解除关联</button>` : "—"}</td>

@@ -15,6 +15,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
+from app.db.datasets import DatasetRepository
 from app.main import app
 from app.modules.datasets import router as datasets_router
 from app.modules.ingestion import router as ingestion_router
@@ -76,7 +77,7 @@ def test_batch_upload_keeps_raw_and_rejects_unsafe_archive(platform):
     body = response.json()
     assert len(body["uploaded"]) == len(body["errors"]) == 1
     assert body["uploaded"][0]["dataset_id"] == "DS000001"
-    assert (root / "raw" / body["uploaded"][0]["folder"] / "meta" / "info.json").exists()
+    assert (root / "data" / body["uploaded"][0]["folder"] / "meta" / "info.json").exists()
     assert not (root / "escape.txt").exists()
     assert client.get("/qc/").status_code == 200
 
@@ -266,7 +267,12 @@ def test_plan_snapshot_report_and_review(platform, monkeypatch: pytest.MonkeyPat
     assert client.post(f"/qc/api/tasks/{task_id}/review", json={
         "decision": "PASS", "reason": "人工核对"
     }).status_code == 200
+    approved = DatasetRepository(root).get("DS000001")
+    assert approved["availability"] == "available"
+    assert approved["status_labels"] == []
     assert client.get(f"/qc/api/tasks/{task_id}").json()["report"]["reviews"][0]["reason"] == "人工核对"
+    assert client.post("/data/api/datasets/DS000001/recheck").status_code == 200
+    assert DatasetRepository(root).get("DS000001")["availability"] == "unavailable"
     original = client.post("/qc/api/tasks", json={
         "dataset_id": "DS000001", "plan_id": plan["id"], "plan_version": 1,
         "selections": {"doctor": ["metadata"], "robot_rules": [], "vlm": []},
@@ -432,7 +438,7 @@ def test_quality_accepts_registered_derived_dataset(platform, monkeypatch):
     _dataset(root / "derived" / "processed")
     record = register_dataset(root, "derived", "processed", "处理结果")
     assert record["id"] == "DS000001"
-    assert "derived/processed" in client.get("/qc/").text
+    assert "DS000001" in client.get("/qc/").text
     plan = client.post("/qc/api/plans/from-dataset/DS000001").json()
 
     class IdleExecutor:

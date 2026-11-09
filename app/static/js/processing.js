@@ -91,8 +91,7 @@
     };
 
     const datasetLabel = (dataset) => {
-        const kind = {raw: "原始", derived: "派生"}[dataset.kind] || dataset.kind;
-        return `${dataset.dataset_name} · ${kind} · ${dataset.total_episodes} Episodes`;
+        return `${dataset.dataset_name} · ${dataset.total_episodes} Episodes`;
     };
 
     const renderDatasetOptions = () => {
@@ -115,7 +114,7 @@
                 const name = document.createElement("strong");
                 name.textContent = dataset.dataset_name;
                 const meta = document.createElement("span");
-                meta.textContent = `${dataset.kind} · ${dataset.total_episodes} Episodes · ${dataset.robot_type}`;
+                meta.textContent = `${dataset.total_episodes} Episodes · ${dataset.robot_type}`;
                 copy.append(name, meta);
                 label.append(checkbox, copy);
                 return label;

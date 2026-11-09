@@ -34,7 +34,7 @@
   X-VLA 训练执行器是独立的宿主机进程。
 - 大型 VLA 数据集始终保存在普通文件夹中。MySQL 只保存稳定 DS 编号、真实目录
   映射、来源关系、质检任务和人工审核等管理元数据。
-- 当前真实数据集格式以 LeRobot v3 为准；已支持把已登记的 Derived DS 转换为
+- 当前真实数据集格式以 LeRobot v3 为准；已支持把已审核可用的 DS 转换为
   HDF5。不要假定 LeRobot v2、ROS bag、MCAP 或 RLDS 已经实现。
 - 当前已有 MySQL 用户、scrypt 密码哈希和服务端 Cookie 会话保护，但没有 HTTPS；
   仍只能开放到可信内网，禁止宣称可安全暴露到公网。
@@ -52,17 +52,17 @@
   关联、改绑和解除；
 - `ingestion`：单个 LeRobot v3 ZIP 上传、批量包装接口、安全解压、上传阶段
   `robot_type` 声明/覆盖、Raw 入库和自动分配 DS 编号；
-- `datasets`：统一 DS 登记、Raw/Derived 列表、详情、显示信息、重新扫描、视频
+- `datasets`：统一 DS 登记、可用性和状态标签、列表、详情、显示信息、重新扫描、视频
   访问、质检状态和报告管理；
 - `annotation`：真实 Episode/task/Subtask 读取、视频播放、标注以及完整派生数据集
   发布；
 - `processing`：Episode 筛除、拆分、兼容数据集合并、重排、精确重复检测、去重和
-  指定相机视频画面裁剪，所有结果生成新的 Derived DS；
+  指定相机视频画面裁剪，所有结果生成新的 DS；
 - `quality`：版本化质检方案、Doctor、机器人规则、VLM 调用、任务历史、人工审核、
   隐藏/恢复和 JSON 报告；
-- `conversion`：已登记 Derived DS 的 LeRobot v3 → HDF5 单线程后台转换，结果使用
+- `conversion`：已审核可用的 LeRobot v3 DS → HDF5 单线程后台转换，结果使用
   CV 编号保存在 `storage/converted/`，不进入 DS 登记表；
-- `export`：将 Derived DS 或已完成的 CV 转换结果打包到 `storage/exports/` 下载；
+- `export`：将可用 DS 或已完成的 CV 转换结果打包到 `storage/exports/` 下载；
 - `training`：已登记 LeRobot v3 DS 训前校验、X-VLA 基座微调任务、训练指标、
   留出 Episode 离线前向损失、模型包和任务回收站；实际训练依赖已配置的宿主执行器；
 - `dashboard`：真实只读工作台，聚合 DS、机器人、质检、训练、待办与 storage 所在
@@ -77,7 +77,7 @@
   定义，不重新建立独立情景管理模块；
 - `semantics`：真实 LeRobot v3 Schema 编辑器；扫描 `info.json` 与全部 Episode/frame
   Parquet，支持 Episode 扩展字段、数值逐帧 Feature 占位或索引导入，并以完整
-  Derived DS 发布。结构已声明不等于满足训练要求。
+  DS 发布。结构已声明不等于满足训练要求。
 
 Codex 不得因为页面能够打开就声称功能已完成。判断标准是：是否读取真实数据、
 是否有后端行为、是否有测试以及是否通过人工验收。
@@ -95,8 +95,9 @@ app/
 └── static/                 CSS、JavaScript 和网页图片
 
 storage/                    宿主机运行数据；真实内容不提交 Git
-├── raw/                    上传后不可原地修改的原始数据集
-├── derived/                标注或处理生成的完整派生数据集
+├── data/                   新发布数据集统一存储，一个 DS 一个完整目录
+├── raw/                    既有原始数据集，保留旧 DS 映射
+├── derived/                既有派生数据集，保留旧 DS 映射
 ├── converted/              CV 编号管理的 HDF5 转换结果
 ├── training-runs/          训练任务状态、日志与离线评估结果
 ├── models/                 通过验证的模型包
@@ -124,7 +125,7 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `app/modules/annotation/`：Episode/task/Subtask 标注与发布；
 - `app/modules/processing/`：Episode 处理及 Derived 构建；
 - `app/modules/quality/`：质检方案、规则、VLM、任务和报告；
-- `app/modules/export/`：Derived DS 与 CV 转换结果的安全打包和下载；
+- `app/modules/export/`：可用 DS 与 CV 转换结果的安全打包和下载；
 - `app/modules/conversion/`：LeRobot v3 → HDF5 转换及 CV 任务管理。
 - `app/modules/training/`：训练任务、训前校验、执行器通信与模型包管理。
 
@@ -147,7 +148,9 @@ tests/                      自动化测试，结构尽量对应业务模块
 - 浏览器/API 对数据集使用 `DS000001` 形式的稳定编号，不直接暴露真实目录作为
   主标识。
 - MySQL 数据目录由 `HKC_MYSQL_DATA_PATH` 映射，独立于 `HKC_STORAGE_PATH`。
-  MySQL 映射 DS 编号到 `raw/<目录>` 或 `derived/<目录>`；数据集字节不写入数据库。
+  MySQL 映射新 DS 编号到 `data/<DS 编号>`，旧 DS 保持原 `raw/<目录>` 或
+  `derived/<目录>` 映射；数据集字节不写入数据库。服务器 MySQL 私有数据位于
+  `/srv/hkc-ai/mysql/data`，与平台 storage/data 独立。
   旧 `storage/system/platform.sqlite` 保留原样，不导入新库，也不再被平台读写。
   `registry.sqlite3` 由 HS 单独负责，不在本次变更范围内。
 - 转换结果使用 `CV-...` 任务编号映射 `converted/<CV 编号>`，不占用 DS 编号；
@@ -155,8 +158,13 @@ tests/                      自动化测试，结构尽量对应业务模块
 - 业务代码通过 `app.core.config.settings.data_root` 取得数据根目录，禁止写死
   `/home/...`、项目绝对路径或宿主机的 `storage/`。
 - 容器内数据根目录始终是 `/data`；宿主机由 `HKC_STORAGE_PATH` 映射。
-- `raw/` 不得原地修改。标注、筛除、拆分、合并、重排和去重必须在
-  `staging/` 生成完整副本，校验后移入 `derived/` 并登记新 DS 编号。
+- 旧 `raw/`、`derived/` 保持原样，不删除也不自动移动。任何已登记源 DS 都不得
+  原地修改。上传、标注、筛除、拆分、合并、重排和去重先在 `staging/` 生成完整
+  数据集，校验后移入 `data/<新 DS 编号>/` 并登记。
+- `storage_area` 只是物理位置，不代表数据集类型。MySQL 的 `availability` 是
+  “可用/不可用”大状态；状态标签仅在数据管理页展示，功能选择不得依赖它们。
+  质检只选不可用，处理和数据定义可选两类，标注、训练、转换和 DS 导出只选可用。
+  新 DS 默认不可用、待质检；审核 PASS 后可用，打回后不可用。业务流程不强制线性。
 - 合并或重排时必须同步 Episode 元数据、frame Parquet、全局 `index`、
   `episode_index`、task 索引、旁路标注以及必要的视频映射。
 - `detected/` 已废止。质检状态由 MySQL 与 `reports/qc/` 表达，不复制完整数据集。

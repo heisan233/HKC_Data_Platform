@@ -9,12 +9,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
+from app.db.datasets import DatasetRepository
 from app.db.quality import QualityRepository
 from app.db.training import TrainingRepository
 from app.main import app
 from app.modules.datasets import service as datasets
 from app.modules.training import router as training_router
 from app.modules.training import service as training
+from tests.quality_helpers import approve_dataset
 
 
 def _dataset(tmp_path: Path, monkeypatch) -> str:
@@ -29,6 +31,7 @@ def _dataset(tmp_path: Path, monkeypatch) -> str:
     pq.write_table(pa.table({"action": [[0.1], [0.2], [0.3]]}),
                    folder / "data" / "chunk-000.parquet")
     row = datasets.register_dataset(tmp_path, "raw", "sample", "训练样本")
+    approve_dataset(tmp_path, row["id"])
 
     def passed(_root, rows):
         for item in rows:
@@ -51,6 +54,7 @@ def test_preflight_uses_final_dataset_and_episode_split(tmp_path, monkeypatch):
 
 def test_preflight_rejects_unapproved_final_dataset(tmp_path, monkeypatch):
     dataset_id = _dataset(tmp_path, monkeypatch)
+    DatasetRepository(tmp_path).mark_for_qc(dataset_id)
     monkeypatch.setattr(training, "attach_status", lambda _root, rows: [
         row.update(qc_state="uninspected", qc_label="未质检", qc_task_id=None)
         for row in rows
@@ -324,7 +328,7 @@ def test_training_repository_initializes_fresh_mysql_schema(tmp_path):
     assert {"deleted_at", "deleted_by", "delete_requested_at",
             "delete_requested_by", "runtime_id"} <= columns
     assert "training_jobs_deleted_idx" in indexes
-    assert version == 2
+    assert version == 3
 
 
 def test_training_delete_restore_api_uses_recycle_bin(tmp_path, monkeypatch):

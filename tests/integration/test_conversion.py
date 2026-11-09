@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
@@ -24,6 +25,8 @@ from app.modules.conversion import converter, service
 from app.modules.datasets import router as datasets_router
 from app.modules.datasets.service import register_dataset
 from app.modules.export import router as export_router
+from app.modules.export import service as export_service
+from tests.quality_helpers import approve_dataset
 
 
 def _source(root: Path, *, image: bool = False, legacy: bool = False) -> tuple[str, Path]:
@@ -102,6 +105,7 @@ def _source(root: Path, *, image: bool = False, legacy: bool = False) -> tuple[s
             for packet in stream.encode():
                 video.mux(packet)
     record = register_dataset(root, "derived", folder.name, "测试派生版")
+    approve_dataset(root, record["id"])
     return record["id"], folder
 
 
@@ -113,6 +117,23 @@ def _wait(client: TestClient, task_id: str) -> dict:
             return task
         time.sleep(0.05)
     raise AssertionError("conversion task timed out")
+
+
+def test_conversion_and_export_follow_availability_not_storage_area(tmp_path: Path) -> None:
+    dataset_id, _folder = _source(tmp_path)
+    assert service.list_sources(tmp_path)[0]["dataset_id"] == dataset_id
+    assert any(row["dataset_id"] == dataset_id for row in export_service.list_exportable(tmp_path))
+
+    DatasetRepository(tmp_path).mark_for_qc(dataset_id)
+    assert service.list_sources(tmp_path) == []
+    assert all(row["dataset_id"] != dataset_id for row in export_service.list_exportable(tmp_path))
+    with pytest.raises(ValueError, match="不可用"):
+        service.create_task(tmp_path, dataset_id)
+    with pytest.raises(ValueError, match="不可用"):
+        export_service.archive_dataset(tmp_path, dataset_id)
+
+    approve_dataset(tmp_path, dataset_id)
+    assert service.list_sources(tmp_path)[0]["dataset_id"] == dataset_id
 
 
 def test_registered_video_source_converts_and_downloads(tmp_path: Path, monkeypatch) -> None:
@@ -208,6 +229,9 @@ def test_rejects_unregistered_and_symlink_sources(tmp_path: Path, monkeypatch) -
 def test_broken_video_fails_without_publishing_result(tmp_path: Path, monkeypatch) -> None:
     dataset_id, source = _source(tmp_path)
     (source / "videos" / "observation.images.front" / "chunk-000" / "file-000.mp4").unlink()
+    # Reapprove the altered snapshot so the converter itself reaches the missing-video error.
+    DatasetRepository(tmp_path).mark_for_qc(dataset_id)
+    approve_dataset(tmp_path, dataset_id)
     monkeypatch.setattr(export_router, "settings", SimpleNamespace(data_root=tmp_path))
     with TestClient(app) as client:
         created = client.post("/export/api/conversions", json={"source_dataset_id": dataset_id})

@@ -164,7 +164,7 @@ def test_add_uniform_episode_field_creates_derived_dataset(
         for item in client.get("/semantics/api/datasets").json()["datasets"]
         if item["dataset_id"] == result["dataset_id"]
     )
-    derived = root / "derived" / next(
+    derived = root / "data" / next(
         row["storage_relpath"]
         for row in DatasetRepository(root).list()
         if row["id"] == result["dataset_id"]
@@ -173,7 +173,7 @@ def test_add_uniform_episode_field_creates_derived_dataset(
     rows = pq.read_table(
         derived / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
     ).to_pylist()
-    assert record["storage_area"] == "derived"
+    assert record["storage_area"] == "data"
     assert info["hkc_extensions"]["episode_features"]["scene"]["dtype"] == "string"
     assert [row["scene"] for row in rows] == ["lab", "lab"]
     assert "scene" not in pq.read_schema(

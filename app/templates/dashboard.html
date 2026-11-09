@@ -17,7 +17,7 @@
 
   <section class="dash-stat-grid" aria-label="平台核心指标">
     <a class="dash-stat dash-stat-blue" href="/data/">
-      <span class="dash-stat-icon">DS</span><div><small>数据资产</small><strong>{{ stats.datasets }}</strong><p>{{ stats.raw }} Raw · {{ stats.derived }} Derived</p></div>
+      <span class="dash-stat-icon">DS</span><div><small>数据资产</small><strong>{{ stats.datasets }}</strong><p>{{ stats.available }} 可用 · {{ stats.unavailable }} 不可用</p></div>
     </a>
     <a class="dash-stat dash-stat-violet" href="/robots/">
       <span class="dash-stat-icon">RB</span><div><small>机器人档案</small><strong>{{ stats.active_robots }}<em>/ {{ stats.robots }}</em></strong><p>当前在用 / 全部机器人</p></div>
@@ -30,13 +30,13 @@
     </a>
   </section>
 
-  <section class="dash-flow" aria-label="数据生命周期">
-    <div class="dash-section-head"><div><span>DATA LIFECYCLE</span><h3>数据流转概览</h3></div><small>共 {{ stats.episodes }} Episodes · {{ stats.frames }} Frames</small></div>
+  <section class="dash-flow" aria-label="数据资产概览">
+    <div class="dash-section-head"><div><span>DATASETS</span><h3>数据资产概览</h3></div><small>共 {{ stats.episodes }} Episodes · {{ stats.frames }} Frames</small></div>
     <div class="dash-flow-steps">
-      <a href="/ingestion/"><b>01</b><span>Raw 入库</span><strong>{{ stats.raw }}</strong></a><i>→</i>
-      <a href="/qc/"><b>02</b><span>质检通过</span><strong>{{ stats.qc_passed }}</strong></a><i>→</i>
-      <a href="/annotation/"><b>03</b><span>派生数据</span><strong>{{ stats.derived }}</strong></a><i>→</i>
-      <a href="/training/"><b>04</b><span>完成训练</span><strong>{{ stats.training_completed }}</strong></a>
+      <a href="/data/manage/?view=registered"><b>DS</b><span>全部数据集</span><strong>{{ stats.datasets }}</strong></a>
+      <a href="/data/manage/?view=registered"><b>✓</b><span>可用</span><strong>{{ stats.available }}</strong></a>
+      <a href="/qc/"><b>QC</b><span>不可用</span><strong>{{ stats.unavailable }}</strong></a>
+      <a href="/training/"><b>TR</b><span>完成训练</span><strong>{{ stats.training_completed }}</strong></a>
     </div>
   </section>
 
@@ -63,11 +63,11 @@
   <section class="dash-panel">
     <div class="dash-section-head"><div><span>RECENT DATASETS</span><h3>最近登记的数据集</h3></div><a href="/data/manage/?view=registered">查看全部 →</a></div>
     <div class="dash-table-wrap"><table class="dash-table">
-      <thead><tr><th>数据集</th><th>区域</th><th>规模</th><th>采集机器人</th><th>质检状态</th><th>登记时间</th><th></th></tr></thead>
+      <thead><tr><th>数据集</th><th>可用性</th><th>规模</th><th>采集机器人</th><th>质检状态</th><th>登记时间</th><th></th></tr></thead>
       <tbody>
         {% for item in recent_datasets %}<tr>
           <td><strong>{{ item.id }}</strong><span>{{ item.name }}</span></td>
-          <td><span class="dash-pill dash-pill-{{ item.storage_area }}">{{ item.storage_area|upper }}</span></td>
+          <td><span class="dash-pill">{{ '可用' if item.availability == 'available' else '不可用' }}</span></td>
           <td>{{ item.episodes if item.episodes is not none else '—' }} Episodes<small>{{ item.frames if item.frames is not none else '—' }} Frames</small></td>
           <td>{% if item.collector_robot_id %}{{ item.collector_robot_id }}<small>{{ item.collector_robot_name }}</small>{% else %}<span class="dash-muted">未关联</span>{% endif %}</td>
           <td><span class="dash-state dash-state-{{ item.qc_state }}">{{ item.qc_label }}</span></td>

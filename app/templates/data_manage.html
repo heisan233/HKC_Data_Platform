@@ -15,13 +15,13 @@
       {% else %}<tr><td colspan="7" class="dm-empty">{% if query %}没有匹配的目录。{% else %}raw/ 下暂无待登记数据集。{% endif %}</td></tr>{% endfor %}
     </tbody></table></div>
     {% else %}
-    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>类别 / 目录</th><th>采集机器人</th><th>格式</th><th>Episodes</th><th>目录状态</th><th>审核状态</th><th>登记时间</th><th></th></tr></thead><tbody>
-      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong></td><td><code>{{ item.storage_area }}/{{ item.folder }}</code></td><td>{% if item.collector_robot_id %}<strong>{{ item.collector_robot_id }} · {{ item.collector_robot_name }}</strong>{% else %}<span class="dm-subtle">未关联</span>{% endif %}</td><td>LeRobot v3</td><td>{{ item.episodes if item.episodes is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td><span class="dm-badge {% if item.qc_state == 'passed' %}dm-ok{% elif item.qc_state in ('review', 'recapture', 'error', 'stale', 'raw_issue') %}dm-warn{% else %}dm-muted{% endif %}">{{ item.qc_label }}</span></td><td>{{ item.registered_at|local_datetime }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">查看</a>{% if item.state == 'ready' %} · <a class="dm-row-link" href="/qc/?dataset={{ item.id }}">质检 →</a>{% endif %}</td></tr>
-      {% else %}<tr><td colspan="9" class="dm-empty">暂无登记记录。</td></tr>{% endfor %}
+    <div class="dm-table-scroll"><table class="dm-table"><thead><tr><th>编号 / 名称</th><th>存储目录</th><th>可用性</th><th>状态标签</th><th>采集机器人</th><th>格式</th><th>Episodes</th><th>目录状态</th><th>质检状态</th><th>登记时间</th><th></th></tr></thead><tbody>
+      {% for item in items %}<tr><td><strong>{{ item.id }} · {{ item.name }}</strong></td><td><code>{{ item.storage_area }}/{{ item.folder }}</code></td><td><span class="dm-badge {{ 'dm-ok' if item.availability == 'available' else 'dm-warn' }}">{{ '可用' if item.availability == 'available' else '不可用' }}</span></td><td>{{ item.status_labels|join('、') if item.status_labels else '—' }}</td><td>{% if item.collector_robot_id %}<strong>{{ item.collector_robot_id }} · {{ item.collector_robot_name }}</strong>{% else %}<span class="dm-subtle">未关联</span>{% endif %}</td><td>LeRobot v3</td><td>{{ item.episodes if item.episodes is not none else '—' }}</td><td><span class="dm-badge {% if item.state == 'ready' %}dm-ok{% else %}dm-warn{% endif %}">{{ {'ready':'目录正常','missing':'目录缺失','changed':'元数据已变化','invalid':'元数据无效'}.get(item.state, item.state) }}</span></td><td><span class="dm-badge {% if item.qc_state == 'passed' %}dm-ok{% elif item.qc_state in ('review', 'recapture', 'error', 'stale', 'raw_issue') %}dm-warn{% else %}dm-muted{% endif %}">{{ item.qc_label }}</span></td><td>{{ item.registered_at|local_datetime }}</td><td><a class="dm-row-link" href="/data/raw/{{ item.id }}">查看</a>{% if item.state == 'ready' and item.availability == 'unavailable' %} · <a class="dm-row-link" href="/qc/?dataset={{ item.id }}">质检 →</a>{% endif %}</td></tr>
+      {% else %}<tr><td colspan="11" class="dm-empty">暂无登记记录。</td></tr>{% endfor %}
     </tbody></table></div>
     {% endif %}
   </section>
-  <p class="dm-help">目录名称不要求等于 DS 编号。重复登记由数据库阻止；审核状态来自该数据集最新的质检任务。</p>
+  <p class="dm-help">新上传和新发布的数据集存放在 data/DS编号/；旧 raw/ 和 derived/ 目录保持原样。功能选择按可用性筛选，状态标签仅在数据管理展示。</p>
 </div>
 <script src="/static/js/data_manage.js"></script>
 {% endblock %}

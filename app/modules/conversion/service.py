@@ -33,7 +33,7 @@ PROFILES = ({
     "source_format": "LeRobot v3.0",
     "target_format": "HDF5",
     "title": "LeRobot v3.0 → HDF5",
-    "description": "适用于已登记的派生数据集；每个 HDF5 文件最多包含 10 个 Episode。",
+    "description": "适用于已质检可用的 LeRobot v3 数据集；每个 HDF5 文件最多包含 10 个 Episode。",
     "available": True,
 },)
 
@@ -68,7 +68,7 @@ def _fingerprint(folder: Path) -> str:
 def _source(root: Path, dataset_id: str) -> tuple[dict, Path]:
     if not re.fullmatch(r"DS[0-9]{6,}", dataset_id):
         raise ValueError("数据集编号不合法")
-    return resolve_registered_dataset(root, dataset_id, allowed_areas=("derived",))
+    return resolve_registered_dataset(root, dataset_id, availability="available")
 
 
 def _manifest(folder: Path) -> dict:
@@ -97,7 +97,7 @@ def _manifest(folder: Path) -> dict:
 
 def list_sources(root: Path) -> list[dict]:
     result = []
-    for record in DatasetRepository(root).list("derived"):
+    for record in DatasetRepository(root).list(availability="available"):
         try:
             _, folder = _source(root, record["id"])
             info = converter.source_info(folder)

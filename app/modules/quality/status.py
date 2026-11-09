@@ -17,6 +17,7 @@ LABELS = {
     "error": "执行异常",
     "stale": "数据已变化",
     "raw_issue": "数据集目录异常",
+    "recheck": "待重新质检",
 }
 
 
@@ -50,7 +51,7 @@ def attach_status(root: Path, items: list[dict]) -> list[dict]:
                 elif task["decision"] == "RECAPTURE":
                     state = "recapture"
                 elif task["decision"] == "PASS":
-                    state = "passed"
+                    state = "passed" if item["availability"] == "available" else "recheck"
                 else:
                     state = "review"
         item["qc_state"] = state

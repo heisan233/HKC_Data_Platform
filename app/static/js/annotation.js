@@ -131,7 +131,7 @@
         const dataset = state.workspace.dataset;
         const values = [
             ["数据集编号", dataset.dataset_id],
-            ["来源", dataset.kind === "raw" ? "原始数据集" : "派生数据集"],
+            ["状态", "可用数据集"],
             ["Episodes", dataset.total_episodes],
             ["Frames", dataset.total_frames.toLocaleString()],
             ["机器人 / FPS", `${dataset.robot_type} · ${dataset.fps ?? "-"} FPS`],

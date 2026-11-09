@@ -1,10 +1,10 @@
 # 二阶段项目现状（供同事 Codex 接手）
 
-更新日期：2026-11-05
+更新日期：2026-11-06
 
 二阶段基础分支 `integration/hs-lxp-v3.1` 从一期已合并的 `main` 提交 `674cf92`
 创建；当前重庆集成与后续多用户开发位于 `integration/hs-lxp-v3.1-cq`。
-本分支平台管理元数据改用全新 MySQL 8.4 库，不导入、读写或删除旧
+本分支平台管理元数据使用 MySQL 8.4 库，不导入、读写或删除旧
 `storage/system/platform.sqlite`。`registry.sqlite3` 由 HS 独立负责。
 以下一期功能说明仍适用，但涉及 SQLite 的历史描述以本段及 `app/db/README.md`
 为准。本机/服务器 MySQL 验收状态应看最新 `docs/COLLABORATION.md` 交接记录。
@@ -63,13 +63,13 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/dashboard/` | `dashboard` | 真实 DS、机器人、质检、训练、待办和磁盘容量总览 |
 | `/data/` | `datasets` | 真实 DS 数据集总览和质检状态 |
 | `/data/manage/` | `datasets` | 真实登记、信息修改与重新扫描 |
-| `/data/raw/` | `datasets` | Raw/Derived 列表、详情及 Episode 关节曲线 |
+| `/data/raw/` | `datasets` | 全部已登记 DS 列表、详情及 Episode 关节曲线（历史 URL 保留） |
 | `/data/reports/` | `datasets` | 真实质检报告和回收站 |
 | `/ingestion/` | `ingestion` | 真实 LeRobot v3 ZIP 单个/批量上传 |
 | `/annotation/` | `annotation` | 真实 Episode/task/Subtask 标注 |
 | `/preprocess/` | `processing` | 真实数据处理、视频画面裁剪和派生版本生成 |
 | `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
-| `/export/` | `conversion`、`export` | Derived DS 转换 HDF5、CV 任务及完整打包下载 |
+| `/export/` | `conversion`、`export` | 可用 LeRobot v3 DS 转换 HDF5、CV 任务及完整打包下载 |
 | `/training/` | `training` | 已接入真实 DS、MySQL 任务、宿主执行器、离线评估与模型包；执行器离线时不可提交训练 |
 | `/robots/` | `robots` | MySQL 机器人档案、停用/恢复，以及 DS 关联、改绑和解除 |
 | `/semantics/` | `semantics` | 真实 LeRobot v3 Schema 扫描、字段增删、空值占位与索引导入 |
@@ -87,13 +87,13 @@ LeRobot v3 ZIP
   → storage/staging/uploads/
   → ZIP 安全检查和最低结构检查
   → 解析 robot_type（表单值优先；两处均为空则拒绝）
-  → storage/raw/<内部目录名>/
-  → MySQL 登记
-  → 返回 DS000001 形式的编号
+  → 分配 DS000001 形式的编号
+  → storage/data/<DS 编号>/
+  → MySQL 登记为不可用、待质检
 ```
 
 上传支持单文件接口和最多 20 个文件的批量包装接口。单文件页提供可选
-`robot_type` 文本框：填写后在 Staging 中覆盖 `meta/info.json` 再进入 Raw；留空则
+`robot_type` 文本框：填写后在 Staging 中覆盖 `meta/info.json` 再进入 data/；留空则
 沿用包内值。如果包内缺少或为空且表单也为空，上传被拒绝，不再以“未声明”入库。
 上传检查不是完整质检。
 
@@ -103,24 +103,26 @@ LeRobot v3 ZIP
 DS000001
   → MySQL datasets 表
   → storage_area + storage_relpath
-  → storage/raw/<目录> 或 storage/derived/<目录>
+  → 新数据集 storage/data/<DS 编号>/；旧数据集仍在 raw/ 或 derived/
+  → datasets.availability（可用/不可用）和 dataset_status_labels（仅展示）
 ```
 
-真实目录名不需要改成 DS 编号。页面、标注、处理和质检使用 DS 编号，通过 MySQL
-解析真实目录。
+旧数据集目录和编号相互独立，不自动移动或删除。新发布数据集直接以 DS 编号命名。
+`storage_area` 只表示物理目录，不作为业务类型或资格。功能选择仅按可用性筛选，再做
+必要的格式、目录和质检快照检查；“待质检/待处理”标签只在数据管理页展示。
 
 ### 格式转换与导出
 
 ```text
-已登记的 Derived DS
+已质检可用的 LeRobot v3 DS
   → storage/staging/conversion/<CV 编号>/
   → LeRobot v3 内容校验与 HDF5 转换
   → storage/converted/<CV 编号>/
   → MySQL conversion_jobs 保存任务状态
 ```
 
-转换结果使用 `CV-...` 任务编号，不分配 DS 编号，也不进入 Raw/Derived 登记表。
-数据管理页单独展示转换结果。导出接受 Derived 的 DS 编号或已完成的 CV 编号，
+转换结果使用 `CV-...` 任务编号，不分配 DS 编号，也不进入 DS 登记表。
+数据管理页单独展示转换结果。导出接受可用的 DS 编号或已完成的 CV 编号，
 先在 `storage/staging/export/` 构建 `tar.gz`，再原子发布到 `storage/exports/`；
 转换和导出均不修改来源数据集。
 
@@ -129,12 +131,12 @@ DS000001
 标注和处理永远不修改源数据集：
 
 ```text
-Raw/Derived 源 DS
+按功能可用性选择的源 DS
   → storage/staging/annotation/ 或 processing/
   → 构建完整 LeRobot v3 副本
   → 校验
-  → storage/derived/<新目录>/
-  → 登记新的 DS 编号和来源关系
+  → storage/data/<新 DS 编号>/
+  → 登记新的 DS 编号、来源关系，并标记不可用、待质检
 ```
 
 标注可修改 Episode 总体 task、执行结果、失败原因和 Subtask 时间段/描述/动作/
@@ -149,14 +151,16 @@ Episode 重新编码 H.264，并同步更新 LeRobot v3 feature 宽高。
 ### 质检与报告
 
 ```text
-已登记 DS
+当前不可用的已登记 DS
   → 选择版本化质检方案
   → Doctor / 机器人规则 / 可选 VLM
   → MySQL 保存任务和人工审核
   → storage/reports/qc/<DS>/<task>.json
 ```
 
-完成自动检查后进入待人工审核，再决定通过、待复核或打回重采。页面“移除报告”
+完成自动检查后进入待人工审核，再决定通过、待复核或打回重采。审核 PASS 将该 DS
+标记可用，RECAPTURE 标记不可用并显示“待处理”；它不强制下一步进入某个功能。
+重新质检或重新扫描会撤销可用性。页面“移除报告”
 只会将 JSON 移到 `storage/trash/reports/`；不会删除质检任务、审核历史或数据集。
 
 ## 4. 存储与数据库
@@ -179,7 +183,7 @@ root = settings.data_root
 
 MySQL 访问代码：
 
-- `app/db/datasets.py`：DS 编号、Raw/Derived 位置、名称、机器人类型、标签和来源；
+- `app/db/datasets.py`：DS 编号、真实目录映射、可用性、展示标签、机器人类型和来源；
 - `app/db/conversions.py`：CV 转换任务、进度、状态和结果文件清单；
 - `app/db/quality.py`：质检方案版本、任务、状态和人工审核；
 - `app/db/training.py`：TR 任务编号、固定快照、状态、评估和模型包引用；
@@ -187,7 +191,7 @@ MySQL 访问代码：
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
 - `app/db/dataset_robots.py`：DS 与采集机器人的可选关系及派生继承；
 - `app/db/semantics.py`：旧受控词表兼容保留；当前数据定义页不再读写；
-- 真实数据库：独立 MySQL 服务，宿主数据目录由 `HKC_MYSQL_DATA_PATH` 指定；旧 `platform.sqlite` 原样保留。
+- 真实数据库：独立 MySQL 服务，宿主数据目录由 `HKC_MYSQL_DATA_PATH` 指定；重庆服务器使用 `/srv/hkc-ai/mysql/data`，旧 `platform.sqlite` 原样保留。
 
 平台不提供默认账号。每台全新部署设备启动后，由管理员在容器中交互执行
 `python -m app.cli.create_user` 创建用户，并使用 `list_users`、
@@ -212,7 +216,7 @@ IP 地址只是管理字段，当前不会探测在线状态、控制机器人�
 DS，已有 DS 不自动迁移。关联、改绑和解除只在机器人管理页执行，数据管理页只读
 显示 `RB 编号 · 名称`。类型不一致允许保存但必须告警；停用机器人不能接收新关联，
 仍可查看并解除历史关系。派生 DS 仅在所有来源都关联同一机器人时继承。该关系不会
-回写 Raw/Derived 文件或 `meta/info.json`。
+回写任何已登记 DS 文件或 `meta/info.json`。
 
 ### 数据定义边界
 
@@ -226,7 +230,7 @@ Feature 同时写入 `info.json.features` 和所有 frame Parquet，支持数值
 向量全空占位，或从 CSV/Parquet 按 `episode_index + frame_index` 导入实际数据。
 全空或部分为空的 Feature 会标记为不满足训练要求，不会静默填 0。
 
-所有增删均复制完整数据集并发布新的 Derived DS。核心索引与 Episode 定位字段禁止
+所有增删均复制完整数据集并发布新的 DS，初始不可用。核心索引与 Episode 定位字段禁止
 删除；其他官方 Feature 允许删除，但必须经过醒目警告和二次确认。第一版不新增
 图片、视频或深度媒体内容；它们需要未来单独实现媒体文件和索引处理。
 
@@ -239,7 +243,7 @@ Feature 同时写入 `info.json.features` 和所有 frame Parquet，支持数值
 起点；缺少时间戳时使用 `frame_index / fps`。曲线名称优先使用
 `info.json.features.<字段>.names`，缺少名称时显示“维度 0、维度 1……”；长 Episode
 最多均匀返回 2000 个显示点，但不修改或重写原始数据。该功能为只读展示，不新增
-MySQL 表，也不改变 Raw/Derived 数据集。
+MySQL 表，也不改变源数据集。
 
 ### 系统日志边界
 
@@ -252,7 +256,7 @@ MySQL 表，也不改变 Raw/Derived 数据集。
 ### 工作台边界
 
 工作台不再使用写死的演示任务。页面从统一 DS 登记、机器人档案、质检任务和训练
-任务中读取真实统计，展示 Raw/Derived 数量、Episode/Frame 总量、机器人使用状态、
+任务中读取真实统计，展示可用/不可用数量、Episode/Frame 总量、机器人使用状态、
 最近数据集、最近任务以及待登记、待审核、未关联和异常等待办入口。磁盘区域通过
 `storage` 所在文件系统的容量计算可用空间，不递归统计所有数据集字节，因此页面
 加载不会读取大型视频内容。工作台为只读聚合，不会修改业务记录，也不会主动连接
@@ -319,8 +323,8 @@ LXP 侧默认继续负责：
 - 质检状态、报告路径与人工审核；
 - `base.html` 的全局导航和共享静态资源。
 
-当前数据导出使用 Derived DS 或 CV 编号解析真实目录，在 `storage/staging/export/`
-构建，最终产物进入 `storage/exports/`；不得修改 Raw/Derived/Converted 来源，
+当前数据导出使用可用 DS 或 CV 编号解析真实目录，在 `storage/staging/export/`
+构建，最终产物进入 `storage/exports/`；不得修改任何来源文件，
 不得提供不可恢复的删除。
 
 ## 8. 开始和结束任务的固定动作

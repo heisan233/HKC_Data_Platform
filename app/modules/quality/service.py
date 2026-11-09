@@ -301,6 +301,8 @@ def create_task(root: Path, dataset_id: str, plan_id: str, plan_version: int,
     plan = repo.get_plan(plan_id, plan_version)
     if dataset is None or plan is None:
         raise HTTPException(404, "数据集或质检方案不存在")
+    if dataset["availability"] != "unavailable":
+        raise HTTPException(409, "质检只接受当前不可用的数据集")
     if plan["archived_at"]:
         raise HTTPException(409, "质检方案已删除，请选择其他方案")
     try:
@@ -362,6 +364,8 @@ def rerun_task(root: Path, previous_id: str) -> dict:
     plan = repo.get_plan(previous["plan_id"], previous["plan_version"])
     if dataset is None or plan is None:
         raise HTTPException(409, "原数据集或质检方案版本缺失")
+    if dataset["availability"] != "unavailable":
+        raise HTTPException(409, "质检只接受当前不可用的数据集")
     try:
         _, folder = datasets.resolve_registered_dataset(root, previous["dataset_id"])
     except ValueError as exc:
@@ -403,7 +407,18 @@ def review_task(root: Path, task_id: str, decision: str, reason: str) -> dict:
         raise HTTPException(409, "报告文件不存在，不能复核；请重新质检")
     if decision == "PASS" and existing["outcome"] != "PASS" and not reason:
         raise HTTPException(400, "覆盖系统结果为通过时必须填写复核理由")
-    task = repo.review(task_id, decision, reason)
+    if decision == "PASS":
+        try:
+            record, folder = datasets.resolve_registered_dataset(root, existing["dataset_id"])
+            if (datasets.info_digest(folder) != record["info_sha256"]
+                    or raw_fingerprint(folder) != existing["raw_fingerprint"]):
+                raise ValueError("数据集自质检后已变化，请重新质检")
+        except (ValueError, OSError) as exc:
+            raise HTTPException(409, str(exc)) from exc
+    try:
+        task = repo.review(task_id, decision, reason)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     if task is None:
         raise HTTPException(409, "只能复核已完成的任务")
     report = read_report(root, task)

@@ -1,4 +1,4 @@
-"""Package derived datasets or CV conversion results without changing sources."""
+"""Package available datasets or CV conversion results without changing sources."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from app.db.datasets import DatasetRepository
 from app.modules.conversion import service as conversion_service
-from app.modules.datasets.service import dataset_info, directory
+from app.modules.datasets.service import dataset_info, directory, resolve_registered_dataset
 
 _DS_ID = re.compile(r"DS[0-9]{6,}")
 _CV_ID = re.compile(r"CV-[A-F0-9]{12}")
@@ -22,16 +22,17 @@ _lock = RLock()
 
 
 def list_exportable(root: Path) -> list[dict]:
-    """Expose registered Derived datasets and completed CV outputs."""
+    """Expose available registered datasets and completed CV outputs."""
     result = []
-    for record in DatasetRepository(root).list("derived"):
-        folder = directory(root, "derived", record["storage_relpath"])
-        if folder is None:
+    for record in DatasetRepository(root).list(availability="available"):
+        try:
+            resolve_registered_dataset(root, record["id"], availability="available")
+        except (ValueError, OSError):
             continue
         result.append({
             "dataset_id": record["id"], "name": record["name"],
-            "storage_area": "derived", "format": "LeRobot v3.0",
-            "kind_label": "派生数据集",
+            "storage_area": record["storage_area"], "format": "LeRobot v3.0",
+            "kind_label": "可用数据集",
         })
     for item in conversion_service.list_results(root):
         if item["available"]:
@@ -94,12 +95,15 @@ def archive_dataset(root: Path, dataset_id: str) -> Path:
         record = {"storage_area": "converted", "storage_relpath": dataset_id, "format": "HDF5"}
     else:
         record = DatasetRepository(root).get(dataset_id)
-        if record is None or record["storage_area"] != "derived":
+        if record is None:
             raise ValueError("可导出的数据集不存在")
+        if record["availability"] != "available":
+            raise ValueError("数据集当前不可用，不能导出")
+        resolve_registered_dataset(root, dataset_id, availability="available")
     folder = directory(root, record["storage_area"], record["storage_relpath"])
     if folder is None:
         raise ValueError("数据集目录不存在或不安全")
-    if record["storage_area"] == "derived":
+    if record["storage_area"] != "converted":
         _, error = dataset_info(folder)
         if error:
             raise ValueError(error)

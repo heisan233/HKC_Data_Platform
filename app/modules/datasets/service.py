@@ -3,6 +3,7 @@
 import hashlib
 import json
 import math
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -111,7 +112,8 @@ def info_digest(folder: Path) -> str:
 def resolve_registered_dataset(
     root: Path,
     dataset_id: str,
-    allowed_areas: tuple[str, ...] = ("raw", "derived"),
+    allowed_areas: tuple[str, ...] = ("raw", "derived", "data"),
+    availability: str | None = None,
 ) -> tuple[dict, Path]:
     """Resolve a public DS identifier to its safe on-disk folder."""
     record = DatasetRepository(root).get(dataset_id)
@@ -119,9 +121,23 @@ def resolve_registered_dataset(
         raise ValueError("数据集未登记")
     if record["storage_area"] not in allowed_areas:
         raise ValueError("数据集所在存储区域不允许执行此操作")
+    if availability is not None and record["availability"] != availability:
+        raise ValueError("数据集当前不可用于此功能，请先完成质检审核")
     folder = directory(root, record["storage_area"], record["storage_relpath"])
     if folder is None:
         raise ValueError("数据集目录缺失或路径不安全")
+    if availability == "available":
+        if info_digest(folder) != record["info_sha256"]:
+            raise ValueError("数据集元数据已变化，请重新质检")
+        # Import lazily because quality.service also uses this resolution layer.
+        from app.db.quality import QualityRepository
+        from app.modules.quality.service import raw_fingerprint
+
+        tasks = QualityRepository(root).list_tasks(dataset_id=dataset_id, visibility="all")
+        latest = tasks[0] if tasks else None
+        if (latest is None or latest["status"] != "COMPLETED" or latest["decision"] != "PASS"
+                or raw_fingerprint(folder) != latest["raw_fingerprint"]):
+            raise ValueError("数据集没有有效的最新质检通过结论")
     return record, folder
 
 
@@ -131,6 +147,8 @@ def register_dataset(
     storage_relpath: str,
     display_name: str,
     source_dataset_ids: list[str] | None = None,
+    *,
+    reserved_id: str | None = None,
 ) -> dict:
     folder = directory(root, storage_area, storage_relpath)
     if folder is None:
@@ -149,6 +167,7 @@ def register_dataset(
         robot_type_label(info),
         info_digest(folder),
         source_dataset_ids,
+        reserved_id=reserved_id,
     )
     try:
         DatasetRobotRepository(root).inherit(record["id"], source_dataset_ids or [])
@@ -158,6 +177,39 @@ def register_dataset(
         repo.unregister(record["id"])
         raise
     return record
+
+
+def publish_staged_dataset(
+    root: Path, staged: Path, display_name: str,
+    source_dataset_ids: list[str] | None = None,
+) -> dict:
+    """Publish a validated staged LeRobot dataset as data/<stable DS id>."""
+    if staged.is_symlink() or not staged.is_dir():
+        raise ValueError("待发布数据集目录不存在或不安全")
+    info, error = dataset_info(staged)
+    if error or info is None:
+        raise ValueError(error or "数据集元数据无效")
+    data_root = root / "data"
+    if root.is_symlink() or data_root.is_symlink():
+        raise ValueError("数据集存储目录不安全")
+    data_root.mkdir(parents=True, exist_ok=True)
+    dataset_id = DatasetRepository(root).reserve_id()
+    final = data_root / dataset_id
+    if final.exists() or final.is_symlink():
+        raise ValueError("数据集编号目录已存在")
+    moved = False
+    try:
+        staged.replace(final)
+        moved = True
+        return register_dataset(root, "data", dataset_id, display_name,
+                                source_dataset_ids, reserved_id=dataset_id)
+    except Exception:
+        if moved and final.exists():
+            try:
+                final.replace(staged)
+            except OSError:
+                shutil.rmtree(final, ignore_errors=True)
+        raise
 
 
 def folder_size(folder: Path) -> int:
@@ -204,6 +256,8 @@ def summary(root: Path, name: str, registered: dict | None = None, area: str = "
         "registered_at": registered["registered_at"] if registered else None,
         "description": registered["description"] if registered else "",
         "tags": registered["tags"] if registered else [],
+        "availability": registered["availability"] if registered else "unavailable",
+        "status_labels": registered["status_labels"] if registered else [],
         "collector_robot_id": collector["robot_id"] if collector else None,
         "collector_robot_name": collector["robot_name"] if collector else None,
         "collector_robot_status": collector["robot_status"] if collector else None,

@@ -42,7 +42,7 @@
         payload.datasets.forEach((item) => {
             const option = document.createElement("option");
             option.value = item.dataset_id;
-            option.textContent = `${item.dataset_id} · ${item.dataset_name}（${item.storage_area}）`;
+            option.textContent = `${item.dataset_id} · ${item.dataset_name}（${item.availability === "available" ? "可用" : "不可用"}）`;
             datasetSelect.append(option);
         });
         if (selected) datasetSelect.value = selected;

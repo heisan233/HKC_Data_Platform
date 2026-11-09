@@ -3,10 +3,10 @@
 {% block content %}
 <link rel="stylesheet" href="/static/css/data.css">
 <div class="dm-wrap">
-  <section class="dm-hero"><div><span class="dm-eyebrow">DATA ASSETS</span><h2>数据资产总览</h2><p>从 Raw 目录选择数据集登记；编号与展示信息由平台管理，原始文件保持原位。</p></div><div><span class="dm-hero-pill">存储目录 · /data</span><a class="dm-hero-link" href="/ingestion/">上传原始数据 →</a></div></section>
+  <section class="dm-hero"><div><span class="dm-eyebrow">DATA ASSETS</span><h2>数据资产总览</h2><p>新数据集统一存放在 data/DS编号/；旧 raw/ 和 derived/ 数据集保持原位。</p></div><div><span class="dm-hero-pill">存储目录 · /data</span><a class="dm-hero-link" href="/ingestion/">上传数据集 →</a></div></section>
   <div class="dm-grid dm-grid-four">
     <a class="dm-tile" href="/data/manage/"><div class="dm-tile-icon">📥</div><div class="dm-tile-title">待登记 <span>Raw 目录</span></div><strong>{{ pending|length }}</strong><p>选择已解压的数据集并分配编号</p><span class="dm-tile-link">前往登记 →</span></a>
-    <a class="dm-tile" href="/data/manage/?view=registered"><div class="dm-tile-icon">📁</div><div class="dm-tile-title">已登记 <span>Raw / Derived</span></div><strong>{{ managed|length }}</strong><p>原始及派生数据集登记记录</p><span class="dm-tile-link">查看登记记录 →</span></a>
+    <a class="dm-tile" href="/data/manage/?view=registered"><div class="dm-tile-icon">📁</div><div class="dm-tile-title">已登记 <span>全部数据集</span></div><strong>{{ managed|length }}</strong><p>查看可用性、状态标签和真实目录</p><span class="dm-tile-link">查看登记记录 →</span></a>
     <a class="dm-tile" href="/data/raw/?qc=review"><div class="dm-tile-icon">🕒</div><div class="dm-tile-title">待人工审核 <span>质检状态</span></div><strong>{{ review_count }}</strong><p>质检已完成，等待最终判定{% if passed_count or recapture_count %} · {{ passed_count }} 已通过 / {{ recapture_count }} 打回{% endif %}</p><span class="dm-tile-link">查看待审核 →</span></a>
     <a class="dm-tile" href="/data/reports/"><div class="dm-tile-icon">📊</div><div class="dm-tile-title">Reports <span>质检报告</span></div><strong>{{ report_count }}</strong><p>按数据集查看报告</p><span class="dm-tile-link">查看报告 →</span></a>
   </div>
@@ -24,6 +24,6 @@
       {% else %}<tr><td colspan="7" class="dm-empty">暂无格式转换结果。</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
-  <div class="dm-notice">登记与质检不移动 Raw 文件。质检结论由任务与人工审核记录管理，报告保存在 reports/qc/。</div>
+  <div class="dm-notice">质检不移动数据集文件。可用性由 MySQL 记录，质检报告保存在 reports/qc/。</div>
 </div>
 {% endblock %}

@@ -29,11 +29,13 @@
 权限见 `deploy/TRAINING_EXECUTOR.md`。不要把服务器的 `.env`、socket 令牌或模型
 权重复制进 Git。
 
-服务器已导入匹配镜像且宿主执行器已启动时，在项目根目录执行：
+服务器已导入匹配镜像且宿主执行器已启动时，在项目根目录执行。已有执行器的服务器
+必须叠加 `deploy/compose.training-agent.yaml`，否则重新创建平台容器会失去 socket
+挂载和 VLM 控制连接；构建/启动要用同一组覆盖文件：
 
 ```bash
 docker compose --env-file .env -p hkc-vla \
-  -f compose.yaml -f compose.server.yaml \
+  -f compose.yaml -f compose.server.yaml -f deploy/compose.training-agent.yaml \
   up -d --no-build --force-recreate --wait
 ```
 
@@ -52,8 +54,9 @@ id -g
 `./storage`，MySQL 数据目录是 `./mysql-data`；服务器可设置绝对路径，例如：
 
 ```dotenv
-HKC_STORAGE_PATH=/srv/hkc-data-platform/storage
-HKC_MYSQL_DATA_PATH=/srv/hkc-data-platform/mysql-data
+HKC_STORAGE_PATH=/path/to/storage
+HKC_MYSQL_DATA_PATH=/srv/hkc-ai/mysql/data
+HKC_TRAINING_AGENT_SOCKET_DIR=/path/to/training-agent/control
 APP_UID=1000
 APP_GID=1000
 ```

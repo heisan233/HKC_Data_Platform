@@ -41,7 +41,7 @@ HKC_Data_Platform_v3.1-cq/
 │   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
 │   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
 │   │   ├── annotation/         # Episode/task/Subtask 标注与派生发布
-│   │   ├── conversion/         # LeRobot v3 派生数据集转换为 HDF5
+│   │   ├── conversion/         # 可用 LeRobot v3 DS 转换为 HDF5
 │   │   ├── training/           # X-VLA 训练、离线评估和模型包管理
 │   │   ├── robots/             # 机器人管理
 │   │   ├── system/             # 系统管理
@@ -73,7 +73,7 @@ HKC_Data_Platform_v3.1-cq/
 
 原始数据集上传、数据管理、Episode/task/Subtask 标注、Episode 数据处理
 和数据质检已经读写真实 LeRobot v3 文件。数据管理扫描真实存储目录，
-并通过 MySQL 分配 DS 编号；转换已接入真实 Derived 数据，打包导出结果保存到 `storage/exports/`，
+并通过 MySQL 分配 DS 编号；转换已接入真实可用 DS 数据，打包导出结果保存到 `storage/exports/`，
 训练页面使用真实 MySQL 任务与宿主执行器接口；宿主执行器未部署时会明确显示不可用，
 不会生成虚假的成功任务。
 
@@ -100,12 +100,12 @@ qc.html 中的按钮
 
 ### 当前文件存储方案
 
-- 其他采集流程放入 `storage/raw/` 的 VLA 数据集，登记时不移动原始目录。
-- 数据管理在 MySQL 中分配 DS 编号，保存编号到 Raw 目录的映射。
-- 质检可读取已登记的 Raw 和 Derived 数据集；统一报告保存在 `storage/reports/qc/<DS 编号>/`。
+- 旧 `storage/raw/` 与 `storage/derived/` 数据集保留原目录；新上传和新发布结果统一放在 `storage/data/<DS 编号>/`。
+- 数据管理在 MySQL 中分配 DS 编号，保存真实目录映射、可用性与展示用状态标签。
+- 质检选择当前不可用的已登记 DS；统一报告保存在 `storage/reports/qc/<DS 编号>/`。
 - 数据管理首页显示待人工审核数量；Raw 列表按最新质检任务显示未质检、待审核、已审核通过、打回重采等状态。质检完成本身不等于人工通过。
 - 正在上传、解压或校验的内容放在 `storage/staging/`。
-- 处理生成的新版本放在 `storage/derived/`，不原地修改原始数据。
+- 处理、标注和数据定义生成的新版本放在 `storage/data/<新 DS 编号>/`，不原地修改源数据。
 - 质检报告和导出包分别放在 `storage/reports/` 与 `storage/exports/`。
 - 从页面移除的质检报告进入
   `storage/trash/reports/<DS 编号>/`，同时记录原路径和移入时间；报告可在回收站
@@ -196,7 +196,7 @@ MySQL，不修改数据集文件或 `meta/info.json`。
 Episode/frame Parquet，显示字段来源、dtype、shape、物理类型、完整率和训练可用
 状态。Episode 字段可使用统一值或统一空值；逐帧数值标量/向量可建立全空占位，
 也可从 CSV/Parquet 按 `episode_index + frame_index` 导入。每次修改都复制完整
-数据集并登记新的 Derived DS，Raw 和旧 Derived 不原地修改。核心字段禁止删除，
+数据集并登记新的 DS，源数据集不原地修改。核心字段禁止删除，
 其他官方 Feature 删除前需要醒目警告和二次确认。
 
 全新数据库没有默认用户。容器健康启动后，由管理员交互创建首个账号：
@@ -230,10 +230,10 @@ http://127.0.0.1:8000/ingestion/
 局域网模式则把 `127.0.0.1` 换成开发机的可信内网 IPv4 地址。页面接受一个完整
 的 LeRobot v3.0 `.zip`，需要填写平台显示名称；`robot_type` 和备注可选。服务端不会把完整 ZIP
 载入内存，而是分块写入 `storage/staging/`。只有同时通过以下检查才会移动到
-`storage/raw/<内部目录名>/`，随后由 MySQL 自动登记并返回稳定的 `DS000001`
+`storage/data/<DS 编号>/`，随后由 MySQL 自动登记并返回稳定的 `DS000001`
 形式平台编号：
 
-上传页的 `robot_type` 规则是：文本框填写时，以表单值为准，并在进入 Raw 前覆盖
+上传页的 `robot_type` 规则是：文本框填写时，以表单值为准，并在发布到 data/ 前覆盖
 临时解压副本的 `meta/info.json`；文本框留空时沿用压缩包中的非空值。如果压缩包
 缺少该字段、值为 `null` 或空字符串，同时文本框也留空，平台拒绝入库并要求手动
 填写。这样 MySQL、重新扫描、质检和后续导出始终读取同一个类型值。
@@ -266,8 +266,8 @@ http://127.0.0.1:8000/annotation/
 
 工作流程如下：
 
-1. 页面从 MySQL 列出已登记的 DS 编号，再映射到 `storage/raw/` 或
-   `storage/derived/` 的真实目录；未登记的旧测试目录不会自动导入。
+1. 页面从 MySQL 列出已审核可用的 DS 编号，再映射到数据库记录的真实目录；
+   旧目录保持原样，未登记的旧测试目录不会自动导入。
 2. 选择数据集后，平台读取 `meta/tasks.parquet`、Episode 元数据和视频索引。
    其中 task 按 LeRobot 官方结构作为 Pandas DataFrame 索引读取，Episode 帧数
    使用官方 `length` 字段；同时兼容本平台早期的普通 `task` 列和 `num_frames`。
@@ -280,7 +280,7 @@ http://127.0.0.1:8000/annotation/
 7. 填写派生版本名称并正式发布。平台将源数据集完整复制到临时区，在副本中同步
    更新任务表、Episode task、frame `task_index` 和 `info.json.total_tasks`；扩展
    标注写入 `meta/annotations/`。
-8. 校验通过后，新数据集进入 `storage/derived/<内部目录名>/`，自动登记新的
+8. 校验通过后，新数据集进入 `storage/data/<新 DS 编号>/`，自动登记新的
    DS 编号，版本记录进入
    `storage/system/dataset-versions/`；原始数据集和既有派生版本始终保持不变。
 
@@ -309,7 +309,7 @@ POST /annotation/api/publish
 http://127.0.0.1:8000/preprocess/
 ```
 
-页面读取 `storage/raw/` 和 `storage/derived/` 中的真实
+页面通过 MySQL 读取所有已登记 DS（包括可用和不可用）的真实
 LeRobot v3 数据集，提供以下操作：
 
 1. 筛除指定 Episode，保留其余 Episode 并连续重新编号；
@@ -333,7 +333,7 @@ LeRobot v3 数据集，提供以下操作：
 `length/tasks` 和标准 data 分片索引。
 
 所有操作只读取源数据。任务先在 `storage/staging/processing/<job_id>/` 中生成
-完整 LeRobot v3 数据集，校验后原子移动到 `storage/derived/<内部目录名>/` 并
+完整 LeRobot v3 数据集，校验后原子移动到 `storage/data/<新 DS 编号>/` 并
 自动登记新的 DS 编号；任务
 记录与派生版本记录分别写入 `storage/system/processing-jobs/` 和
 `storage/system/dataset-versions/`。Episode、frame、全局 index 和 task index 会
@@ -360,11 +360,11 @@ POST /preprocess/api/jobs
 
 ### 数据质检
 
-打开 `/qc/` 上传或选择已登记的 LeRobot v3 Raw/Derived 数据集。先从数据集创建质检方案，
+打开 `/qc/` 上传或选择当前不可用的已登记 LeRobot v3 数据集。先从数据集创建质检方案，
 在方案页配置机器人字段与阈值、Doctor 检查项、机器人专项规则及 VLM 判断要求。
 每次保存方案都会生成新版本。任务页选择方案后只调整本次启用的规则；任务保存
-方案版本、启用项和 Raw 文件指纹快照。同一方案可供多个同类型数据集复用：
-一次勾选多个 Raw 数据集或上传多个 ZIP，会为每个数据集各创建一个任务，提交后
+方案版本、启用项和数据集文件指纹快照。同一方案可供多个同类型数据集复用：
+一次勾选多个不可用数据集或上传多个 ZIP，会为每个数据集各创建一个任务，提交后
 留在任务列表查看进度。方案可从列表删除；删除后不再用于新任务，已有任务、
 版本快照和报告仍可查询。
 
@@ -383,17 +383,17 @@ VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.pa
 每个任务只生成一份 JSON 报告，包含 Doctor、机器人专项和 VLM 三部分，位于
 `storage/reports/qc/<DS 编号>/<任务 ID>.json`。页面支持人工通过、待复核、
 打回重采、按原配置重跑和下载报告。任务列表可将已结束的记录移出当前显示，并在“已移出记录”
-中恢复；任务、报告、人工判定和 Raw 数据集均保留。列表分页显示，每页 20 条。
+中恢复；任务、报告、人工判定和源数据集均保留。列表分页显示，每页 20 条。
 人工复核保留历史；覆盖系统结果
 为通过时须填写理由。报告首页显示三部分结论，点击后进入各自的双列详细结果；
 报告仅记录检查结果，不自动修改原始数据。
 
 ### 数据格式转换与导出
 
-访问 `/export/`，先选择转换方案，再从已登记的 Derived 数据集选择来源 DS 编号。
+访问 `/export/`，先选择转换方案，再从已审核可用的 LeRobot v3 数据集选择来源 DS 编号。
 目前开放 LeRobot v3.0 → HDF5。页面展示进度；完成后结果以 CV 任务编号关联
 `converted/` 目录，在数据管理页的“格式转换结果”区域单独展示，不参与 DS 登记。
-页面提供“导出数据集”按钮：可选择已登记的 Derived 来源或转换结果，生成包含完整目录的 `tar.gz` 并下载；转换结果包包含
+页面提供“导出数据集”按钮：可选择可用 DS 或转换结果，生成包含完整目录的 `tar.gz` 并下载；转换结果包包含
 `manifest.json` 和全部 `chunk_*.hdf5`。
 每个 HDF5 文件最多包含 10 个 Episode。来源只读，任务临时目录位于
 `storage/staging/conversion/`，成功结果位于 `storage/converted/<CV 编号>/`，
@@ -405,13 +405,13 @@ VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.pa
 （JSON：`{"profile_id":"lerobot-v3-hdf5","source_dataset_id":"DS000001"}`）、`GET /export/api/conversions`、
 `GET /export/api/conversions/{task_id}` 和
 `GET /export/conversions/{task_id}/files/{filename}`，以及完整打包下载
-`GET /export/archive/{dataset_id}`（Derived 使用 DS 编号，转换结果使用 CV 编号）。
+`GET /export/archive/{dataset_id}`（数据集使用 DS 编号，转换结果使用 CV 编号）。
 
 ### 当前已知边界
 
 - 机器人直接调用的 HTTP 采集上传接口仍待实现；当前真实入口是网页单个 ZIP 上传
   和复用统一服务的批量上传。
-- 格式转换当前只支持已登记 Derived DS 的 LeRobot v3.0 → HDF5；不支持图片、视频
+- 格式转换当前只支持已审核可用的 LeRobot v3.0 DS → HDF5；不支持图片、视频
   或深度媒体字段的新增转换。
 - 真实训练依赖独立宿主执行器、Conda/CUDA 环境和模型权重；未部署执行器时不能
   提交真实训练。

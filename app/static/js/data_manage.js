@@ -77,6 +77,12 @@
       try { await request(`/data/api/datasets/${id}/rescan`, { method: 'POST' }); location.reload(); }
       catch (error) { show(error.message, true); scan.disabled = false; }
     });
+    const recheck = document.getElementById('dm-recheck');
+    if (recheck) recheck.addEventListener('click', async () => {
+      recheck.disabled = true;
+      try { await request(`/data/api/datasets/${id}/recheck`, { method: 'POST' }); location.href = `/qc/?dataset=${encodeURIComponent(id)}`; }
+      catch (error) { show(error.message, true); recheck.disabled = false; }
+    });
   }
   document.querySelectorAll('.dm-video-select').forEach(select => select.addEventListener('change', () => {
     const video = select.closest('.dm-camera').querySelector('video');

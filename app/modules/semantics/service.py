@@ -90,6 +90,7 @@ def list_datasets(data_root: Path) -> list[dict[str, Any]]:
                 "dataset_id": record["id"],
                 "dataset_name": record["name"],
                 "storage_area": record["storage_area"],
+                "availability": record["availability"],
                 "robot_type": record["robot_type"],
                 "total_episodes": int(info.get("total_episodes") or 0),
                 "total_frames": int(info.get("total_frames") or 0),
@@ -248,9 +249,10 @@ def inspect_schema(data_root: Path, dataset_id: str) -> dict[str, Any]:
     return {
         "dataset": {
             "dataset_id": record["id"],
-            "dataset_name": record["name"],
-            "storage_area": record["storage_area"],
-            "robot_type": record["robot_type"],
+                "dataset_name": record["name"],
+                "storage_area": record["storage_area"],
+                "availability": record["availability"],
+                "robot_type": record["robot_type"],
             "total_episodes": int(info.get("total_episodes") or 0),
             "total_frames": int(info.get("total_frames") or 0),
             "codebase_version": info.get("codebase_version"),
@@ -534,18 +536,10 @@ def _publish(
         _read_info(staged)
         _consistent_schema(_parquet_files(staged / "meta" / "episodes"), "Episode")
         _consistent_schema(_parquet_files(staged / "data"), "frame")
-        name = _storage_name()
-        derived_root = data_root / "derived"
-        derived_root.mkdir(parents=True, exist_ok=True)
-        final = derived_root / name
-        staged.replace(final)
-        registered = datasets_service.register_dataset(
-            data_root,
-            "derived",
-            name,
-            version_name,
-            [dataset_id],
+        registered = datasets_service.publish_staged_dataset(
+            data_root, staged, version_name, [dataset_id],
         )
+        final = data_root / "data" / registered["id"]
         _write_version_record(
             data_root,
             registered,
@@ -557,7 +551,7 @@ def _publish(
         return {
             "dataset_id": registered["id"],
             "dataset_name": registered["name"],
-            "storage_area": "derived",
+            "storage_area": "data",
             "source_dataset_id": dataset_id,
         }
     except SchemaEditorError:

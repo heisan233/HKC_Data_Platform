@@ -1,63 +1,26 @@
 # 平台存储目录
 
-这里保存数据集、处理结果和平台运行状态，容器内统一映射为 `/data`。除目录中的
-`.gitkeep` 和本说明外，所有内容都被 Git 忽略。
+宿主机 `HKC_STORAGE_PATH` 映射为平台容器内的 `/data`。这里保存数据集文件和运行产物；MySQL 只保存 DS 编号、目录映射、可用性、状态标签、来源关系、任务和审核记录，不保存大型数据集字节。
 
-## 当前存储方案
+## 数据集目录
 
-数据集和质检报告保存在普通文件夹。二阶段数据管理使用独立 MySQL 服务保存
-登记编号、展示信息、来源关系及 Raw/Derived 目录映射；转换结果由 CV 任务编号管理。
-大型数据文件不进入数据库。旧 `system/platform.sqlite` 不导入 MySQL，也不由新代码读写。
-质检页面的 ZIP 上传先在 `staging/` 校验，随后进入 `raw/` 并自动登记；
-其他流程放入 `raw/` 的数据仍可在数据管理页面登记。
+- `data/DS000001/`：二期新上传、标注、处理或数据定义发布的数据集。一个 DS 对应一个完整、独立的 LeRobot v3 数据集目录；源数据集不原地修改。
+- `raw/`、`derived/`：既有数据集目录，**保持原样，不删除、不自动移动**。MySQL 中已有的 DS 继续映射到这里。数据管理页仍可手动登记 `raw/` 中未登记的旧目录。
+- 新发布结果先写入 `staging/`，校验成功后取得 DS 编号，移入 `data/DS编号/`，再登记 MySQL。失败时撤回未完成的发布。
 
-宿主机上的本目录会被 Docker 映射为容器内的 `/data`：
+`raw`、`derived`、`data` 在数据库中仅作为真实存储位置。它们不决定数据集是否可选。MySQL 的 `datasets.availability` 记录“可用/不可用”；`dataset_status_labels` 记录数据管理页展示的“待质检/待处理”等标签。业务功能按可用性选择，并继续检查所需的 LeRobot 格式和文件完整性。质检只选不可用，数据处理和数据定义可选两类，标注、训练、格式转换和 DS 导出只选可用。标签不参与功能筛选。
 
-```text
-HKC_STORAGE_PATH（默认 ./storage） -> 容器中的 /data
-```
+新 DS 默认为“不可用、待质检”。最新质检任务经人工审核 PASS 且数据快照未变化后才可用；打回后不可用并显示“待处理”。重新扫描元数据或主动重新质检会使 DS 回到不可用。旧 MySQL 数据集记录原路径保留；迁移时最新质检审核 PASS 的旧记录会保留可用标记，实际使用仍核对最新质检快照。
 
-服务器可在 `.env` 中把 `HKC_STORAGE_PATH` 设置成独立磁盘上的绝对路径；更换该
-路径不会改变容器内路径或业务代码。目录所有者的数字 UID/GID 应与 `.env` 中的
-`APP_UID`/`APP_GID` 一致。
+## 其他目录
 
-所以业务代码应读取配置提供的存储根目录，不能写死
-`/home/heisan/.../storage` 这样的个人路径。
+- `staging/`：上传、标注、处理、转换和导出时的临时文件。
+- `converted/CV-.../`：HDF5 转换结果，不占用 DS 编号。
+- `reports/qc/<DS 编号>/`：质检 JSON 报告。
+- `trash/reports/<DS 编号>/`：可恢复的报告回收站。
+- `exports/`：打包导出的 `tar.gz` 文件。
+- `training-runs/`：训练任务状态、日志和离线评估结果。
+- `models/`：通过验证的模型包。
+- `system/`：上传、版本、处理任务等文件式运行记录，以及脱敏访问日志。旧 `system/platform.sqlite` 原样保留，不再读写。
 
-## 子目录用途
-
-- `raw/`：上传成功后的原始数据，只读、不可原地修改。真实目录名与 DS 编号相互独立。
-- `staging/`：上传、校验、安全解压或派生版本发布期间的临时内容。标注发布临时
-  副本位于 `staging/annotation/`，数据处理临时输出位于 `staging/processing/`；
-  格式转换临时输出位于 `staging/conversion/`；成功或失败后都会清理。
-- `derived/`：裁剪、合并、拆分、去重或标注后生成的新版本；成功发布时会自动登记
-  新的 DS 编号并记录源 DS 编号。一次正式标注发布会
-  在这里创建一个完整且独立的 LeRobot v3 数据集副本。总体 task 按 LeRobot
-  标准字段更新；Episode 结果和 Subtask 时间段存放在副本的
-  `meta/annotations/episodes.parquet` 与 `subtasks.parquet`，不污染核心 feature。
-- `converted/`：格式转换输出。每个成功任务一个 `CV-.../` 目录，包含 HDF5
-  分块和 `manifest.json`；结果通过 CV 任务编号展示和导出，不进入 DS 登记表，来源 Derived 数据集不原地修改。
-- `exports/`：供用户或机器人下载的 `tar.gz` 打包结果。导出先写入
-  `staging/export/`，完成后原子发布；同一数据集文件快照复用已有包。
-- `reports/qc/<DS 编号>/`：每个质检任务的统一报告；质检结果和人工审核
-  状态由 MySQL 管理，不因通过质检而复制数据集。
-- `trash/reports/<DS 编号>/`：从页面移除的质检报告回收区；保存报告原文件和隐藏
-  元数据（原路径、移入时间），支持页面恢复，不提供不可恢复的清理。
-- `models/`：通过验证的训练模型包；X-VLA 基座权重由宿主执行器另行配置，不放在此目录。
-- `training-runs/`：训练任务状态、日志与离线评估结果；临时 checkpoint 工作目录
-  由宿主执行器单独配置，不能放在不支持符号链接的 exFAT 数据盘上。
-- `system/`：平台文件式运行记录；上传记录位于
-  `system/upload-records/<upload_id>.json`；标注派生版本记录位于
-  `system/dataset-versions/<dataset_id>.json`；数据处理任务记录位于
-  `system/processing-jobs/<job_id>.json`，其派生版本仍登记到
-  `system/dataset-versions/`。这些运行记录不提交 Git。
-  格式转换和训练任务元数据保存在 MySQL；旧版
-  `system/conversion-jobs/<CV 编号>.json` 保留原文件，不自动导入新库。
-  脱敏访问日志位于 `system/logs/platform.jsonl`，不记录请求查询参数、正文、
-  Cookie、密码或 Token。
-
-不要把 Python、HTML、配置文件或 Dockerfile 放在此目录。测试用小样本应放在
-`tests/fixtures/`，并确认其许可和体积适合进入 Git。
-
-平台不会启动时自动扫描或迁移 `raw/`、`derived/` 中已有的测试目录。需要继续
-使用的 Raw 目录可在数据管理页手动登记；新上传和新派生结果会自动登记。
+MySQL 容器的私有数据目录由 `HKC_MYSQL_DATA_PATH` 映射至容器内 `/var/lib/mysql`，与本目录独立；重庆服务器使用 `/srv/hkc-ai/mysql/data`。`storage/data/` 与 MySQL 数据目录不可混放。真实内容均不提交 Git。

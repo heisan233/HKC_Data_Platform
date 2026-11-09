@@ -34,10 +34,10 @@ CSV/Parquet 导入必须包含 `episode_index`、`frame_index` 和映射值列�
 
 ## 不可变发布与删除保护
 
-- Raw 和已有 Derived 永不原地修改；
+- 所有已登记源 DS 均不原地修改；旧 Raw、Derived 目录保持原样；
 - 每次操作先完整复制到 `storage/staging/schema/`；
 - 修改后重新读取 JSON 与全部 Parquet Schema；
-- 验证成功后移入 `storage/derived/`，登记新 DS 并记录来源；
+- 验证成功后移入 `storage/data/<新 DS 编号>/`，登记新 DS、来源和待质检状态；
 - `index / episode_index / frame_index / timestamp / task_index` 及 Episode 定位字段
   禁止删除；
 - 平台新增字段可以删除；其他官方 Feature 必须经过醒目警告和二次确认；

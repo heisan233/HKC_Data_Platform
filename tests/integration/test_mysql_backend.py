@@ -55,7 +55,7 @@ def test_existing_v1_user_is_preserved_by_profile_migration(tmp_path: Path) -> N
         versions = database.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()
-    assert [row["version"] for row in versions] == [1, 2]
+    assert [row["version"] for row in versions] == [1, 2, 3]
 
 
 def test_existing_platform_sqlite_is_left_untouched(tmp_path: Path) -> None:
@@ -87,3 +87,55 @@ def test_concurrent_dataset_registration_has_unique_stable_numbers(tmp_path: Pat
 
     assert {row["id"] for row in rows} == {f"DS{number:06d}" for number in range(1, 25)}
     assert len(repository.list()) == 24
+
+
+def test_existing_dataset_locations_and_latest_qc_decision_survive_migration(
+    tmp_path: Path,
+) -> None:
+    native = mysql.connector.connect(
+        host=os.environ["HKC_MYSQL_HOST"], port=int(os.environ["HKC_MYSQL_PORT"]),
+        database=os.environ["HKC_MYSQL_DATABASE"], user=os.environ["HKC_MYSQL_USER"],
+        password=os.environ["HKC_MYSQL_PASSWORD"],
+    )
+    cursor = native.cursor()
+    try:
+        cursor.execute("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, "
+                       "applied_at VARCHAR(40) NOT NULL) ENGINE=InnoDB")
+        migration_dir = Path(__file__).resolve().parents[2] / "migrations/mysql"
+        for version in (1, 2):
+            file = next(migration_dir.glob(f"{version:03d}_*.sql"))
+            for statement in file.read_text(encoding="utf-8").split(";"):
+                if statement.strip():
+                    cursor.execute(statement)
+            cursor.execute("INSERT INTO schema_migrations VALUES (%s,'legacy')", (version,))
+        cursor.execute("INSERT INTO dataset_numbers VALUES (1),(2)")
+        for seq, area, path in ((1, "raw", "legacy-original"),
+                                (2, "derived", "legacy-result")):
+            cursor.execute("""INSERT INTO datasets
+                (id,seq,storage_area,storage_relpath,name,robot_type,description,tags_json,
+                 source_dataset_ids_json,info_sha256,registered_at,updated_at)
+                VALUES (%s,%s,%s,%s,'legacy','robot','','[]','[]',%s,'legacy','legacy')""",
+                (f"DS{seq:06d}", seq, area, path, "a" * 64))
+        cursor.execute("""INSERT INTO qc_plans
+            (seq,id,name,robot_type,current_version,created_at,updated_at)
+            VALUES (1,'QP000001','legacy','robot',1,'legacy','legacy')""")
+        cursor.execute("""INSERT INTO qc_plan_versions VALUES
+            ('QP000001',1,'{}','legacy')""")
+        cursor.execute("""INSERT INTO qc_tasks
+            (id,dataset_id,plan_id,plan_version,snapshot_json,raw_fingerprint,
+             status,phase,outcome,decision,created_at,updated_at)
+            VALUES ('QC-LEGACY','DS000001','QP000001',1,'{}','fingerprint',
+                    'COMPLETED','done','PASS','PASS','legacy','legacy')""")
+        native.commit()
+    finally:
+        cursor.close()
+        native.close()
+
+    repository = DatasetRepository(tmp_path)
+    first = repository.get("DS000001")
+    second = repository.get("DS000002")
+    assert (first["storage_area"], first["storage_relpath"], first["availability"]) == (
+        "raw", "legacy-original", "available")
+    assert (second["storage_area"], second["storage_relpath"], second["availability"]) == (
+        "derived", "legacy-result", "unavailable")
+    assert second["status_labels"] == ["待质检"]

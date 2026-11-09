@@ -440,7 +440,7 @@ def list_datasets(data_root: Path) -> list[dict[str, Any]]:
             {
                 "dataset_id": record["id"],
                 "dataset_name": record["name"],
-                "kind": record["storage_area"],
+                "kind": "dataset",
                 "total_episodes": int(info.get("total_episodes") or 0),
                 "total_frames": int(info.get("total_frames") or 0),
                 "fps": info.get("fps"),
@@ -1363,28 +1363,18 @@ def run_job(data_root: Path, job_id: str) -> None:
             result["size_bytes"] = _directory_size(destination)
             staged.append((label, destination, result))
 
-        derived_root = data_root / "derived"
-        derived_root.mkdir(parents=True, exist_ok=True)
         for label, source, result in staged:
-            storage_name = str(result["storage_name"])
-            final = derived_root / storage_name
-            if final.exists():
-                raise ProcessingError("派生数据集编号冲突，请重新执行。")
-            source.replace(final)
-            moved_paths.append(final)
             display_name = str(record["version_name"])
             if label not in {"filtered", "merged", "reordered", "deduplicated", "cropped"}:
                 display_name = f"{display_name} / {label}"
-            registered = datasets_service.register_dataset(
-                data_root,
-                "derived",
-                storage_name,
-                display_name,
-                list(record["source_dataset_ids"]),
+            registered = datasets_service.publish_staged_dataset(
+                data_root, source, display_name, list(record["source_dataset_ids"]),
             )
             registered_ids.append(registered["id"])
+            moved_paths.append(data_root / "data" / registered["id"])
             result["dataset_id"] = registered["id"]
-            result["relative_path"] = f"derived/{storage_name}"
+            result["storage_name"] = registered["id"]
+            result["relative_path"] = f"data/{registered['id']}"
             _write_version_record(data_root, job=record, output=result, label=label)
 
         _update_job(

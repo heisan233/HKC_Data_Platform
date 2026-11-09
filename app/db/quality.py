@@ -113,6 +113,9 @@ class QualityRepository(DatasetRepository):
                  json.dumps(snapshot, ensure_ascii=False), fingerprint,
                  "QUEUED", "pending", timestamp, timestamp),
             )
+            db.execute("UPDATE datasets SET availability='unavailable',updated_at=? WHERE id=?",
+                       (timestamp, dataset_id))
+            db.execute("DELETE FROM dataset_status_labels WHERE dataset_id=?", (dataset_id,))
         return self.get_task(task_id)
 
     def get_task(self, task_id: str) -> dict | None:
@@ -224,9 +227,14 @@ class QualityRepository(DatasetRepository):
     def review(self, task_id: str, decision: str, reason: str) -> dict | None:
         timestamp = _now()
         with self.connection() as db:
-            row = db.execute("SELECT status FROM qc_tasks WHERE id=? FOR UPDATE", (task_id,)).fetchone()
+            row = db.execute("SELECT status,dataset_id FROM qc_tasks WHERE id=? FOR UPDATE",
+                             (task_id,)).fetchone()
             if row is None or row["status"] != "COMPLETED":
                 return None
+            latest = db.execute("SELECT id FROM qc_tasks WHERE dataset_id=? ORDER BY seq DESC LIMIT 1",
+                                (row["dataset_id"],)).fetchone()
+            if latest is None or latest["id"] != task_id:
+                raise ValueError("只能复核该数据集最新的质检任务")
             db.execute(
                 "INSERT INTO qc_reviews(task_id,decision,reason,created_at) VALUES (?,?,?,?)",
                 (task_id, decision, reason, timestamp),
@@ -235,6 +243,14 @@ class QualityRepository(DatasetRepository):
                 "UPDATE qc_tasks SET decision=?,updated_at=? WHERE id=?",
                 (decision, timestamp, task_id),
             )
+            db.execute("UPDATE datasets SET availability=?,updated_at=? WHERE id=?",
+                       ("available" if decision == "PASS" else "unavailable",
+                        timestamp, row["dataset_id"]))
+            db.execute("DELETE FROM dataset_status_labels WHERE dataset_id=?",
+                       (row["dataset_id"],))
+            if decision == "RECAPTURE":
+                db.execute("INSERT INTO dataset_status_labels (dataset_id,label,created_at) VALUES (?,?,?)",
+                           (row["dataset_id"], "待处理", timestamp))
         return self.get_task(task_id)
 
     def reviews(self, task_id: str) -> list[dict]:

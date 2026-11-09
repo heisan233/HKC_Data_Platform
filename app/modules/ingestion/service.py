@@ -1,7 +1,7 @@
 """LeRobot v3 ZIP 上传、校验和入库业务。
 
 HTTP 层只把表单文件交给这里。该模块负责分块写入临时目录、校验压缩包、
-安全解压，并把通过校验的数据集移动到 ``storage/raw``。原始数据入库后不再
+安全解压，并把通过校验的数据集移动到 ``storage/data/<DS 编号>``。原始数据入库后不再
 原地修改；上传记录则以 JSON 旁路文件保存在 ``storage/system/upload-records``。
 """
 
@@ -400,15 +400,13 @@ async def receive_dataset_upload(
     description: str,
     robot_type: str = "",
 ) -> UploadOutcome:
-    """接收一个 ZIP，并在成功后将内容原子移动到 ``raw`` 目录。"""
+    """接收一个 ZIP，并在成功后将内容发布到 ``data/<DS 编号>``。"""
 
     limits = get_upload_limits()
     upload_id = f"up-{uuid4().hex}"
-    storage_name = f"ds-{datetime.now(UTC):%Y%m%dT%H%M%SZ}-{uuid4().hex[:8]}"
     staging_dir = data_root / "staging" / "uploads" / upload_id
     archive_path = staging_dir / "archive.zip"
     unpacked_path = staging_dir / "unpacked"
-    accepted_destination: Path | None = None
     registered_dataset_id: str | None = None
     record: dict[str, Any] = {
         "upload_id": upload_id,
@@ -462,35 +460,24 @@ async def receive_dataset_upload(
             limits,
             clean_robot_type,
         )
-        raw_root = data_root / "raw"
-        raw_root.mkdir(parents=True, exist_ok=True)
-        raw_destination = raw_root / storage_name
-        if raw_destination.exists():
-            raise OSError("生成的数据集目录发生冲突")
-        unpacked_path.replace(raw_destination)
-        accepted_destination = raw_destination
-
         try:
             registered = await run_in_threadpool(
-                datasets.register_dataset,
+                datasets.publish_staged_dataset,
                 data_root,
-                "raw",
-                storage_name,
+                unpacked_path,
                 clean_name,
             )
         except ValueError as exc:
-            shutil.rmtree(raw_destination, ignore_errors=True)
-            accepted_destination = None
             raise UploadValidationError(f"数据集登记失败：{exc}") from exc
         registered_dataset_id = registered["id"]
 
         record.update(
             dataset_id=registered["id"],
-            storage_name=storage_name,
+            storage_name=registered["id"],
             status="accepted",
             message=f"LeRobot v3 数据集已入库并登记为 {registered['id']}",
             completed_at=_utc_now(),
-            raw_relative_path=f"raw/{storage_name}",
+            raw_relative_path=f"data/{registered['id']}",
             summary=summary,
         )
         _write_record(data_root, record)
@@ -509,8 +496,7 @@ async def receive_dataset_upload(
     except (BadZipFile, OSError):
         if registered_dataset_id:
             DatasetRepository(data_root).unregister(registered_dataset_id)
-        if accepted_destination:
-            shutil.rmtree(accepted_destination, ignore_errors=True)
+            shutil.rmtree(data_root / "data" / registered_dataset_id, ignore_errors=True)
         record.update(
             status="failed",
             message="服务器保存或解压文件失败，请检查存储空间和目录权限。",

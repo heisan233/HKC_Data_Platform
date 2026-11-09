@@ -58,7 +58,9 @@ docker compose --env-file .env -p hkc-v31-mysql \
 ### 本机 MySQL 验收版用户管理
 
 本机 `18001` 版本必须始终带上项目名 `hkc-v31-mysql` 和三份 Compose 配置，不能
-直接使用简写的 `docker compose exec platform`。创建用户：
+直接使用简写的 `docker compose exec platform`。
+
+创建用户：
 
 ```bash
 docker compose --env-file .env -p hkc-v31-mysql \
@@ -230,6 +232,12 @@ nano .env
 HKC_STORAGE_PATH=./storage
 HKC_MYSQL_DATA_PATH=./mysql-data
 ```
+
+重庆服务器的 MySQL 持久化目录已迁至 `/srv/hkc-ai/mysql/data`，在服务器专用
+`server.env` 中设置 `HKC_MYSQL_DATA_PATH=/srv/hkc-ai/mysql/data`。Compose 将它挂载
+为 MySQL 容器内的 `/var/lib/mysql`；这与应用容器的 `/data`（平台 `storage/`）是
+两套独立目录。新数据集写入 `storage/data/<DS 编号>/`，旧 `raw/`、`derived/`
+保持原样。修改 MySQL 路径时不能只改变量，须停服务、备份、冷复制并核对数据后再启动。
 
 服务器建议设置为已经备份、权限明确的绝对目录。真实 VLM 地址和 Token 只写入
 本机 `.env`，不得提交 Git，也不要直接复制其他人的 `.env`。首次启动前还必须在

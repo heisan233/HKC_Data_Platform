@@ -11,6 +11,7 @@ from app.db.datasets import DatasetRepository
 from app.main import app
 from app.modules.annotation import router as annotation_router
 from app.modules.datasets.service import register_dataset
+from tests.quality_helpers import approve_dataset
 
 client = TestClient(app)
 CAMERA = "observation.images.head"
@@ -78,7 +79,8 @@ def make_v3_dataset(
     )
     (video_root / "file-000.mp4").write_bytes(b"0123456789-episode-zero")
     (video_root / "file-001.mp4").write_bytes(b"0123456789-episode-one")
-    register_dataset(data_root, "raw", dataset_id, dataset_id)
+    record = register_dataset(data_root, "raw", dataset_id, dataset_id)
+    approve_dataset(data_root, record["id"])
     return dataset
 
 
@@ -167,7 +169,7 @@ def test_publish_creates_full_derived_copy_and_keeps_raw_unchanged(
     registered = DatasetRepository(tmp_path).get(result["dataset_id"])
     assert derived.is_dir()
     assert result["dataset_id"] == "DS000002"
-    assert registered["storage_area"] == "derived"
+    assert registered["storage_area"] == "data"
     assert registered["storage_relpath"] == result["storage_name"]
     assert registered["source_dataset_ids"] == ["DS000001"]
     assert (derived / "videos" / CAMERA / "chunk-000" / "file-001.mp4").is_file()
@@ -264,6 +266,9 @@ def test_publish_episode_outcome_and_subtasks_as_sidecar_annotations(
     assert [row["start_frame"] for row in subtask_rows] == [0, 1]
     assert [row["end_frame_exclusive"] for row in subtask_rows] == [1, 2]
 
+    # A newly published version is unavailable until its own QC approval.
+    assert client.get(f"/annotation/api/datasets/{result['dataset_id']}").status_code == 404
+    approve_dataset(tmp_path, result["dataset_id"])
     workspace = client.get(f"/annotation/api/datasets/{result['dataset_id']}")
     assert workspace.status_code == 200
     annotation = workspace.json()["episodes"][0]["annotation"]

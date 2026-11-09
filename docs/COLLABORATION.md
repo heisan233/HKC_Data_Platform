@@ -1,6 +1,6 @@
 # HKC 数采平台协作与 Codex 交接文档
 
-更新日期：2026-11-05
+更新日期：2026-11-09
 
 这是一份双方开发者和双方 Codex 共用的交接记录。合并后的当前结构、已完成与
 未完成功能、数据生命周期和接手步骤已经集中到 `docs/CODEX_CURRENT_STATE.md`；
@@ -11,6 +11,68 @@
 > `integration/hs-lxp-v3.1`。
 > 历史分支只供查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
+
+### 2026-11-09 二期部署续查
+
+续查确认本机与重庆服务器的跟踪文件差异及四个新增文件内容一致；仅补同步了上次
+遗漏的交接文字。服务器重启后，应用继续使用包含二期代码和 003 迁移的正式镜像，
+没有开发源码挂载。平台、MySQL 容器均健康，`/healthz` 为 200，未登录访问数据管理
+页为 303；宿主训练执行器 socket 保持只读挂载，执行器在线。MySQL 仍挂载
+`/srv/hkc-ai/mysql/data`，当前 schema 版本 3，保留 2 条 DS、2 个用户、4 条质检任务。
+新 `storage/data/` 及旧 `raw/`、`derived/` 均存在，分别位于 1.4TB 数据盘；MySQL
+数据位于独立 500GB ext4 分区。旧 MySQL 目录和迁移前备份仍保留。此次没有更改
+业务代码、账号或质检结论，也没有提交、推送或合并。登录后的逐页人工验收与真实
+大数据集上传仍待进行。
+
+### 2026-11-06 二期 DS 目录与可用性改造、重庆 MySQL 数据搬迁
+
+按二期方案新增 `storage/data/<DS 编号>/`：上传、标注、处理、数据定义发布的完整新
+LeRobot v3 数据集进入这里。现有 `raw/`、`derived/` 保留原样，不自动迁移或删除；
+MySQL 原有 DS 编号和目录映射继续有效。`migrations/mysql/003_dataset_availability.sql`
+为 `datasets` 增加 `available/unavailable` 大状态，建立仅供数据管理展示的
+`dataset_status_labels` 表，并根据旧 DS 的最新人工质检结论初始化可用性。新 DS
+默认“不可用、待质检”；最新质检任务人工 PASS 才可用，打回后不可用并显示“待处理”。
+重新扫描或主动重新质检会撤销可用性。状态标签不参与功能筛选，也没有新增“视频需裁剪”。
+
+入口规则：质检只选不可用；处理和数据定义可选两类；标注、训练、转换和 DS 导出只选
+可用，随后继续校验 LeRobot 结构、文件安全与最新质检快照。CV 转换结果仍独立于 DS。
+数据管理页显示可用性、标签和真实目录，支持主动重新质检。仪表盘和各选择页面去掉
+以 Raw/Derived 表示业务类型的提示。跨边界修改涉及 `app/db/`、统一 DS 解析与发布、
+质检、上传、标注、处理、转换、导出、训练、机器人展示、共享文档和模板；统一 DS API
+新增 `availability`、`status_labels` 字段，`storage_area` 仅表达物理位置，
+`/data/api/datasets/{id}/recheck` 与 `/status-labels` 是新接口。原有 URL 保留。
+
+重庆服务器 `192.168.0.163`：旧 MySQL 目录 `/home/zzjj/vscode_project/mySQL_data`
+在停服务后冷复制至 `/srv/hkc-ai/mysql/data`，服务器专用 `server.env` 的
+`HKC_MYSQL_DATA_PATH` 已切换，容器挂载目标仍为 `/var/lib/mysql`。旧目录保留作为
+回退副本；逻辑备份位于 `/srv/hkc-ai/mysql/backups/pre-relocation-20261106.sql`
+和 `pre-phase2-schema-20261106.sql`，目录权限仅部署用户可读。`storage/data/` 已在
+服务器 1.4TB 数据盘上的项目 storage 中创建，与 500GB ext4 分区上的 MySQL 数据
+分离。搬迁前后均为 17 张表、2 条 DS、2 个用户、4 条质检任务；003 上线后为 18 张表、
+迁移版本 1/2/3，现有两条 DS 的物理映射未变。应用和 MySQL 容器健康，`/healthz`
+返回 200；未登录数据管理页返回 303，登录保护保持。服务器代码与本机均是未提交改动，
+没有提交、推送或合并。服务器原镜像保留为
+`hkc-data-platform:v3.1-cq-pre-phase2`；由于联网重建卡在 apt 下载，已在原镜像
+依赖层上叠加当前 `app/` 和 `migrations/`，构建
+`hkc-data-platform:v3.1-cq-local`。随后以正式服务器 Compose 组合重建平台容器，
+当前运行镜像包含 003 迁移和新代码，不依赖开发模式源码挂载。
+
+验证：隔离临时 MySQL 的最终全量 pytest 为 `134 passed`（1 条既有 Starlette/AnyIO
+弃用警告）；Ruff 全仓库、Python 编译、`git diff --check`、默认/开发/局域网 Compose
+解析通过。服务器完成了容器健康、MySQL 表与行数、目录映射、未登录访问保护核对；
+尚未进行有账号的浏览器逐页人工验收或真实大数据集上传。既有两条服务器 DS 当前均
+“不可用”：DS000001 的最新质检任务未获 PASS 判定，DS000002 尚无质检任务；若需
+进入标注、训练、转换或导出，先在质检页完成当前 DS 的人工审核。二期新发布产物也
+须单独质检，来源 DS 的通过结论不会继承。
+
+部署核对时发现仅使用基础/开发/服务器三份 Compose 重建应用容器会丢失宿主训练
+执行器 socket。已在服务器专用 `server.env` 设置
+`HKC_TRAINING_AGENT_SOCKET_DIR`，并使用第四份
+`deploy/compose.training-agent.yaml` 重新创建应用容器；验证 socket 只读挂载、执行器
+在线。最终正式运行组合为 `compose.yaml`、`compose.server.yaml`、
+`deploy/compose.training-agent.yaml`，不叠加 `compose.dev.yaml`；MySQL、平台容器均健康，
+`/healthz` 返回 200，未登录数据管理页返回 303。VLM systemd 服务当时为 `inactive`，
+本次未改变其启停状态。部署说明已修正为“已有执行器时构建和启动均叠加此文件”。
 
 ### 2026-11-06 重庆 VLM 启停开关接通（服务器工作区，未提交）
 

@@ -83,6 +83,7 @@ def dataset_bindings(root: Path, robot_id: str) -> dict | None:
             "id": dataset["id"],
             "name": dataset["name"],
             "storage_area": dataset["storage_area"],
+            "availability": dataset["availability"],
             "robot_type": dataset["robot_type"],
             "collector_robot_id": link["robot_id"] if link else None,
             "collector_robot_name": link["robot_name"] if link else None,

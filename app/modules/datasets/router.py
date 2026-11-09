@@ -28,6 +28,10 @@ class DisplayChange(BaseModel):
     tags: list[str] = Field(default_factory=list)
 
 
+class StatusLabelsChange(BaseModel):
+    labels: list[str] = Field(default_factory=list, max_length=2)
+
+
 def storage_root() -> Path:
     return settings.data_root
 
@@ -92,6 +96,15 @@ def update_display(dataset_id: str, body: DisplayChange):
     return DatasetRepository(storage_root()).update_display(dataset_id, name, description, tags)
 
 
+@router.patch("/api/datasets/{dataset_id}/status-labels")
+def update_status_labels(dataset_id: str, body: StatusLabelsChange):
+    record_or_404(dataset_id)
+    try:
+        return DatasetRepository(storage_root()).set_status_labels(dataset_id, body.labels)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
 @router.post("/api/datasets/{dataset_id}/rescan")
 def accept_rescan(dataset_id: str):
     record = record_or_404(dataset_id)
@@ -105,6 +118,17 @@ def accept_rescan(dataset_id: str):
         raise HTTPException(409, error)
     return DatasetRepository(storage_root()).accept_rescan(
         dataset_id, service.info_digest(folder), service.robot_type_label(info))
+
+
+@router.post("/api/datasets/{dataset_id}/recheck")
+def recheck(dataset_id: str):
+    record = record_or_404(dataset_id)
+    folder = service.directory(storage_root(), record["storage_area"], record["storage_relpath"])
+    if folder is None:
+        raise HTTPException(409, "数据集目录缺失或不安全")
+    if service.info_digest(folder) != record["info_sha256"]:
+        raise HTTPException(409, "元数据已变化，请先重新扫描")
+    return DatasetRepository(storage_root()).mark_for_qc(dataset_id)
 
 
 @router.get("/api/datasets/{dataset_id}/joint-series")
@@ -122,7 +146,7 @@ def dataset_joint_series(dataset_id: str, episode_index: int, field_name: str):
 def raw_list(request: Request, q: str = "", qc: str = "all"):
     _, managed = service.catalog(storage_root())
     attach_status(storage_root(), managed)
-    if qc in {"uninspected", "review", "passed", "recapture", "running", "error", "stale", "raw_issue"}:
+    if qc in {"uninspected", "review", "passed", "recapture", "running", "error", "stale", "raw_issue", "recheck"}:
         managed = [item for item in managed if item["qc_state"] == qc]
     else:
         qc = "all"

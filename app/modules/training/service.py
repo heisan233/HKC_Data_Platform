@@ -151,7 +151,7 @@ def models(root: Path) -> list[dict]:
 
 
 def registered_datasets(root: Path) -> list[dict]:
-    rows = DatasetRepository(root).list()
+    rows = DatasetRepository(root).list(availability="available")
     by_id = {row["id"]: row for row in rows}
 
     def lineage(row: dict, seen: set[str] | None = None) -> list[str]:
@@ -231,6 +231,8 @@ def preflight(root: Path, dataset_id: str, model_id: str = "xvla") -> dict:
                             record["storage_area"])
     attach_status(root, [item])
     issues: list[str] = []
+    if record["availability"] != "available":
+        issues.append("选中的最终 DS 当前不可用，请先完成质检审核")
     if item["state"] != "ready":
         issues.append(item["error"] or "登记后的数据集已变化或不可读取")
     if item["qc_state"] != "passed":
