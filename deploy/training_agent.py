@@ -1,9 +1,9 @@
-"""Host-side X-VLA executor. Run with the EXISTING LeRobot interpreter.
+"""Host-side X-VLA executor with an isolated LeRobot training runtime.
 
 The platform talks to this process over an authenticated Unix socket in an
 administrator-configured private directory. No arbitrary command or path is
 accepted from HTTP.
-This process does not install packages or modify the Conda environment.
+This process does not install packages or modify the training image.
 """
 
 from __future__ import annotations
@@ -31,6 +31,9 @@ ROOT = Path(os.environ["HKC_TRAINING_STORAGE"]).resolve()
 MODEL = Path(os.environ["HKC_TRAINING_MODEL"]).resolve()
 TOKENIZER = Path(os.environ["HKC_TRAINING_TOKENIZER"]).resolve()
 PYTHON = Path(os.environ.get("HKC_TRAINING_PYTHON", sys.executable)).resolve()
+DOCKER_IMAGE = os.environ.get("HKC_TRAINING_DOCKER_IMAGE", "").strip()
+DOCKER_GPU_ID = os.environ.get("HKC_TRAINING_DOCKER_GPU_ID", "0").strip()
+DOCKER = shutil.which("docker") or "/usr/bin/docker"
 SOCKET_DIR = Path(os.environ["HKC_TRAINING_SOCKET_DIR"]).resolve()
 WORK_DIR = Path(os.environ.get("HKC_TRAINING_WORK_DIR", str(SOCKET_DIR / "work"))).resolve()
 SOCKET = SOCKET_DIR / "agent.sock"
@@ -42,7 +45,8 @@ STATE: dict[str, dict] = {}
 PROCESS: dict[str, subprocess.Popen] = {}
 JOB_ID = re.compile(r"^TR\d{6,}$")
 RUNTIME_ID = "lerobot"
-RUNTIME_NAME = "lerobot（Conda）"
+RUNTIME_NAME = "X-VLA（Docker）" if DOCKER_IMAGE else "lerobot（Conda）"
+RUNTIME_KIND = "docker" if DOCKER_IMAGE else "conda"
 PRESETS = {
     "standard": {"steps": 2000, "batch_size": 1, "num_workers": 0, "log_freq": 20},
     "small": {"steps": 500, "batch_size": 1, "num_workers": 0, "log_freq": 10},
@@ -135,8 +139,11 @@ def gpu() -> dict | None:
 
 
 def ready() -> tuple[bool, str]:
-    for path in [MODEL / "config.json", MODEL / "model.safetensors",
-                 TOKENIZER / "tokenizer_config.json", PYTHON]:
+    required = [MODEL / "config.json", MODEL / "model.safetensors",
+                TOKENIZER / "tokenizer_config.json"]
+    if not DOCKER_IMAGE:
+        required.append(PYTHON)
+    for path in required:
         if not path.is_file():
             return False, f"训练依赖缺失：{path.name}"
     if not ((TOKENIZER / "tokenizer.json").is_file() or
@@ -145,7 +152,49 @@ def ready() -> tuple[bool, str]:
     current = (MODEL / "model.safetensors").stat()
     if MODEL_STAT is not None and (current.st_size, current.st_mtime_ns) != MODEL_STAT:
         return False, "基座权重在执行器启动后发生变化，请重启执行器"
+    if DOCKER_IMAGE:
+        if not re.fullmatch(r"[A-Za-z0-9_./:-]+", DOCKER_IMAGE):
+            return False, "训练镜像名称无效"
+        if not re.fullmatch(r"\d+", DOCKER_GPU_ID):
+            return False, "训练 GPU 编号无效"
+        try:
+            result = subprocess.run([DOCKER, "image", "inspect", DOCKER_IMAGE],
+                                    capture_output=True, timeout=10, check=False)
+        except (OSError, subprocess.TimeoutExpired):
+            return False, "Docker 守护进程不可用"
+        if result.returncode != 0:
+            return False, "X-VLA 训练镜像不可用或 Docker 无权限"
     return True, ""
+
+
+def runtime_python() -> str:
+    return "python" if DOCKER_IMAGE else str(PYTHON)
+
+
+def container_name(job_id: str, phase: str) -> str:
+    if not JOB_ID.fullmatch(job_id) or phase not in {"prepare", "train", "evaluate"}:
+        raise ValueError("训练容器名称无效")
+    return f"hkc-xvla-{job_id.lower()}-{phase}"
+
+
+def runtime_command(job_id: str, phase: str, command: list[str], *, use_gpu: bool) -> list[str]:
+    if not DOCKER_IMAGE:
+        return command
+    name = container_name(job_id, phase)
+    mounts = [(ROOT, True), (JOBS / job_id, False), (WORK_DIR, False),
+              (MODEL, True), (TOKENIZER, True), (Path(__file__).parent, True)]
+    wrapped = [DOCKER, "run", "--rm", "--name", name, "--network", "none",
+               "--user", f"{os.getuid()}:{os.getgid()}", "--shm-size", "8g",
+               "--tmpfs", "/tmp:rw,exec,nosuid,size=2g", "--env", "HOME=/tmp",
+               "--env", "USER=hkc-trainer", "--env", "LOGNAME=hkc-trainer",
+               "--env", "HF_HUB_OFFLINE=1", "--env", "WANDB_MODE=disabled",
+               "--label", f"hkc.xvla.task={job_id}"]
+    if use_gpu:
+        wrapped += ["--gpus", f"device={DOCKER_GPU_ID}"]
+    for path, readonly in mounts:
+        wrapped += ["--mount", f"type=bind,src={path},dst={path}"
+                    + (",readonly" if readonly else "")]
+    return [*wrapped, DOCKER_IMAGE, *command]
 
 
 def vlm_state() -> dict:
@@ -192,7 +241,7 @@ def control_vlm(operation: str) -> dict:
 def dataset_folder(snapshot: dict) -> Path:
     area = snapshot.get("storage_area")
     relative = snapshot.get("storage_relpath")
-    if area not in {"raw", "derived"} or not isinstance(relative, str):
+    if area not in {"raw", "derived", "data"} or not isinstance(relative, str):
         raise ValueError("数据集快照路径无效")
     if not relative or Path(relative).name != relative or relative.startswith("."):
         raise ValueError("数据集目录名称不安全")
@@ -313,7 +362,7 @@ def validate_payload(payload: dict) -> tuple[str, Path]:
     if payload.get("model_version") != MODEL_VERSION:
         raise ValueError("基座模型版本已变化，请重新确认任务")
     if payload.get("runtime_id", RUNTIME_ID) != RUNTIME_ID:
-        raise ValueError("所选 Conda 训练环境未在执行器登记")
+        raise ValueError("所选训练环境未在执行器登记")
     preset = payload.get("preset")
     validate_parameters(preset, payload.get("parameters"))
     split = payload.get("split")
@@ -361,7 +410,7 @@ def camera_rename_map(folder: Path) -> dict[str, str]:
 def prepare_local_model(work_root: Path) -> Path:
     """Stage immutable base weights with an offline tokenizer config for this job.
 
-    The source model and Conda environment are never changed. Linking the large
+    The source model and training environment are never changed. Linking the large
     weight file avoids a second multi-GB copy on the private ext4 work disk.
     """
     staged = work_root / "base-model"
@@ -390,25 +439,10 @@ def prepare_training_dataset(folder: Path, work_root: Path) -> Path:
     files may store it as a regular column, which otherwise reaches the
     tokenizer as an integer. The registered Raw/Derived DS stays untouched.
     """
-    import pandas as pd  # already supplied by the host LeRobot environment
-
     source_meta = folder / "meta"
     tasks_file = source_meta / "tasks.parquet"
     if not tasks_file.is_file() or tasks_file.is_symlink():
         raise ValueError("数据集缺少安全的 meta/tasks.parquet")
-    tasks = pd.read_parquet(tasks_file)
-    if "task_index" not in tasks.columns or tasks["task_index"].tolist() != list(range(len(tasks))):
-        raise ValueError("数据集 task_index 必须与任务表行序一致并从 0 连续编号")
-    if "task" in tasks.columns:
-        if tasks["task"].isna().any() or not tasks["task"].map(
-            lambda value: isinstance(value, str) and bool(value.strip())
-        ).all():
-            raise ValueError("数据集任务文本为空或格式无效")
-        tasks = tasks.set_index("task")
-    elif tasks.index.name != "task" or not all(
-        isinstance(value, str) and value.strip() for value in tasks.index
-    ):
-        raise ValueError("数据集任务表缺少可用的 task 文本")
     staged = work_root / "dataset-view"
     staged.mkdir(parents=True, exist_ok=False)
     for entry in folder.iterdir():
@@ -423,7 +457,34 @@ def prepare_training_dataset(folder: Path, work_root: Path) -> Path:
             raise ValueError("数据集元数据不接受符号链接")
         if entry.name != "tasks.parquet":
             (staged_meta / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
-    tasks.to_parquet(staged_meta / "tasks.parquet")
+    target = staged_meta / "tasks.parquet"
+    if DOCKER_IMAGE:
+        job_id = work_root.name
+        command = runtime_command(job_id, "prepare", [
+            runtime_python(), str(Path(__file__).with_name("training_prepare.py")),
+            str(tasks_file), str(target),
+        ], use_gpu=False)
+        result = subprocess.run(command, capture_output=True, text=True,
+                                timeout=180, check=False)
+        if result.returncode != 0:
+            raise ValueError(f"数据集任务表准备失败：{(result.stderr or result.stdout)[-500:]}")
+    else:
+        import pandas as pd  # host LeRobot environment, for legacy deployments
+        tasks = pd.read_parquet(tasks_file)
+        if ("task_index" not in tasks.columns or
+                tasks["task_index"].tolist() != list(range(len(tasks)))):
+            raise ValueError("数据集 task_index 必须与任务表行序一致并从 0 连续编号")
+        if "task" in tasks.columns:
+            if tasks["task"].isna().any() or not tasks["task"].map(
+                lambda value: isinstance(value, str) and bool(value.strip())
+            ).all():
+                raise ValueError("数据集任务文本为空或格式无效")
+            tasks = tasks.set_index("task")
+        elif tasks.index.name != "task" or not all(
+            isinstance(value, str) and value.strip() for value in tasks.index
+        ):
+            raise ValueError("数据集任务表缺少可用的 task 文本")
+        tasks.to_parquet(target)
     return staged
 
 
@@ -496,7 +557,7 @@ def build_train_command(job: dict, folder: Path, output: Path,
     params = job["parameters"]
     rename_map = camera_rename_map(folder)
     model_path = model_path or MODEL
-    command = [str(PYTHON), "-m", "lerobot.scripts.lerobot_train",
+    command = [runtime_python(), "-m", "lerobot.scripts.lerobot_train",
             "--dataset.repo_id", f"local/{job['dataset']['dataset_id']}",
             "--dataset.root", str(folder),
             "--dataset.episodes", json.dumps(job["split"]["train_episode_ids"]),
@@ -506,11 +567,13 @@ def build_train_command(job: dict, folder: Path, output: Path,
             "--steps", str(params["steps"]), "--batch_size", str(params["batch_size"]),
             "--num_workers", str(params["num_workers"]),
             "--log_freq", str(params["log_freq"]),
-            "--save_freq", str(params["steps"]), "--eval_freq", "0",
+            "--save_freq", str(params["steps"]),
             "--wandb.enable", "false"]
+    if not DOCKER_IMAGE:
+        command.extend(["--eval_freq", "0"])
     if rename_map:
         command.append(f"--rename_map={json.dumps(rename_map, separators=(',', ':'))}")
-    return command
+    return runtime_command(job["id"], "train", command, use_gpu=True)
 
 
 def run(job: dict) -> None:
@@ -522,6 +585,9 @@ def run(job: dict) -> None:
         output.parent.mkdir(parents=True, exist_ok=False)
         staged_model = prepare_local_model(output.parent)
         training_folder = prepare_training_dataset(folder, output.parent)
+        if job.get("cancel_requested"):
+            update(job, status="CANCELED", phase="canceled", completed_at=now())
+            return
         command = build_train_command(job, training_folder, output, staged_model)
         update(job, status="PREPARING", phase="starting", started_at=now())
         log_path = JOBS / job_id / "train.log"
@@ -562,10 +628,13 @@ def run(job: dict) -> None:
             raise RuntimeError("训练完成但没有生成 checkpoint 权重")
         result_file = JOBS / job_id / "evaluation.json"
         with (JOBS / job_id / "train.log").open("a", encoding="utf-8") as log:
+            evaluate_command = runtime_command(job_id, "evaluate", [
+                runtime_python(), str(Path(__file__).with_name("training_evaluate.py")),
+                str(training_folder), f"local/{job['dataset']['dataset_id']}", str(checkpoint),
+                str(result_file), *[str(i) for i in job["split"]["validation_episode_ids"]],
+            ], use_gpu=True)
             process = subprocess.Popen(
-                [str(PYTHON), str(Path(__file__).with_name("training_evaluate.py")),
-                 str(training_folder), f"local/{job['dataset']['dataset_id']}", str(checkpoint),
-                 str(result_file), *[str(i) for i in job["split"]["validation_episode_ids"]]],
+                evaluate_command,
                 stdout=log, stderr=subprocess.STDOUT, cwd=JOBS / job_id,
                 start_new_session=True,
             )
@@ -661,7 +730,7 @@ class Handler(BaseHTTPRequestHandler):
                                  "last_heartbeat": now(), "gpu": card,
                                  "queue_count": sum(job["status"] == "QUEUED" for job in STATE.values()),
                                  "runtimes": [{"id": RUNTIME_ID, "name": RUNTIME_NAME,
-                                               "kind": "conda", "available": model_ok,
+                                               "kind": RUNTIME_KIND, "available": model_ok,
                                                "reason": reason, "model_ids": ["xvla"]}],
                                  "models": [{"id": "xvla", "name": "X-VLA", "version": MODEL_VERSION,
                                              "available": model_ok, "reason": reason,
@@ -716,6 +785,11 @@ class Handler(BaseHTTPRequestHandler):
                     update(job, cancel_requested=True)
                     process = PROCESS.get(job_id)
                     if process is not None:
+                        if DOCKER_IMAGE:
+                            phase = "evaluate" if job["status"] == "EVALUATING" else "train"
+                            subprocess.run([DOCKER, "stop", "--time", "5",
+                                            container_name(job_id, phase)],
+                                           capture_output=True, timeout=15, check=False)
                         try:
                             os.killpg(process.pid, signal.SIGTERM)
                         except ProcessLookupError:

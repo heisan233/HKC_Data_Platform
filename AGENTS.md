@@ -38,9 +38,10 @@
   HDF5。不要假定 LeRobot v2、ROS bag、MCAP 或 RLDS 已经实现。
 - 当前已有 MySQL 用户、scrypt 密码哈希和服务端 Cookie 会话保护，但没有 HTTPS；
   仍只能开放到可信内网，禁止宣称可安全暴露到公网。
-- 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。首期 X-VLA 使用宿主机已有的
-  LeRobot Conda 环境，由独立训练执行器通过 Unix socket 与平台通信；以后新增
-  模型仍须保持训练环境与平台容器隔离。
+- 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。重庆 X-VLA 的 LeRobot 训练
+  与离线评估在独立 Docker 镜像中执行；宿主机训练执行器通过 Unix socket 与平台
+  通信，并保留受限 VLM 服务控制。旧宿主 Conda 部署仍可使用。以后新增模型仍须
+  保持训练环境与平台容器隔离。
 
 ## 3. 已完成与未完成边界
 

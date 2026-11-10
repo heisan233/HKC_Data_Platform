@@ -1,6 +1,6 @@
 # 二阶段项目现状（供同事 Codex 接手）
 
-更新日期：2026-11-06
+更新日期：2026-11-10
 
 二阶段基础分支 `integration/hs-lxp-v3.1` 从一期已合并的 `main` 提交 `674cf92`
 创建；当前重庆集成与后续多用户开发位于 `integration/hs-lxp-v3.1-cq`。
@@ -304,7 +304,7 @@ Dockerfile 安装。
 
 - CUDA/cuDNN；
 - ROS/ROS 2；
-- SmolVLA、X-VLA 等训练依赖；X-VLA 首期使用独立宿主执行器和已有 LeRobot Conda 环境；
+- SmolVLA、X-VLA 等训练依赖；重庆 X-VLA 使用独立宿主执行器调用模型专属 Docker 镜像；
 - PostgreSQL、Redis 或任务队列。
 
 训练执行器使用 `deploy/training_agent.py`，部署细节见

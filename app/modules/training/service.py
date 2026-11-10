@@ -93,7 +93,7 @@ def environment(root: Path) -> dict:
         return {
             "id": "primary", "name": "训练执行器", "online": False,
             "reason": "执行器尚未配置", "models": [], "gpu": None,
-            "runtimes": [{"id": "lerobot", "name": "lerobot（Conda）", "kind": "conda",
+            "runtimes": [{"id": "lerobot", "name": "LeRobot 训练环境", "kind": "unknown",
                           "available": False, "reason": "执行器尚未配置",
                           "model_ids": ["xvla"]}],
             "queue_count": 0, "vlm": {"state": "unknown", "controllable": False},
@@ -104,7 +104,7 @@ def environment(root: Path) -> dict:
         return {
             "id": "primary", "name": "训练执行器", "online": False,
             "reason": exc.message, "models": [], "gpu": None,
-            "runtimes": [{"id": "lerobot", "name": "lerobot（Conda）", "kind": "conda",
+            "runtimes": [{"id": "lerobot", "name": "LeRobot 训练环境", "kind": "unknown",
                           "available": False, "reason": exc.message,
                           "model_ids": ["xvla"]}],
             "queue_count": 0, "vlm": {"state": "unknown", "controllable": False},
@@ -304,11 +304,11 @@ def _model_for_submission(root: Path, model_id: str, preset: str,
     runtime = next((row for row in env.get("runtimes", [])
                     if isinstance(row, dict) and row.get("id") == runtime_id), None)
     if runtime is None:
-        raise TrainingError("所选 Conda 训练环境未登记", 422)
+        raise TrainingError("所选训练环境未登记", 422)
     if runtime.get("available") is not True:
-        raise TrainingError(str(runtime.get("reason") or "所选 Conda 训练环境不可用"), 409)
+        raise TrainingError(str(runtime.get("reason") or "所选训练环境不可用"), 409)
     if model_id not in runtime.get("model_ids", []):
-        raise TrainingError("所选 Conda 训练环境不支持此模型", 422)
+        raise TrainingError("所选训练环境不支持此模型", 422)
     model = next((row for row in models(root) if row["id"] == model_id), None)
     if model is None or not model["available"]:
         raise TrainingError(model["reason"] if model else "模型不可用", 409)

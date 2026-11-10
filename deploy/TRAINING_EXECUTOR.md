@@ -1,23 +1,23 @@
-# X-VLA 宿主机训练执行器
+# X-VLA 训练执行器
 
-执行器与平台容器分离，使用已经存在且通过 GPU 检查的 LeRobot Python；启动脚本
-**不会安装、升级或修改 Conda 包**。它只接受 X-VLA 基座微调和内置预设，不接受
+执行器仍是与平台容器分离的宿主机进程。重庆部署通过
+`HKC_TRAINING_DOCKER_IMAGE` 指定独立 X-VLA 镜像；旧部署未指定该变量时仍使用
+`HKC_TRAINING_PYTHON` 所指的 LeRobot Python。启动脚本不会安装或升级训练依赖。
+它只接受 X-VLA 基座微调和内置预设，不接受
 网页传入任意路径、命令或 shell 参数。平台容器只通过单独挂载的 Unix socket
 调用执行器。无论业务数据盘是什么文件系统，通信目录都必须位于支持 Unix 权限和
 socket 的 ext4/XFS 文件系统；不得把 socket 或 0600 令牌放到 exFAT/NTFS 数据盘。
 
 > 下方 `/home/z123`、`/externalDisk`、RTX 4090 D 和 `qwen3vl.service` 是原深圳
-> 服务器的历史验收记录，不是重庆服务器默认配置。重庆服务器尚未部署训练执行器
-> 时，不得照抄这些路径或服务名；应先只读确认 GPU、Conda 环境、模型权重、
-> tokenizer、VLM 服务和可写文件系统，再创建服务器私有配置。
+> 服务器的历史验收记录，不是重庆服务器默认配置；不得照抄这些路径或服务名。
 
 原深圳服务器曾只读核对：LeRobot 环境 `/home/z123/miniconda3/envs/lerobot` 可识别
 RTX 4090 D；完整基座位于 `/externalDisk/data/model/xvla-base`；tokenizer 副本位于
 `/externalDisk/data/hkc_storage/pretrain/bart-large`。这些是**部署机的配置值**，
 不是平台通用代码中的固定路径。其他服务器须重新提供各自的三个路径。
 
-在部署机设置以下环境变量，再以存储目录所有者运行
-`<lerobot-python> deploy/training_agent.py`：
+在部署机设置以下环境变量，再以存储目录所有者运行宿主机 Python
+`deploy/training_agent.py`：
 
 ```text
 HKC_TRAINING_STORAGE=<宿主机平台持久化目录>
@@ -30,7 +30,17 @@ HKC_TRAINING_SOCKET_DIR=<宿主机 ext4/XFS 上的私有通信目录>
 HKC_TRAINING_WORK_DIR=<宿主机 ext4/XFS 上的临时训练工作目录>
 HKC_TRAINING_MIN_WORK_GB=12
 HKC_TRAINING_VLM_SERVICE=<管理员允许受控启停的系统级 VLM 服务名>
+HKC_TRAINING_DOCKER_IMAGE=<已在本机存在的 X-VLA 训练镜像，可留空沿用宿主 Python>
+HKC_TRAINING_DOCKER_GPU_ID=0
 ```
+
+重庆服务器的模型环境在 `/srv/hkc-ai/models/XVLA`，镜像为
+`hkc-xvla-train:lerobot-0.6.2-cu128`。将基座、tokenizer 和工作目录分别指向该目录的
+`weights/xvla-base`、`tokenizer/bart-large`、`work`；工作目录须为执行器用户私有的
+`0700` ext4 目录。宿主进程仅负责已登记任务、数据视图、日志、打包和 VLM systemd
+开关；LeRobot 训练、任务表规范化与离线评估在镜像中执行。容器使用固定镜像与 GPU
+编号、禁用网络，并以执行器 UID/GID 运行；数据集只读挂载，单任务结果目录及
+ext4 工作目录可写。平台仍只连接原 Unix socket，网页不接收 Docker 参数。
 
 首次启动会在 `<通信目录>/token` 自动生成随机令牌（0600），
 **不得放入 Git、通用 Compose 或命令历史**。socket 由执行器创建（0660）。
@@ -38,7 +48,7 @@ HKC_TRAINING_VLM_SERVICE=<管理员允许受控启停的系统级 VLM 服务名>
 后须重启执行器；启动时对权重计算 SHA-256，基座版本展示为
 `xvla-base@<摘要前16位>`。
 
-执行器接收任务后再次确认 DS 目录在授权的 raw/derived 下、`info.json` 摘要未变、
+执行器接收任务后再次确认 DS 目录在授权的 data/raw/derived 下、`info.json` 摘要未变、
 训练/验证 Episode 不重叠。只有 GPU 空闲显存达到阈值时才启动训练，否则保持排队
 并说明原因。训练、离线验证、打包分别由执行器跟踪；失败和重启中断记录会保留。
 验证指标是留出 Episode 的平均前向损失，不是机器人任务成功率。打包包含 checkpoint

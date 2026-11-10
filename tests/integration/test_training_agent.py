@@ -66,7 +66,7 @@ def test_agent_accepts_only_registered_snapshot_and_safe_parameters(tmp_path, mo
     payload = _payload(agent, root)
     assert agent.validate_payload(payload)[0] == "TR000001"
     payload["runtime_id"] = "unregistered"
-    with pytest.raises(ValueError, match="Conda"):
+    with pytest.raises(ValueError, match="训练环境"):
         agent.validate_payload(payload)
     payload["runtime_id"] = agent.RUNTIME_ID
     payload["parameters"] = {"steps": 999999}
@@ -154,6 +154,19 @@ def test_agent_rejects_changed_dataset_or_path_escape(tmp_path, monkeypatch):
         agent.validate_payload(payload)
 
 
+def test_agent_accepts_registered_data_area_without_relaxing_path_checks(tmp_path, monkeypatch):
+    agent, root = _agent(tmp_path, monkeypatch)
+    payload = _payload(agent, root)
+    folder = root / "data" / "DS000001"
+    folder.parent.mkdir()
+    (root / "derived" / "ready").rename(folder)
+    payload["dataset"].update(storage_area="data", storage_relpath="DS000001")
+    assert agent.validate_payload(payload)[1] == folder
+    payload["dataset"]["storage_relpath"] = "../DS000001"
+    with pytest.raises(ValueError, match="目录"):
+        agent.validate_payload(payload)
+
+
 def test_train_command_uses_lerobot_policy_override_syntax(tmp_path, monkeypatch):
     agent, root = _agent(tmp_path, monkeypatch)
     payload = _payload(agent, root)
@@ -174,6 +187,27 @@ def test_train_command_uses_lerobot_policy_override_syntax(tmp_path, monkeypatch
         "observation.images.head": "observation.images.image",
         "observation.images.hand_right": "observation.images.image2",
     }, separators=(",", ":")) in command
+
+
+def test_docker_runtime_is_fixed_to_registered_image_and_job_mounts(tmp_path, monkeypatch):
+    agent, root = _agent(tmp_path, monkeypatch)
+    monkeypatch.setattr(agent, "DOCKER_IMAGE", "hkc-xvla-train:lerobot-0.6.2-cu128")
+    monkeypatch.setattr(agent, "DOCKER_GPU_ID", "0")
+    monkeypatch.setattr(agent, "DOCKER", "/usr/bin/docker")
+    payload = _payload(agent, root)
+    command = agent.build_train_command(
+        payload, root / "derived" / "ready", agent.WORK_DIR / payload["id"] / "output")
+    assert command[:5] == ["/usr/bin/docker", "run", "--rm", "--name",
+                           "hkc-xvla-tr000001-train"]
+    assert ["--gpus", "device=0"] == command[command.index("--gpus"):command.index("--gpus") + 2]
+    assert "--network" in command and "none" in command
+    assert "USER=hkc-trainer" in command and "LOGNAME=hkc-trainer" in command
+    assert "--eval_freq" not in command
+    assert "type=bind,src=" + str(root) + ",dst=" + str(root) + ",readonly" in command
+    assert "type=bind,src=" + str(agent.WORK_DIR) + ",dst=" + str(agent.WORK_DIR) in command
+    assert "type=bind,src=" + str(agent.JOBS / payload["id"]) + ",dst=" + str(
+        agent.JOBS / payload["id"]) in command
+    assert command[-1].startswith("--rename_map=")
 
 
 def test_camera_mapping_rejects_more_views_than_model(tmp_path, monkeypatch):

@@ -25,7 +25,7 @@
 服务器使用 `compose.yaml`、`compose.server.yaml` 和自己的 `.env`。训练执行器是
 独立的宿主机进程，不由 Compose 创建；尚未部署执行器时不要叠加训练覆盖，训练页
 可以查看但不能提交真实训练。执行器就绪后再增加
-`deploy/compose.training-agent.yaml`。运行命令、Conda 环境、基座模型及受控 VLM
+`deploy/compose.training-agent.yaml`。训练镜像、基座模型及受控 VLM
 权限见 `deploy/TRAINING_EXECUTOR.md`。不要把服务器的 `.env`、socket 令牌或模型
 权重复制进 Git。
 
@@ -40,7 +40,7 @@ docker compose --env-file .env -p hkc-vla \
 ```
 
 `--force-recreate` 会让新增挂载和环境变量生效；普通 `restart` 不会加载这些配置。
-这条命令不安装或修改宿主 LeRobot/Conda 环境。
+这条命令不安装或修改独立 X-VLA 训练镜像。
 
 ## 首次准备 `.env` 和持久化目录
 

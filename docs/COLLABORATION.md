@@ -1,6 +1,6 @@
 # HKC 数采平台协作与 Codex 交接文档
 
-更新日期：2026-11-09
+更新日期：2026-11-10
 
 这是一份双方开发者和双方 Codex 共用的交接记录。合并后的当前结构、已完成与
 未完成功能、数据生命周期和接手步骤已经集中到 `docs/CODEX_CURRENT_STATE.md`；
@@ -11,6 +11,30 @@
 > `integration/hs-lxp-v3.1`。
 > 历史分支只供查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
+
+### 2026-11-10 重庆 X-VLA Docker 训练联调（本机与服务器工作区，未提交）
+
+本机和重庆服务器 `integration/hs-lxp-v3.1-cq` 均从 `dc5ddee` 修改。平台仍通过
+原 Unix socket 与宿主训练执行器通信；执行器固定调用
+`hkc-xvla-train:lerobot-0.6.2-cu128`，在隔离容器内完成任务表准备、LeRobot 训练和
+离线评估。容器禁网，以执行器 UID/GID 运行，数据集、基座、tokenizer 只读挂载，
+单任务输出及 `/srv/hkc-ai/models/XVLA/work` 可写；GPU 固定为 0。
+执行器现接受新 DS 的 `storage_area=data`，同时保留旧 `raw/derived` 映射。
+平台训练页面与能力说明展示 Docker 环境，不向网页开放镜像、路径或命令参数。
+
+共享接口影响：训练 API 和数据库结构不变；执行器运行时状态从宿主 Python 显示为
+Docker，既有运行时 ID 保留。跨维护边界修改了训练页面、执行器、部署说明及
+`AGENTS.md`；没有修改质检判定、MySQL 表或其他模型环境。服务器私有 agent.env
+和 server.env 各有部署前副本，未同步到本机或 Git。服务器平台叠加镜像为
+`hkc-data-platform:v3.1-cq-xvla-docker`，平台/MySQL 容器健康，VLM 服务保持停止。
+
+验证遵照少测试要求：本机仅运行训练执行器定向测试、Ruff 与差异检查；服务器仅用
+已审核可用的 `DS000004` 跑一次进入正式训练的 100-step 小任务 `TR000004`。
+训练、固定留出 Episode 离线前向评估、约 3.0 GiB 模型包哈希校验及平台模型版本
+登记均完成；模型包在 `storage/models/TR000004-xvla.tar.gz`。此前三次在训练前
+暴露的目录映射、容器用户和 CLI 参数错误已修复，其失败任务 `TR000001` 至
+`TR000003` 已清理，编号不复用。未做浏览器逐页人工操作或全量 pytest；离线损失
+与动作 MAE 只用于链路验收，不代表真实机器人任务成功率。没有提交或推送。
 
 ### 2026-11-09 数据管理统一回收站（本机与服务器工作区，未提交）
 
