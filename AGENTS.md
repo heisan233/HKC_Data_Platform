@@ -50,7 +50,10 @@
 - `auth`：无默认账号的用户表、显示名称、首次强制改密、密码哈希、服务端会话、
   个人中心、登录、退出和全站访问保护；
 - `robots`：独立机器人档案、稳定 RB 编号、新增/编辑、停用/恢复，以及 DS 的
-  关联、改绑和解除；
+  关联、改绑和解除；每台机器人有一个机器上传 Token，创建成功时网页弹窗显示一次
+  完整值，之后网页只显示状态与前缀；部署机终端仍可查看、删除或重新生成；
+- `collector`：可信内网的机器人 Bearer Token 上传 API、LeRobot v3 单 ZIP 预检、
+  SHA-256 防重复、类型确认、自动 DS 登记和机器人关联；
 - `ingestion`：单个 LeRobot v3 ZIP 上传、批量包装接口、安全解压、上传阶段
   `robot_type` 声明/覆盖、Raw 入库和自动分配 DS 编号；
 - `datasets`：统一 DS 登记、可用性和状态标签、列表、详情、显示信息、重新扫描、视频
@@ -109,6 +112,7 @@ storage/                    宿主机运行数据；真实内容不提交 Git
 ├── trash/datasets/         可恢复的数据集及其当前质检报告
 ├── exports/                Derived/CV 的 tar.gz 导出产物
 └── system/                 上传记录、版本和文件式任务记录
+    └── collector-claims/   分布式采集 ZIP 摘要与 DS 去重旁路记录
 
 mysql-data/                 MySQL 容器私有数据目录，独立于 storage/，不提交 Git
 
@@ -125,6 +129,7 @@ tests/                      自动化测试，结构尽量对应业务模块
 - `app/modules/robots/`：机器人档案与 DS 关联管理，不连接或控制真实机器人；
 - `app/modules/semantics/`：LeRobot v3 结构扫描、字段定义与 Schema 派生发布；
 - `app/modules/ingestion/`：ZIP 上传、校验和 Raw 入库；
+- `app/modules/collector/`：机器人 Token 认证、上传预检、防重复和改绑确认；
 - `app/modules/annotation/`：Episode/task/Subtask 标注与发布；
 - `app/modules/processing/`：Episode 处理及 Derived 构建；
 - `app/modules/quality/`：质检方案、规则、VLM、任务和报告；
@@ -186,6 +191,11 @@ tests/                      自动化测试，结构尽量对应业务模块
   `reset_user_password` 重置密码、`enable_user` 启用、`disable_user` 停用；不得在
   源码、Compose、文档或测试中加入默认账号及真实密码。新建或重置密码的用户必须
   首次登录改密，现有迁移用户不得被强制改密。
+- 机器人采集 Token 不属于网页用户会话。新机器人自动生成一个 Token；只有创建成功
+  和显式“重新生成 Token”响应可返回完整值供网页弹窗显示一次，列表、编辑、状态等
+  其他网页接口只能返回前缀。重新生成必须让旧值立即失效；网页不提供删除或补充生成。
+  部署机终端命令仍可查看、删除或重新生成。采集端只保存到权限受限的本地文件或
+  临时环境变量，禁止写入仓库。
 - `.env.example` 只保存公开占位值；换设备时从它新建 `.env`。
 - `compose.yaml` 默认只绑定 `127.0.0.1:8000`；
   `deploy/compose.lan.yaml` 才负责可信局域网绑定；`compose.dev.yaml` 只增加源码热

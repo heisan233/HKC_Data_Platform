@@ -11,6 +11,13 @@
 `robots` 是独立机器人档案模块：每条档案有稳定 RB 编号，支持新增、编辑、停用
 和恢复。它还负责把已登记 DS 关联、改绑或解除到具体机器人；数据管理页只读展示
 结果。关系只写入 MySQL，不回写 LeRobot 文件，类型不一致时允许保存但必须告警。
+每台机器人还有一个独立机器上传 Token；网页只显示状态和前缀，完整值由部署机
+终端管理。
+
+`collector` 是分布式采集 HTTP API：使用机器人 Bearer Token，而不是浏览器 Cookie。
+它在上传前核对 LeRobot v3 ZIP 的 SHA-256、大小和 `robot_type`，成功后自动生成 DS、
+关联 Token 所属机器人并保持“不可用、待质检”。相同 ZIP 不重复建 DS；同类型另一
+机器人必须明确确认后才能改绑。摘要记录保存在 `storage/system/collector-claims/`。
 
 `semantics` 是数据定义模块：读取已登记 DS 的 `info.json`、Episode Parquet 和
 frame Parquet，区分官方字段、核心字段及平台扩展字段。修改始终生成完整新 DS；
@@ -59,6 +66,8 @@ HTML/JavaScript 按钮
 上传表单可声明 `robot_type`：填写时在进入 data/ 前覆盖 `meta/info.json`，留空时沿用
 包内非空值；包内缺少且表单留空时拒绝入库。
 单文件与质检页批量上传复用同一服务。这只是“上传入库”而不是完整数据质检。
+机器人命令上传复用同一安全解压和发布服务，但由 `collector` 增加 Token、类型、
+摘要去重和自动关联约束；现有网页上传接口保持不变。
 
 `datasets` 通过 `app/db/datasets.py` 管理统一 DS 编号到真实目录的映射、可用性和状态标签；只在数据管理页展示尚未登记的 Raw 目录，不会自动迁移旧文件。数据集详情
 还会只读解析真实 frame Parquet，按 Episode 绘制 `observation.state` 和 `action`

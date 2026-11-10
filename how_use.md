@@ -57,6 +57,21 @@ docker compose --env-file .env -p hkc-v31-mysql \
 
 ### 本机 MySQL 验收版用户管理
 
+ps:重庆服务器上创建用户等操作使用以下server.env
+```bash
+cd /media/zzjj/A21E6DDF1E6DACCB/vscode_project/HKC_Data_Platform
+
+docker compose \
+  --env-file /home/zzjj/vscode_project/hkc-platform-config/server.env \
+  -p hkc-vla \
+  -f compose.yaml \
+  -f compose.dev.yaml \
+  -f compose.server.yaml \
+  exec platform \
+  python -m app.cli.create_user --username
+```
+
+
 本机 `18001` 版本必须始终带上项目名 `hkc-v31-mysql` 和三份 Compose 配置，不能
 直接使用简写的 `docker compose exec platform`。
 
@@ -97,6 +112,44 @@ docker compose --env-file .env -p hkc-v31-mysql \
 
 `<用户名>` 必须替换为实际用户名，例如 `test_user`，不能只写到 `--username`。
 创建和重置密码时，终端会隐藏密码输入。
+
+### 机器人采集 Token 管理
+
+新机器人在网页登记成功时会自动生成一个上传 Token，并弹窗显示一次完整值；关闭
+弹窗后网页只显示状态与前缀。
+完整值必须在部署机终端查看；不要把真实 Token 写进 Git、`.env.example` 或文档。
+本机 `18001` 验收版使用同一组 Compose 前缀：
+
+```bash
+# 查看已有机器人的完整 Token
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform python -m app.cli.show_robot_token --robot-id RB000001
+
+# 仅用于旧机器人缺少 Token 的情况
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform python -m app.cli.create_robot_token --robot-id RB000001
+
+# 重新生成会让旧 Token 立即失效
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform python -m app.cli.regenerate_robot_token --robot-id RB000001
+
+# 删除后该机器人不能再通过机器接口上传
+docker compose --env-file .env -p hkc-v31-mysql \
+  -f compose.yaml -f compose.dev.yaml \
+  -f deploy/compose.local-mysql.yaml \
+  exec platform python -m app.cli.delete_robot_token --robot-id RB000001
+```
+
+采集工具索引位于 `tools/README.md`：`tools/collector_v1/` 保留人工单 ZIP 上传；
+`tools/auto_update/` 在采集完成后运行一次，可扫描多个 LeRobot v3 文件夹或 ZIP、
+顺序上传并退出。成功后自动登记 DS、关联机器人并标记为不可用、待质检，不会自动
+启动质检。第二版不是常驻服务，也不需要 systemd。
 
 `.env` 包含本机路径和数据库密码，已被 Git 忽略，不得上传。全新的 MySQL 数据目录
 不会自动继承旧 SQLite 账号和业务记录，需要重新交互创建网页用户。

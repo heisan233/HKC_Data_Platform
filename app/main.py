@@ -13,6 +13,7 @@ from app.core.paths import STATIC_DIR
 from app.modules.annotation import router as annotation_router
 from app.modules.auth import router as auth_router
 from app.modules.auth.middleware import LoginRequiredMiddleware
+from app.modules.collector import router as collector_router
 from app.modules.dashboard import router as dashboard_router
 from app.modules.datasets import router as datasets_router
 from app.modules.export import router as export_router
@@ -38,6 +39,11 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(auth_router.router, tags=["用户登录"])
+    application.include_router(
+        collector_router.router,
+        prefix="/api/v1/collector",
+        tags=["分布式采集"],
+    )
 
     # include_router 只是在分配网址。例如 datasets 模块内的 "/"，加上这里的
     # prefix="/data" 后，浏览器最终访问的是 "/data/"。

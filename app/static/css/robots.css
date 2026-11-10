@@ -20,7 +20,7 @@
 .robot-toolbar input:focus, .robot-toolbar select:focus, .robot-form-grid input:focus, .robot-form-grid select:focus, .robot-form-grid textarea:focus { outline: 2px solid rgba(43, 125, 233, .18); border-color: #2b7de9; }
 .robot-toolbar a { align-self: center; color: #2b7de9; text-decoration: none; font-size: 13px; }
 .robot-table-scroll { overflow-x: auto; }
-.robot-table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 13px; }
+.robot-table { width: 100%; min-width: 1260px; border-collapse: collapse; font-size: 13px; }
 .robot-table th { padding: 12px 14px; background: #f7f9fb; color: #637489; text-align: left; font-weight: 700; border-bottom: 1px solid #dfe7ee; }
 .robot-table td { padding: 14px; vertical-align: top; border-bottom: 1px solid #edf1f5; }
 .robot-table tbody tr:hover { background: #fbfdff; }
@@ -30,6 +30,9 @@
 .robot-status-active { background: #e8f8ee; color: #23834b; }
 .robot-status-maintenance { background: #fff4d9; color: #a66d00; }
 .robot-status-inactive { background: #edf0f3; color: #77828e; }
+.robot-token-status { display: inline-flex; padding: 3px 8px; border-radius: 16px; font-size: 11px; font-weight: 700; }
+.robot-token-ready { background: #e8f8ee; color: #23834b; }
+.robot-token-missing { background: #fff4d9; color: #986300; }
 .robot-notes { max-width: 260px; overflow-wrap: anywhere; }
 .robot-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .robot-actions button { border: 0; background: transparent; color: #2b7de9; cursor: pointer; font-size: 12px; }
@@ -49,6 +52,11 @@
 .robot-form-wide { grid-column: 1 / -1; }
 .robot-form-note { margin: 16px 0 0; padding: 10px 12px; border-radius: 7px; background: #f4f7fa; color: #6d7b89; font-size: 12px; line-height: 1.6; }
 .robot-dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.robot-token-dialog { width: min(680px, calc(100vw - 32px)); }
+.robot-token-shell { padding: 24px; }
+.robot-token-shell > p { color: #566b7f; line-height: 1.7; }
+.robot-token-shell pre { margin: 16px 0 0; padding: 16px; overflow-wrap: anywhere; white-space: pre-wrap; border: 1px solid #b9d3e8; border-radius: 8px; background: #f0f7fd; color: #173f61; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 14px; line-height: 1.6; user-select: all; }
+.robot-token-dialog .robot-feedback { margin: 12px 0 0; }
 .robot-dataset-dialog { width: min(1040px, calc(100vw - 32px)); }
 .robot-dataset-shell { padding: 24px; }
 .robot-dialog-head p { margin-top: 6px; color: #708296; font-size: 13px; }

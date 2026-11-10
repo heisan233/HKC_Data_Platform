@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.db.dataset_robots import DatasetRobotRepository
 from app.db.datasets import DatasetRepository
+from app.db.robot_tokens import RobotTokenRepository
 from app.main import app
 from app.modules.datasets import service as dataset_service
 from app.modules.robots import router as robot_router
@@ -46,12 +47,19 @@ def test_empty_page_has_no_demo_robots(robot_platform: TestClient) -> None:
     assert "人形机器人-A1" not in response.text
 
 
-def test_create_list_and_render_robot(robot_platform: TestClient) -> None:
+def test_create_list_and_render_robot(
+    robot_platform: TestClient,
+    tmp_path: Path,
+) -> None:
     created = robot_platform.post("/robots/api/robots", json=robot_payload())
 
     assert created.status_code == 201
     assert created.json()["id"] == "RB000001"
     assert created.json()["status"] == "active"
+    assert created.json()["token_configured"] is True
+    assert created.json()["token_prefix"].startswith("hkc_rb_")
+    assert created.json()["token"].startswith("hkc_rb_")
+    assert created.headers["cache-control"] == "no-store"
     assert "model" not in created.json()
     assert "sensors" not in created.json()
 
@@ -59,12 +67,18 @@ def test_create_list_and_render_robot(robot_platform: TestClient) -> None:
     assert listed.status_code == 200
     assert listed.json()[0]["status_label"] == "在用"
     assert listed.json()[0]["matching_dataset_count"] == 0
+    assert listed.json()[0]["token_configured"] is True
+    assert "token" not in listed.json()[0]
+    assert RobotTokenRepository(tmp_path).get("RB000001", reveal=True)["token"].startswith(
+        "hkc_rb_"
+    )
 
     page = robot_platform.get("/robots/")
     assert "RB000001" in page.text
     assert "采集机器人一号" in page.text
     assert "SN-0001" in page.text
     assert "192.168.123.50" in page.text
+    assert "robot-token-dialog" in page.text
     assert "型号" not in page.text
     assert "传感器" not in page.text
 
@@ -85,6 +99,37 @@ def test_duplicate_name_and_serial_are_rejected(robot_platform: TestClient) -> N
     assert duplicate_name.json()["detail"] == "机器人名称已经存在"
     assert duplicate_serial.status_code == 409
     assert duplicate_serial.json()["detail"] == "序列号已经被其他机器人使用"
+
+
+def test_regenerate_token_replaces_old_value_and_does_not_leak_in_list(
+    robot_platform: TestClient,
+    tmp_path: Path,
+) -> None:
+    created = robot_platform.post("/robots/api/robots", json=robot_payload()).json()
+    old_token = created["token"]
+
+    regenerated = robot_platform.post(
+        f"/robots/api/robots/{created['id']}/token/regenerate"
+    )
+
+    assert regenerated.status_code == 200
+    assert regenerated.headers["cache-control"] == "no-store"
+    assert regenerated.json()["token"].startswith("hkc_rb_")
+    assert regenerated.json()["token"] != old_token
+    assert RobotTokenRepository(tmp_path).authenticate(old_token) is None
+    assert RobotTokenRepository(tmp_path).authenticate(regenerated.json()["token"])["id"] == created["id"]
+    assert "token" not in robot_platform.get("/robots/api/robots").json()[0]
+    page = robot_platform.get("/robots/")
+    assert 'data-robot-token-regenerate="RB000001"' in page.text
+
+
+def test_regenerate_token_requires_existing_robot(robot_platform: TestClient) -> None:
+    response = robot_platform.post(
+        "/robots/api/robots/RB999999/token/regenerate"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "机器人不存在"
 
 
 def test_update_deactivate_restore_and_no_delete(robot_platform: TestClient) -> None:

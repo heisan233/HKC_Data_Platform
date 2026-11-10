@@ -73,6 +73,7 @@ app/db/*.py（管理元数据） + storage/（真实文件）
 | `/export/` | `conversion`、`export` | 可用 LeRobot v3 DS 转换 HDF5、CV 任务及完整打包下载 |
 | `/training/` | `training` | 已接入真实 DS、MySQL 任务、宿主执行器、离线评估与模型包；执行器离线时不可提交训练 |
 | `/robots/` | `robots` | MySQL 机器人档案、停用/恢复，以及 DS 关联、改绑和解除 |
+| `/api/v1/collector/*` | `collector` | 机器人 Bearer Token、单 ZIP 预检上传、去重与自动关联 |
 | `/semantics/` | `semantics` | 真实 LeRobot v3 Schema 扫描、字段增删、空值占位与索引导入 |
 | `/system/` | `system` | 真实、脱敏、持久化的访问日志与筛选 |
 
@@ -97,6 +98,22 @@ LeRobot v3 ZIP
 `robot_type` 文本框：填写后在 Staging 中覆盖 `meta/info.json` 再进入 data/；留空则
 沿用包内值。如果包内缺少或为空且表单也为空，上传被拒绝，不再以“未声明”入库。
 上传检查不是完整质检。
+
+分布式采集端使用 `/api/v1/collector/`，不使用网页 Cookie。新机器人自动拥有一个
+上传 Token；创建或网页重新生成成功时弹窗显示完整新值，关闭后只显示状态和前缀，
+旧值在重新生成后立即失效。部署机终端仍可查看完整值。
+
+旧版 `tools/collector_v1/` 由人工指定一个 ZIP；第二版 `tools/auto_update/` 在采集结束
+后运行一次，扫描父目录第一层的多个 LeRobot v3 文件夹或 ZIP，顺序处理后退出。
+文件夹在本地临时打包，成功或同 RB 精确重复后写 `.hkc-uploaded.json` 标记；同一平台
+和 RB 再运行时会在打包、SHA-256 前跳过。网络/5xx 最多尝试三次，失败不写标记；
+Token 无效或 RB 停用会中止队列。跨机器人重复不会自动改绑，需人工处理。工具没有
+本地 SQLite、后台守护、systemd、并发或断点续传。成功入库后自动关联 Token 所属 RB，
+仍保持不可用、待质检，不自动启动质检。
+
+相同机器人重复提交完全相同 ZIP 时返回原 DS；另一台同类型机器人提交时，服务器
+接口保留人工确认改绑能力，但第二版一次性工具只报告冲突，不自动确认；机器人类型
+不同则拒绝。当前仍只适用于可信内网 HTTP。
 
 ### 统一登记
 
@@ -201,6 +218,7 @@ MySQL 访问代码：
 - `app/db/users.py`：用户、显示名称、首次改密、scrypt 密码哈希和服务端登录会话；
 - `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
 - `app/db/dataset_robots.py`：DS 与采集机器人的可选关系及派生继承；
+- `app/db/robot_tokens.py`：每台机器人唯一的机器上传 Token 与认证摘要；
 - `app/db/semantics.py`：旧受控词表兼容保留；当前数据定义页不再读写；
 - 真实数据库：独立 MySQL 服务，宿主数据目录由 `HKC_MYSQL_DATA_PATH` 指定；重庆服务器使用 `/srv/hkc-ai/mysql/data`，旧 `platform.sqlite` 原样保留。
 

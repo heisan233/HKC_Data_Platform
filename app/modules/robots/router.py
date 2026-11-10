@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request, Response
 
 from app.core.config import settings
 from app.modules.robots import service
@@ -63,10 +63,22 @@ def robots_api(status: str | None = None) -> list[dict]:
 
 
 @router.post("/api/robots", status_code=201)
-def create_robot(payload: RobotWrite) -> dict:
+def create_robot(payload: RobotWrite, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
     try:
         return service.create_robot(settings.data_root, payload)
     except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/api/robots/{robot_id}/token/regenerate")
+def regenerate_robot_token(robot_id: str, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return service.regenerate_token(settings.data_root, robot_id)
+    except ValueError as exc:
+        if str(exc) == "机器人不存在":
+            raise HTTPException(404, str(exc)) from exc
         raise HTTPException(409, str(exc)) from exc
 
 

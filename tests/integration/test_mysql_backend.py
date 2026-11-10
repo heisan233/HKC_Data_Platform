@@ -55,7 +55,7 @@ def test_existing_v1_user_is_preserved_by_profile_migration(tmp_path: Path) -> N
         versions = database.execute(
             "SELECT version FROM schema_migrations ORDER BY version"
         ).fetchall()
-    assert [row["version"] for row in versions] == [1, 2, 3, 4]
+    assert [row["version"] for row in versions] == [1, 2, 3, 4, 5]
 
 
 def test_existing_platform_sqlite_is_left_untouched(tmp_path: Path) -> None:

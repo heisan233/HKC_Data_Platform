@@ -7,6 +7,7 @@ HTTP 层只把表单文件交给这里。该模块负责分块写入临时目录
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -22,6 +23,7 @@ from zipfile import BadZipFile, ZipFile, ZipInfo, is_zipfile
 from fastapi import UploadFile
 from starlette.concurrency import run_in_threadpool
 
+from app.db.dataset_robots import DatasetRobotRepository
 from app.db.datasets import DatasetRepository
 from app.modules.datasets import service as datasets
 
@@ -37,6 +39,19 @@ MAX_COMPRESSION_RATIO = 200
 
 class UploadValidationError(ValueError):
     """上传内容不符合平台接收规则。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "validation_error",
+        status_code: int = 400,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+        self.details = details or {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,10 +148,11 @@ async def _stream_upload(
     upload: UploadFile,
     destination: Path,
     max_upload_bytes: int,
-) -> int:
+) -> tuple[int, str]:
     """分块保存上传内容，避免把完整数据集读进内存。"""
 
     received = 0
+    digest = hashlib.sha256()
     with destination.open("xb") as target:
         while chunk := await upload.read(STREAM_CHUNK_SIZE):
             received += len(chunk)
@@ -145,10 +161,11 @@ async def _stream_upload(
                     f"压缩包超过上传上限 {format_bytes(max_upload_bytes)}。"
                 )
             target.write(chunk)
+            digest.update(chunk)
 
     if received == 0:
         raise UploadValidationError("上传的 ZIP 文件为空。")
-    return received
+    return received, digest.hexdigest()
 
 
 def _safe_archive_path(info: ZipInfo) -> PurePosixPath:
@@ -316,6 +333,8 @@ def _extract_validated_archive(
     destination: Path,
     limits: UploadLimits,
     robot_type_override: str,
+    collector_robot_type: str = "",
+    robot_type_confirmation: str = "",
 ) -> dict[str, Any]:
     """完成整包校验后，逐文件安全解压到指定目录。"""
 
@@ -326,7 +345,32 @@ def _extract_validated_archive(
         if isinstance(source_value, str) and source_value.strip()
         else ""
     )
-    resolved_robot_type = robot_type_override or source_robot_type
+    expected_robot_type = collector_robot_type.strip()
+    confirmed_robot_type = robot_type_confirmation.strip()
+    if expected_robot_type:
+        if source_robot_type:
+            if source_robot_type.casefold() != expected_robot_type.casefold():
+                raise UploadValidationError(
+                    "ZIP 中的 robot_type 与 Token 对应机器人类型不一致。",
+                    code="robot_type_mismatch",
+                    status_code=409,
+                    details={
+                        "archive_robot_type": source_robot_type,
+                        "expected_robot_type": expected_robot_type,
+                    },
+                )
+            resolved_robot_type = source_robot_type
+        else:
+            if confirmed_robot_type.casefold() != expected_robot_type.casefold():
+                raise UploadValidationError(
+                    "ZIP 缺少 robot_type，请确认使用 Token 对应的机器人类型。",
+                    code="robot_type_confirmation_required",
+                    status_code=409,
+                    details={"expected_robot_type": expected_robot_type},
+                )
+            resolved_robot_type = expected_robot_type
+    else:
+        resolved_robot_type = robot_type_override or source_robot_type
     if not resolved_robot_type:
         raise UploadValidationError(
             "meta/info.json 缺少 robot_type，请在上传页面手动填写机器人类型。"
@@ -344,7 +388,7 @@ def _extract_validated_archive(
             with archive.open(info) as source, target.open("xb") as output:
                 shutil.copyfileobj(source, output, length=STREAM_CHUNK_SIZE)
 
-    if robot_type_override:
+    if robot_type_override or (expected_robot_type and not source_robot_type):
         # This happens in staging, before the dataset enters immutable Raw
         # storage. Keeping the declared value in info.json makes later rescan,
         # quality checks and exports observe the same metadata as the registry.
@@ -359,7 +403,11 @@ def _extract_validated_archive(
         "robot_type": resolved_robot_type,
         "original_robot_type": source_robot_type or None,
         "robot_type_source": (
-            "upload_form" if robot_type_override else "meta/info.json"
+            "upload_form"
+            if robot_type_override
+            else "collector_token"
+            if expected_robot_type and not source_robot_type
+            else "meta/info.json"
         ),
         "fps": info_data["fps"],
         "total_episodes": info_data["total_episodes"],
@@ -384,12 +432,17 @@ def _write_record(data_root: Path, record: dict[str, Any]) -> None:
 
 
 def _failure_payload(record: dict[str, Any]) -> dict[str, Any]:
-    return {
+    payload = {
         "ok": False,
         "upload_id": record["upload_id"],
         "status": record["status"],
         "message": record["message"],
     }
+    if record.get("error_code"):
+        payload["code"] = record["error_code"]
+    if record.get("error_details"):
+        payload.update(record["error_details"])
+    return payload
 
 
 async def receive_dataset_upload(
@@ -399,6 +452,10 @@ async def receive_dataset_upload(
     dataset_name: str,
     description: str,
     robot_type: str = "",
+    collector_robot_id: str | None = None,
+    collector_robot_type: str = "",
+    expected_sha256: str = "",
+    robot_type_confirmation: str = "",
 ) -> UploadOutcome:
     """接收一个 ZIP，并在成功后将内容发布到 ``data/<DS 编号>``。"""
 
@@ -415,6 +472,7 @@ async def receive_dataset_upload(
         "dataset_name": dataset_name.strip(),
         "description": description.strip(),
         "requested_robot_type": robot_type.strip(),
+        "collector_robot_id": collector_robot_id,
         "original_filename": upload.filename or "",
         "status": "receiving",
         "message": "正在接收文件",
@@ -422,6 +480,7 @@ async def receive_dataset_upload(
         "created_at": _utc_now(),
         "completed_at": None,
         "raw_relative_path": None,
+        "archive_sha256": None,
         "summary": None,
     }
 
@@ -441,17 +500,29 @@ async def receive_dataset_upload(
 
         staging_dir.mkdir(parents=True, exist_ok=False)
         _write_record(data_root, record)
-        received_bytes = await _stream_upload(
+        received_bytes, archive_sha256 = await _stream_upload(
             upload,
             archive_path,
             limits.max_upload_bytes,
         )
         record.update(
             received_bytes=received_bytes,
+            archive_sha256=archive_sha256,
             status="validating",
             message="上传完成，正在校验 LeRobot v3 结构",
         )
         _write_record(data_root, record)
+
+        normalized_expected_sha256 = expected_sha256.strip().lower()
+        if normalized_expected_sha256 and archive_sha256 != normalized_expected_sha256:
+            raise UploadValidationError(
+                "上传文件的 SHA-256 与客户端声明不一致。",
+                code="sha256_mismatch",
+                details={
+                    "expected_sha256": normalized_expected_sha256,
+                    "actual_sha256": archive_sha256,
+                },
+            )
 
         summary = await run_in_threadpool(
             _extract_validated_archive,
@@ -459,6 +530,8 @@ async def receive_dataset_upload(
             unpacked_path,
             limits,
             clean_robot_type,
+            collector_robot_type,
+            robot_type_confirmation,
         )
         try:
             registered = await run_in_threadpool(
@@ -470,6 +543,20 @@ async def receive_dataset_upload(
         except ValueError as exc:
             raise UploadValidationError(f"数据集登记失败：{exc}") from exc
         registered_dataset_id = registered["id"]
+        if collector_robot_id:
+            try:
+                await run_in_threadpool(
+                    DatasetRobotRepository(data_root).bind,
+                    collector_robot_id,
+                    [registered_dataset_id],
+                    f"collector:{collector_robot_id}",
+                )
+            except ValueError as exc:
+                raise UploadValidationError(
+                    f"数据集自动关联机器人失败：{exc}",
+                    code="robot_binding_failed",
+                    status_code=409,
+                ) from exc
 
         record.update(
             dataset_id=registered["id"],
@@ -486,13 +573,18 @@ async def receive_dataset_upload(
             payload={"ok": True, **record},
         )
     except UploadValidationError as exc:
+        if registered_dataset_id:
+            DatasetRepository(data_root).unregister(registered_dataset_id)
+            shutil.rmtree(data_root / "data" / registered_dataset_id, ignore_errors=True)
         record.update(
             status="rejected",
             message=str(exc),
+            error_code=exc.code,
+            error_details=exc.details,
             completed_at=_utc_now(),
         )
         _write_record(data_root, record)
-        return UploadOutcome(status_code=400, payload=_failure_payload(record))
+        return UploadOutcome(status_code=exc.status_code, payload=_failure_payload(record))
     except (BadZipFile, OSError):
         if registered_dataset_id:
             DatasetRepository(data_root).unregister(registered_dataset_id)

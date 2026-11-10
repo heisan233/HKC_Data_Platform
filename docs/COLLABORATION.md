@@ -12,7 +12,7 @@
 > 历史分支只供查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
 
-### 2026-11-10 重庆 X-VLA Docker 训练联调（本机与服务器工作区，未提交）
+### 2026-11-10 重庆 X-VLA Docker 训练联调
 
 本机和重庆服务器 `integration/hs-lxp-v3.1-cq` 均从 `dc5ddee` 修改。平台仍通过
 原 Unix socket 与宿主训练执行器通信；执行器固定调用
@@ -34,7 +34,68 @@ Docker，既有运行时 ID 保留。跨维护边界修改了训练页面、执�
 登记均完成；模型包在 `storage/models/TR000004-xvla.tar.gz`。此前三次在训练前
 暴露的目录映射、容器用户和 CLI 参数错误已修复，其失败任务 `TR000001` 至
 `TR000003` 已清理，编号不复用。未做浏览器逐页人工操作或全量 pytest；离线损失
-与动作 MAE 只用于链路验收，不代表真实机器人任务成功率。没有提交或推送。
+与动作 MAE 只用于链路验收，不代表真实机器人任务成功率。该实现已由提交
+`fc41a02` 推送到 `integration/hs-lxp-v3.1-cq`。
+
+### 2026-11-10 分布式采集第二版与网页 Token 重生成
+
+机器人管理页只新增“重新生成 Token”：仅对已有 Token 显示，操作前提示旧值会立即
+失效，成功后复用专用弹窗显示完整新值。没有增加网页删除或补充生成入口。新增接口
+复用 `RobotTokenRepository.regenerate()`，响应设置 `Cache-Control: no-store`；列表等
+普通接口继续只返回前缀。
+
+旧人工单 ZIP 工具移入 `tools/collector_v1/`。新增 `tools/auto_update/` 一次性工具：
+既可直接指定 LeRobot v3 文件夹/ZIP，也可扫描父目录第一层并按顺序上传，完成后退出。
+文件夹本地临时打包；成功或同 RB 重复后写平台/RB 相关上传标记，下次可在打包和
+SHA-256 前跳过。网络/5xx 最多三次，普通单项失败继续，Token 无效或停用则终止；
+跨机器人重复只报告需人工处理，不自动改绑。未增加本地 SQLite、常驻服务、systemd、
+并发、断点续传或服务器上传任务表，网页上传保持不变。
+
+针对机器人、采集 API 与新工具的隔离 MySQL 测试为 `22 passed`；全量隔离 MySQL
+回归为 `154 passed`，仅有既有 Starlette/AnyIO 上游弃用警告。Ruff 全仓库、Python
+3.10 采集工具编译、Shell/JavaScript 语法和 `git diff --check` 均通过。功能已合入
+`integration/hs-lxp-v3.2.0-cq`；尚未部署重庆服务器。
+
+### 2026-11-09 机器人创建 Token 弹窗与测试环境重置工具（本机开发中，未提交）
+
+按最新产品决定，机器人创建 API 的成功响应会且只会返回本次新建机器人的完整
+采集 Token，并设置 `Cache-Control: no-store`；机器人列表、编辑和状态接口仍只返回
+Token 前缀。机器人管理页创建成功后弹出专用窗口，提供复制按钮，关闭后清空浏览器
+页面中的完整值并刷新列表。部署机终端查看、删除和重新生成 Token 的能力保持不变。
+
+新增 `tools/server/reset_platform_data.sh` 与独立说明。脚本必须显式指定环境文件、
+Compose 项目名、实际 Compose 文件，并传入固定确认文本；执行前会拒绝根目录、家目录、
+源码目录、相同目录和不在允许根路径下的目标。它只用于测试环境永久清空 storage 与
+MySQL 数据并重建空白平台，不删除源码、Git 历史或镜像。
+
+验证：机器人与采集相关测试 `15 passed`；隔离 MySQL 全量测试 `147 passed`，仅有
+1 条既有 Starlette/AnyIO 上游弃用警告；Ruff 全仓库、JavaScript/Bash 语法、Python
+编译、脚本缺少确认参数时的拒绝行为和 `git diff --check` 均通过。随后已用该脚本
+清空本机 `runtime-v3.1-cq`，重建后的 users、robots、robot_api_tokens、datasets、
+qc_tasks、conversion_jobs、training_jobs 均为 0，storage 无运行文件；平台和 MySQL
+容器健康，`/healthz` 与登录页正常。本次未提交、推送或部署重庆服务器。
+
+### 2026-11-09 分布式采集第一版（本机开发中，未提交）
+
+在 `integration/hs-lxp-v3.1-cq` 直接开发，未新建分支。新增 MySQL 迁移
+`005_robot_api_tokens.sql`：每台 RB 最多一个机器上传 Token，新机器人自动生成；网页
+只展示状态、前缀和使用时间，完整值仅由部署机终端查看、删除或重新生成。停用 RB
+立即禁止 Token 上传。新增 `/api/v1/collector/` Bearer Token API 和根目录 `tools/`
+采集端工具；现有网页上传保持原接口，并与机器上传复用同一 LeRobot v3 安全解压、
+发布和 DS 登记服务。
+
+采集端第一版一次上传一个完整 ZIP：本地读取 `info.json`、核对 `robot_type`、计算
+SHA-256 并预检后再由 curl 流式上传。成功后自动生成 DS、关联 Token 所属机器人，
+保持不可用、待质检且不自动启动质检。相同 RB 重复 ZIP 返回原 DS；另一台同类型 RB
+必须确认后改绑原 DS；类型不同拒绝。摘要旁路记录位于
+`storage/system/collector-claims/`，没有新增 MySQL 上传任务表。文件夹、批量目录、
+断点续传、自动扫描、心跳和 HTTPS 不在第一版范围。
+
+自动验证：隔离 MySQL 与临时 storage 的完整测试为 `147 passed`，只有 1 条既有
+Starlette/AnyIO 上游弃用警告；Ruff 0.16.8 全仓库、Python 编译和
+`git diff --check` 通过。默认、开发、本机 MySQL 与局域网 Compose 组合完成解析。
+本机人工命令上传仍待完成。没有提交、推送或部署服务器；原有 `how_use.md` 未提交
+修改已保留并在其上追加 Token 命令。
 
 ### 2026-11-09 数据管理统一回收站（本机与服务器工作区，未提交）
 

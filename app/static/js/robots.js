@@ -23,8 +23,15 @@
     const datasetRows = document.querySelector("#robot-dataset-rows");
     const datasetBind = document.querySelector("#robot-dataset-bind");
     const datasetFeedback = document.querySelector("#robot-dataset-feedback");
+    const tokenDialog = document.querySelector("#robot-token-dialog");
+    const tokenTitle = document.querySelector("#robot-token-title");
+    const tokenRobot = document.querySelector("#robot-token-robot");
+    const tokenValue = document.querySelector("#robot-token-value");
+    const tokenNote = document.querySelector("#robot-token-note");
+    const tokenCopyFeedback = document.querySelector("#robot-token-copy-feedback");
     let bindingState = null;
     let bindingChanged = false;
+    let reloadAfterTokenDialog = false;
 
     const escapeHtml = (value) => String(value ?? "").replace(
         /[&<>"']/g,
@@ -65,6 +72,53 @@
     document.querySelector("#robot-dialog-close").addEventListener("click", () => dialog.close());
     document.querySelector("#robot-cancel").addEventListener("click", () => dialog.close());
 
+    const showToken = (robot, regenerated = false) => {
+        tokenTitle.textContent = regenerated ? "Token 已重新生成" : "机器人创建成功";
+        tokenRobot.textContent = `${robot.id} · ${robot.name}`;
+        tokenValue.textContent = robot.token;
+        tokenNote.textContent = regenerated
+            ? "旧 Token 已立即失效。请把新值更新到采集设备；关闭后列表只显示前缀。"
+            : "此完整值只在本次创建成功弹窗中显示；关闭后机器人列表只显示前缀。如未保存，可在部署机终端重新查看。";
+        tokenCopyFeedback.hidden = true;
+        reloadAfterTokenDialog = true;
+        tokenDialog.showModal();
+        tokenValue.focus();
+    };
+
+    const copyCreatedToken = async () => {
+        const value = tokenValue.textContent;
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(value);
+            } else {
+                const temporary = document.createElement("textarea");
+                temporary.value = value;
+                temporary.setAttribute("readonly", "");
+                temporary.style.position = "fixed";
+                temporary.style.opacity = "0";
+                document.body.appendChild(temporary);
+                temporary.select();
+                if (!document.execCommand("copy")) throw new Error("copy unavailable");
+                temporary.remove();
+            }
+            tokenCopyFeedback.textContent = "Token 已复制到剪贴板。";
+            tokenCopyFeedback.classList.remove("robot-feedback-error");
+        } catch (_error) {
+            tokenCopyFeedback.textContent = "自动复制失败，请手动选中上方 Token 复制。";
+            tokenCopyFeedback.classList.add("robot-feedback-error");
+        }
+        tokenCopyFeedback.hidden = false;
+    };
+
+    const closeTokenDialog = () => tokenDialog.close();
+    document.querySelector("#robot-token-copy").addEventListener("click", copyCreatedToken);
+    document.querySelector("#robot-token-close").addEventListener("click", closeTokenDialog);
+    document.querySelector("#robot-token-confirm").addEventListener("click", closeTokenDialog);
+    tokenDialog.addEventListener("close", () => {
+        tokenValue.textContent = "";
+        if (reloadAfterTokenDialog) window.location.reload();
+    });
+
     document.querySelectorAll("[data-robot-edit]").forEach((button) => {
         button.addEventListener("click", () => {
             const robot = robots.find((item) => item.id === button.dataset.robotEdit);
@@ -90,14 +144,35 @@
                 body: JSON.stringify(payload),
             });
             if (!response.ok) throw new Error(await errorMessage(response));
+            const saved = await response.json();
             dialog.close();
-            window.location.reload();
+            if (!id && saved.token) showToken(saved);
+            else window.location.reload();
         } catch (error) {
             showFeedback(error.message, true);
             dialog.close();
         } finally {
             saveButton.disabled = false;
         }
+    });
+
+    document.querySelectorAll("[data-robot-token-regenerate]").forEach((button) => {
+        button.addEventListener("click", async () => {
+            const robotId = button.dataset.robotTokenRegenerate;
+            if (!window.confirm(`确认重新生成 ${robotId} 的采集 Token？旧 Token 会立即失效。`)) return;
+            button.disabled = true;
+            try {
+                const response = await fetch(
+                    `/robots/api/robots/${encodeURIComponent(robotId)}/token/regenerate`,
+                    {method: "POST", headers: {"Accept": "application/json"}},
+                );
+                if (!response.ok) throw new Error(await errorMessage(response));
+                showToken(await response.json(), true);
+            } catch (error) {
+                showFeedback(error.message, true);
+                button.disabled = false;
+            }
+        });
     });
 
     const changeStatus = async (id, action, prompt) => {

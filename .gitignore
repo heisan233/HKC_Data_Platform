@@ -18,6 +18,13 @@ venv/
 .env
 .env.*
 !.env.example
+/tools/collector_v1/collector.env
+/tools/auto_update/config.env
+/tools/auto_update/datasets/**
+!/tools/auto_update/datasets/.gitkeep
+/tools/auto_update/temporary/**
+!/tools/auto_update/temporary/.gitkeep
+*.hkc-uploaded.json
 
 # Test, lint, and coverage outputs
 .pytest_cache/

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.db.dataset_robots import DatasetRobotRepository
 from app.db.datasets import DatasetRepository
+from app.db.robot_tokens import RobotTokenRepository
 from app.db.robots import RobotRepository
 from app.modules.robots.schemas import DatasetBindingWrite, RobotWrite
 
@@ -31,8 +32,25 @@ def _public_robot(robot: dict) -> dict:
     return {field: robot[field] for field in PUBLIC_ROBOT_FIELDS}
 
 
+def _token_state(token: dict | None) -> dict:
+    if token is None:
+        return {
+            "token_configured": False,
+            "token_prefix": None,
+            "token_created_at": None,
+            "token_last_used_at": None,
+        }
+    return {
+        "token_configured": True,
+        "token_prefix": token["token_prefix"],
+        "token_created_at": token["token_created_at"],
+        "token_last_used_at": token["token_last_used_at"],
+    }
+
+
 def list_robots(root: Path, status: str | None = None) -> list[dict]:
     robots = RobotRepository(root).list(status)
+    tokens = RobotTokenRepository(root).list_statuses()
     dataset_counts: dict[str, int] = {}
     for link in DatasetRobotRepository(root).list():
         robot_id = link["robot_id"]
@@ -40,6 +58,7 @@ def list_robots(root: Path, status: str | None = None) -> list[dict]:
     return [
         {
             **_public_robot(robot),
+            **_token_state(tokens.get(robot["id"])),
             "status_label": STATUS_LABELS[robot["status"]],
             "matching_dataset_count": dataset_counts.get(robot["id"], 0),
         }
@@ -48,7 +67,28 @@ def list_robots(root: Path, status: str | None = None) -> list[dict]:
 
 
 def create_robot(root: Path, payload: RobotWrite) -> dict:
-    return _public_robot(RobotRepository(root).create(**payload.model_dump()))
+    robot = RobotRepository(root).create(**payload.model_dump())
+    token = RobotTokenRepository(root).create(robot["id"])
+    return {
+        **_public_robot(robot),
+        **_token_state(token),
+        # Only the create response exposes the full value so the browser can
+        # show it once. List/update/status APIs continue to return a prefix.
+        "token": token["token"],
+    }
+
+
+def regenerate_token(root: Path, robot_id: str) -> dict:
+    """Replace one robot token and return the new full value exactly once."""
+    robot = RobotRepository(root).get(robot_id)
+    if robot is None:
+        raise ValueError("机器人不存在")
+    token = RobotTokenRepository(root).regenerate(robot_id)
+    return {
+        **_public_robot(robot),
+        **_token_state(token),
+        "token": token["token"],
+    }
 
 
 def update_robot(root: Path, robot_id: str, payload: RobotWrite) -> dict | None:
@@ -63,12 +103,18 @@ def update_robot(root: Path, robot_id: str, payload: RobotWrite) -> dict | None:
         status=current["status"],
         sensors=current["sensors"],
     )
-    return _public_robot(updated) if updated else None
+    if updated is None:
+        return None
+    token = RobotTokenRepository(root).get(robot_id)
+    return {**_public_robot(updated), **_token_state(token)}
 
 
 def set_robot_status(root: Path, robot_id: str, status: str) -> dict | None:
     robot = RobotRepository(root).set_status(robot_id, status)
-    return _public_robot(robot) if robot else None
+    if robot is None:
+        return None
+    token = RobotTokenRepository(root).get(robot_id)
+    return {**_public_robot(robot), **_token_state(token)}
 
 
 def dataset_bindings(root: Path, robot_id: str) -> dict | None:

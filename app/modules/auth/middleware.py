@@ -12,7 +12,7 @@ from app.modules.auth import service
 from app.modules.system.service import write_request_log
 
 PUBLIC_PATHS = frozenset({"/login", "/healthz", "/static"})
-PUBLIC_PREFIXES = ("/static/",)
+PUBLIC_PREFIXES = ("/static/", "/api/v1/collector/")
 PASSWORD_CHANGE_PATHS = frozenset({"/account/password", "/logout"})
 
 

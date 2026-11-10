@@ -328,7 +328,7 @@ def test_training_repository_initializes_fresh_mysql_schema(tmp_path):
     assert {"deleted_at", "deleted_by", "delete_requested_at",
             "delete_requested_by", "runtime_id"} <= columns
     assert "training_jobs_deleted_idx" in indexes
-    assert version == 4
+    assert version == 5
 
 
 def test_training_delete_restore_api_uses_recycle_bin(tmp_path, monkeypatch):

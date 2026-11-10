@@ -10,6 +10,7 @@
 - `users.py`：无默认网页用户的账号、显示名称、首次改密状态、scrypt 密码哈希和
   服务端会话摘要；
 - `robots.py`、`dataset_robots.py`：机器人档案和 DS 关联；
+- `robot_tokens.py`：每台机器人唯一的机器上传 Token、摘要认证和最近使用时间；
 - `training.py`：训练任务、评估和模型包管理元数据；
 - `semantics.py`：旧受控词表接口保留，当前 Schema 页面不使用它。
 
@@ -21,3 +22,8 @@ MySQL 数据文件由 MySQL 容器管理，宿主目录由 `HKC_MYSQL_DATA_PATH`
 连接配置使用 `HKC_MYSQL_HOST`、`HKC_MYSQL_PORT`、`HKC_MYSQL_DATABASE`、
 `HKC_MYSQL_USER`，密码从 `HKC_MYSQL_PASSWORD_FILE` 或 `HKC_MYSQL_PASSWORD` 读取。
 缺少密码或 MySQL 不可用时启动失败，不回退 SQLite。
+
+`robot_api_tokens` 保存完整 Token 是第一版内部部署的明确产品决定：创建成功响应可将
+完整值返回给网页弹窗显示一次，之后仍只可通过部署机终端命令查看，网页/API 列表只
+返回前缀；请求认证按 SHA-256 摘要查询。若未来
+平台开放到不可信网络，应迁移到只存摘要、完整值只显示一次的模式，并启用 HTTPS。

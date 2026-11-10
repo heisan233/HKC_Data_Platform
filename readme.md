@@ -38,6 +38,7 @@ HKC_Data_Platform_v3.1-cq/
 │   │   ├── dashboard/          # 工作台
 │   │   ├── datasets/           # DS 登记、列表、详情、状态和报告
 │   │   ├── ingestion/          # 网页 ZIP 上传和统一上传服务
+│   │   ├── collector/          # 机器人 Token、机器上传预检和 SHA-256 去重
 │   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
 │   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
 │   │   ├── annotation/         # Episode/task/Subtask 标注与派生发布
@@ -54,6 +55,7 @@ HKC_Data_Platform_v3.1-cq/
 ├── tests/                      # 单元、接口和集成测试
 ├── migrations/                 # MySQL 建表与后续升级脚本
 ├── deploy/                     # 本地与服务器部署配置
+├── tools/                      # 可复制到采集电脑的命令上传工具与说明
 ├── storage/                    # 数据集、处理结果和平台运行数据，实际内容不提交 Git
 ├── Dockerfile                  # 应用镜像构建说明
 ├── compose.yaml                # 应用和 MySQL 容器定义
@@ -76,6 +78,12 @@ HKC_Data_Platform_v3.1-cq/
 并通过 MySQL 分配 DS 编号；转换已接入真实可用 DS 数据，打包导出结果保存到 `storage/exports/`，
 训练页面使用真实 MySQL 任务与宿主执行器接口；宿主执行器未部署时会明确显示不可用，
 不会生成虚假的成功任务。
+
+分布式采集通过 `/api/v1/collector/` 接收机器人 Bearer Token。旧版人工 ZIP 工具位于
+`tools/collector_v1/`；第二版 `tools/auto_update/` 可在采集完成后运行一次，扫描父目录
+中的多个 LeRobot v3 文件夹/ZIP，顺序上传并退出。文件夹在设备本地临时打包，成功后
+写入轻量上传标记，重复运行可在打包和 SHA-256 前跳过。平台成功入库后自动分配 DS、
+关联 RB 并标记为不可用、待质检；现有网页上传保持不变。
 
 ### `modules` 与页面、按钮的关系
 

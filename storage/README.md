@@ -23,6 +23,8 @@
 - `training-runs/`：训练任务状态、日志和离线评估结果。
 - `models/`：通过验证的模型包。
 - `system/`：上传、版本、处理任务等文件式运行记录，以及脱敏访问日志。旧 `system/platform.sqlite` 原样保留，不再读写。
+- `system/collector-claims/<SHA-256>.json`：机器上传 ZIP 的去重摘要、当前 DS 和采集
+  机器人旁路记录；不保存 Token 或 ZIP 内容，不替代 MySQL 的 DS/RB 关系。
 
 MySQL 容器的私有数据目录由 `HKC_MYSQL_DATA_PATH` 映射至容器内 `/var/lib/mysql`，与本目录独立；重庆服务器使用 `/srv/hkc-ai/mysql/data`。`storage/data/` 与 MySQL 数据目录不可混放。真实内容均不提交 Git。
 
