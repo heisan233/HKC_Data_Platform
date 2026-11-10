@@ -3,7 +3,8 @@
 更新日期：2026-11-10
 
 二阶段基础分支 `integration/hs-lxp-v3.1` 从一期已合并的 `main` 提交 `674cf92`
-创建；当前重庆集成与后续多用户开发位于 `integration/hs-lxp-v3.1-cq`。
+创建；当前训练与分布式采集集成开发位于 `integration/hs-lxp-v3.2.0-cq`，其直接
+基线是 `integration/hs-lxp-v3.1-cq` 的重庆 X-VLA Docker 提交 `fc41a02`。
 本分支平台管理元数据使用 MySQL 8.4 库，不导入、读写或删除旧
 `storage/system/platform.sqlite`。`registry.sqlite3` 由 HS 独立负责。
 以下一期功能说明仍适用，但涉及 SQLite 的历史描述以本段及 `app/db/README.md`
@@ -18,8 +19,8 @@
 当前二阶段开发分支：
 
 ```text
-分支：integration/hs-lxp-v3.1-cq
-来源：main / 674cf92
+分支：integration/hs-lxp-v3.2.0-cq
+来源：integration/hs-lxp-v3.1-cq / fc41a02
 目录：当前 Git 工作区
 ```
 
@@ -32,7 +33,7 @@ git log -1 --oneline --decorate
 
 `hs_docker`、`lxp_docker_v2` 和 `feat/platform-v2` 是合并前历史。可以用于理解旧
 需求，但不能将旧文件整批复制回当前目录。一期功能已合入 `main`；二阶段改动
-在 v3.1 分支进行。
+在 v3.2.0-cq 分支进行。
 
 如果工作区已有未提交文件，它们属于当前开发者，必须保留。不要执行
 `git reset --hard`、`git clean` 或 `git checkout -- <文件>`。

@@ -12,12 +12,13 @@
 
 ## 1. 当前共同基线
 
-- `integration/hs-lxp-v3.1-cq` 是当前重庆适配和多用户功能的共同开发分支；它基于
-  二阶段 MySQL 分支 `integration/hs-lxp-v3.1`。`integration/hs-lxp-v3.0.2` 及其
-  来源分支保留为历史参考。
+- `integration/hs-lxp-v3.2.0-cq` 是当前共同开发分支；它以重庆 X-VLA Docker 训练
+  提交 `fc41a02` 为基线，并合入机器人 Token 分布式采集第一、二版。
+  `integration/hs-lxp-v3.1-cq`、`integration/hs-lxp-v3.1`、
+  `integration/hs-lxp-v3.0.2` 及其来源分支保留为历史参考。
 - `integration/hs-v2.1` 与 `integration/hs-lxp-v2.5` 是本轮两个来源分支，保留为
   只读回退点；不得将任一来源分支整批覆盖回当前集成分支。
-- `main` 是一期已合并基线；当前二阶段功能先在 `integration/hs-lxp-v3.1-cq`
+- `main` 是一期已合并基线；当前二阶段功能先在 `integration/hs-lxp-v3.2.0-cq`
   开发和验收，不直接写入 `main`。
 - `hs_docker`、`lxp_docker_v2`、`feat/platform-v2` 和更早分支只用于查看历史，
   不得把其中的目录或文件整批覆盖回当前集成分支。

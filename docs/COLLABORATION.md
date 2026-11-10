@@ -7,8 +7,9 @@
 架构规则以根目录 `AGENTS.md` 为准。本文件后面的按人分工与交接内容包含历史
 背景，不得用它覆盖当前集成源码。
 
-> 当前开发分支是 `integration/hs-lxp-v3.1-cq`，基于二阶段 MySQL 分支
-> `integration/hs-lxp-v3.1`。
+> 当前开发分支是 `integration/hs-lxp-v3.2.0-cq`，以
+> `integration/hs-lxp-v3.1-cq` 的重庆 X-VLA Docker 提交 `fc41a02` 为基线，
+> 并合入分布式采集功能。
 > 历史分支只供查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
 > `docs/CODEX_CURRENT_STATE.md`。
 
