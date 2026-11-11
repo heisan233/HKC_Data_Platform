@@ -86,6 +86,26 @@ def test_valid_v3_zip_is_extracted_to_raw(monkeypatch, tmp_path: Path) -> None:
     assert not any((tmp_path / "staging" / "uploads").iterdir())
 
 
+def test_upload_rejects_duplicate_dataset_display_name(monkeypatch, tmp_path: Path) -> None:
+    use_temporary_storage(monkeypatch, tmp_path)
+    first = client.post(
+        "/ingestion/api/uploads",
+        data={"dataset_name": "重复数据集"},
+        files={"archive": ("first.zip", make_lerobot_v3_zip())},
+    )
+    second = client.post(
+        "/ingestion/api/uploads",
+        data={"dataset_name": "  重复数据集  "},
+        files={"archive": ("second.zip", make_lerobot_v3_zip())},
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 409
+    assert second.json()["code"] == "dataset_name_conflict"
+    assert "数据集名称已存在" in second.json()["message"]
+    assert [row["name"] for row in DatasetRepository(tmp_path).list()] == ["重复数据集"]
+
+
 def test_non_v3_archive_is_rejected(monkeypatch, tmp_path: Path) -> None:
     use_temporary_storage(monkeypatch, tmp_path)
 

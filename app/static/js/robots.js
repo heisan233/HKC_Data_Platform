@@ -236,15 +236,20 @@
         datasetRows.innerHTML = records.length ? records.map((dataset) => {
             const selected = dataset.linked_to_selected;
             const inactive = bindingState.robot.status === "inactive";
+            const inTrash = dataset.in_trash;
             let collector = "未关联";
             if (selected) collector = `<span class="robot-dataset-current">${escapeHtml(bindingState.robot.id)} · ${escapeHtml(bindingState.robot.name)}</span>`;
             else if (dataset.collector_robot_id) collector = `${escapeHtml(dataset.collector_robot_id)} · ${escapeHtml(dataset.collector_robot_name)}<small>选择后将改绑</small>`;
-            return `<tr class="${selected ? "robot-dataset-linked" : ""}">
-                <td>${selected || inactive ? "—" : `<input type="checkbox" data-bind-dataset="${escapeHtml(dataset.id)}" aria-label="选择 ${escapeHtml(dataset.id)}">`}</td>
-                <td><strong>${escapeHtml(dataset.id)} · ${escapeHtml(dataset.name)}</strong><small>${dataset.availability === "available" ? "可用" : "不可用"}</small></td>
+            const rowClasses = [selected ? "robot-dataset-linked" : "", inTrash ? "robot-dataset-trashed" : ""].filter(Boolean).join(" ");
+            const status = inTrash
+                ? '<span class="robot-trash-badge">回收站中</span>'
+                : (dataset.availability === "available" ? "可用" : "不可用");
+            return `<tr class="${rowClasses}">
+                <td>${selected || inactive || inTrash ? "—" : `<input type="checkbox" data-bind-dataset="${escapeHtml(dataset.id)}" aria-label="选择 ${escapeHtml(dataset.id)}">`}</td>
+                <td><strong>${escapeHtml(dataset.id)} · ${escapeHtml(dataset.name)}</strong><small>${status}</small></td>
                 <td>${escapeHtml(dataset.robot_type)}${dataset.type_mismatch ? '<span class="robot-type-warning">与机器人类型不一致</span>' : ""}</td>
                 <td>${collector}</td>
-                <td>${selected ? `<button type="button" data-unlink-dataset="${escapeHtml(dataset.id)}">解除关联</button>` : "—"}</td>
+                <td>${selected && !inTrash ? `<button type="button" data-unlink-dataset="${escapeHtml(dataset.id)}">解除关联</button>` : (selected ? "永久清除后自动解除" : "—")}</td>
             </tr>`;
         }).join("") : '<tr><td colspan="5" class="robot-empty">没有符合条件的数据集。</td></tr>';
         updateBindButton();

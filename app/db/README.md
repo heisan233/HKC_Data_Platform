@@ -1,29 +1,42 @@
-# `app/db` 数据库访问层
+# MySQL 数据访问层
 
-二阶段平台元数据使用 MySQL 8.4/InnoDB。`mysql.py` 负责连接、事务和顺序迁移，
-表结构脚本位于 `migrations/mysql/`。应用启动命令先执行
-`python -m app.cli.init_mysql`；仓储调用 `initialize()` 时也会幂等检查结构。
+`app/db/` 只保存 MySQL 访问代码，不保存数据库文件或 VLA 数据集。
 
-- `datasets.py`：DS 编号、真实目录映射、可用性、状态标签、展示信息和来源关系；
-- `conversions.py`：CV 转换任务状态；
-- `quality.py`：质检方案、版本、任务、运行控制和人工审核；
-- `users.py`：无默认网页用户的账号、显示名称、首次改密状态、scrypt 密码哈希和
-  服务端会话摘要；
-- `robots.py`、`dataset_robots.py`：机器人档案和 DS 关联；
-- `robot_tokens.py`：每台机器人唯一的机器上传 Token、摘要认证和最近使用时间；
-- `training.py`：训练任务、评估和模型包管理元数据；
-- `semantics.py`：旧受控词表接口保留，当前 Schema 页面不使用它。
+## 运行方式
 
-大型数据集、报告、模型与导出文件仍在 `HKC_STORAGE_PATH` 对应的普通文件夹。
-MySQL 数据文件由 MySQL 容器管理，宿主目录由 `HKC_MYSQL_DATA_PATH` 指定，
-与 `storage/` 分开。原有 `storage/system/platform.sqlite` 不读取、不导入、不删除。
-`registry.sqlite3` 由 HS 负责，不在本数据库层范围内。
+平台使用 MySQL 8.4/InnoDB。连接信息来自环境变量：
 
-连接配置使用 `HKC_MYSQL_HOST`、`HKC_MYSQL_PORT`、`HKC_MYSQL_DATABASE`、
-`HKC_MYSQL_USER`，密码从 `HKC_MYSQL_PASSWORD_FILE` 或 `HKC_MYSQL_PASSWORD` 读取。
-缺少密码或 MySQL 不可用时启动失败，不回退 SQLite。
+- `HKC_MYSQL_HOST`、`HKC_MYSQL_PORT`；
+- `HKC_MYSQL_DATABASE`；
+- `HKC_MYSQL_USER`、`HKC_MYSQL_PASSWORD`。
 
-`robot_api_tokens` 保存完整 Token 是第一版内部部署的明确产品决定：创建成功响应可将
-完整值返回给网页弹窗显示一次，之后仍只可通过部署机终端命令查看，网页/API 列表只
-返回前缀；请求认证按 SHA-256 摘要查询。若未来
-平台开放到不可信网络，应迁移到只存摘要、完整值只显示一次的模式，并启用 HTTPS。
+`app/db/mysql.py` 提供连接、事务和迁移初始化。缺少 MySQL 时平台不会回退 SQLite。
+旧 `platform.sqlite` 不自动导入，也不再读取。
+
+## 仓储职责
+
+| 文件 | 职责 |
+| --- | --- |
+| `datasets.py` | DS 编号、目录映射、可用性、标签、来源和回收状态 |
+| `dataset_robots.py` | DS 与机器人关联 |
+| `robots.py` | RB 编号和机器人档案 |
+| `robot_tokens.py` | 每台机器人唯一上传 Token |
+| `quality.py` | 质检方案、版本、任务和人工审核 |
+| `conversions.py` | CV 转换任务 |
+| `training.py` | TR 训练、评估和模型包元数据 |
+| `users.py` | 用户、密码摘要和服务端会话 |
+| `semantics.py` | 旧词表兼容表；当前 Schema 页面不依赖它 |
+
+数据集显示名称和活跃质检方案名称必须唯一；比较时忽略首尾空格和英文大小写。
+
+## 表结构变更
+
+所有结构升级放入 `migrations/mysql/`，按编号顺序幂等执行。已发布迁移不得改写，
+应新增更高编号迁移。详见 `migrations/README.md`。
+
+## 边界
+
+- MySQL 只保存管理元数据；视频、Parquet、报告和模型仍位于 `storage/`；
+- 数据集真实路径必须经过统一 DS 解析，不能自行拼接用户输入；
+- Token、密码和连接字符串不得写入源码、测试样本或文档；
+- 测试必须使用隔离 MySQL，禁止连接正式数据库。

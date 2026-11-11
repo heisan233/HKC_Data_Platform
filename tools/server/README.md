@@ -1,28 +1,48 @@
-# 服务器维护工具
+# 测试平台重置工具
 
-本目录只放部署机/服务器管理员使用的维护脚本，不应复制到机器人采集设备。
+`reset_platform_data.sh` 会永久清空指定 storage 和 MySQL 私有目录，然后重新创建
+空白平台。只允许用于可丢弃的测试环境。
 
-## 清空平台测试数据
+## 会删除
 
-`reset_platform_data.sh` 会永久删除 `HKC_STORAGE_PATH` 中的数据集、报告、导出、
-训练结果和日志，同时删除 `HKC_MYSQL_DATA_PATH` 中的整个 MySQL 数据目录，然后用
-指定的 Compose 组合重新创建空白平台。源码、Git 历史和 Docker 镜像不会删除。
+- 所有数据集、报告、导出、训练结果和日志；
+- 全部 MySQL 用户、机器人、DS、质检、转换和训练记录。
 
-本机 MySQL 测试环境：
+不会删除：
+
+- 项目源码和 Git 历史；
+- Docker 镜像；
+- 采集机上的 `.hkc-uploaded.json` 标记。
+
+## 使用
+
+先核对环境文件中的两个目录，再执行：
 
 ```bash
-tools/server/reset_platform_data.sh \
-  --env-file .env \
-  --project-name hkc-v31-mysql \
-  --compose-file compose.yaml \
-  --compose-file compose.dev.yaml \
-  --compose-file deploy/compose.local-mysql.yaml \
-  --confirm DELETE-ALL-HKC-DATA
+tools/server/reset_platform_data.sh --env-file .env --project-name hkc-v31-mysql --compose-file compose.yaml --compose-file compose.dev.yaml --compose-file deploy/compose.local-mysql.yaml --confirm DELETE-ALL-HKC-DATA
 ```
 
-重庆服务器应将 `--env-file` 换成服务器专用 `server.env`，并传入服务器实际使用的
-Compose 文件。不要照抄本机项目名或覆盖文件。脚本会显示最终解析的两个删除路径，
-并拒绝根目录、用户家目录、项目源码目录、相同目录及不在允许根路径下的目标。
+脚本要求：
 
-这是不可恢复操作。执行前应确认不需要 MySQL 逻辑备份和 storage 文件备份。重置后
-数据库只有表结构，没有任何用户；必须先通过终端重新创建第一个平台用户。
+- 环境文件、项目名和至少一个 Compose 文件；
+- 确认文本必须完全一致；
+- storage 与 MySQL 路径不能相同；
+- 拒绝根目录、家目录、项目根目录和不在允许范围内的路径；
+- 停止 Compose、清空两个绑定目录，再按原组合启动。
+
+执行前建议人工运行：
+
+```bash
+docker compose --env-file .env -p hkc-v31-mysql -f compose.yaml -f compose.dev.yaml -f deploy/compose.local-mysql.yaml config
+```
+
+确认输出中的宿主挂载路径与准备删除的测试目录一致。
+
+重置完成后：
+
+1. 重新创建平台用户；
+2. 重新创建机器人并保存新 Token；
+3. 在采集端运行 `tools/auto_update/clear_upload_markers.sh`；
+4. 再上传测试数据。
+
+该脚本不可用于需要保留数据的服务器。正式环境应使用备份、迁移和受控恢复流程。

@@ -148,12 +148,18 @@ def create_plan(body: PlanBody):
     name = service._text(body.name, "方案名称")
     robot_type = service._text(body.robot_type, "机器人类型")
     config = service.validate_config(body.config, robot_type)
-    return service.initialize(root()).create_plan(name, robot_type, config)
+    try:
+        return service.initialize(root()).create_plan(name, robot_type, config)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/api/plans/from-dataset/{dataset_id}")
 def create_plan_from_dataset(dataset_id: str):
-    return service.plan_from_dataset(root(), dataset_id, bool(settings.vlm_base_url))
+    try:
+        return service.plan_from_dataset(root(), dataset_id, bool(settings.vlm_base_url))
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.get("/api/plans/{plan_id}")

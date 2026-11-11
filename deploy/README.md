@@ -1,319 +1,163 @@
-# 部署配置目录
+# 部署说明
 
-这里保存开发与服务器部署的 Compose 覆盖配置和反向代理配置。业务代码不放在
-此目录，真实密码、Token、证书和 `.env` 文件也不得提交 Git。
+本文描述当前 MySQL 版本的 Compose 组合。日常操作见根目录 `how_use.md`。
 
-## 配置分层
+## 1. Compose 文件
 
-- `compose.yaml`：应用与 MySQL 两个容器、完整运行依赖、持久化存储及仅本机端口；适合
-  正式运行，也是所有覆盖配置的基础。
-- `compose.dev.yaml`：把 `app/` 与 `migrations/` 只读挂载进容器，启动时先执行
-  MySQL 迁移，再启用 Uvicorn 热重载；只在本地开发时叠加。
-- `deploy/compose.lan.yaml`：把默认 `127.0.0.1` 端口替换成指定可信内网 IPv4；
-  本地开发和内网服务器都可以叠加。
-- `deploy/compose.local-mysql.yaml`：本机并行验收覆盖，将 MySQL 版网页放到
-  `127.0.0.1:18001`，避免占用旧 SQLite 版的 8000 端口。
-- `compose.server.yaml`：重庆服务器覆盖，发布 `0.0.0.0:18000` 并限制日志大小；
-  不再写死任何训练执行器路径。
-- `deploy/compose.training-agent.yaml`：可选的宿主训练执行器覆盖。只有目标机器已经
-  部署执行器时才叠加，并通过 `.env` 设置 socket 目录。
+| 文件 | 作用 |
+| --- | --- |
+| `compose.yaml` | MySQL + 平台基础服务，默认 `127.0.0.1:8000` |
+| `compose.dev.yaml` | 只读挂载 `app/`、`migrations/`，启用热重载 |
+| `compose.server.yaml` | 服务器发布 `0.0.0.0:18000`，限制 Docker 日志 |
+| `deploy/compose.lan.yaml` | 绑定指定可信局域网 IPv4，端口 8000 |
+| `deploy/compose.local-mysql.yaml` | 本机并行验收，`127.0.0.1:18001` |
+| `deploy/compose.training-agent.yaml` | 可选宿主训练执行器 Unix socket |
 
-主 `Dockerfile` 构建当前源码时会包含训练页面/API，但不会安装训练依赖。
-`deploy/Dockerfile.training-overlay` 是服务器既有旧镜像的代码叠加方案，并非第二个
-训练环境；新构建完整平台镜像时不必使用它。不要为数据管理、质检再启动重复平台容器。
+文件按从基础到覆盖的顺序叠加。同一部署后续的 `up`、`exec`、`logs` 和 `down`
+应保持同一项目名、环境文件和 Compose 组合。
 
-服务器使用 `compose.yaml`、`compose.server.yaml` 和自己的 `.env`。训练执行器是
-独立的宿主机进程，不由 Compose 创建；尚未部署执行器时不要叠加训练覆盖，训练页
-可以查看但不能提交真实训练。执行器就绪后再增加
-`deploy/compose.training-agent.yaml`。训练镜像、基座模型及受控 VLM
-权限见 `deploy/TRAINING_EXECUTOR.md`。不要把服务器的 `.env`、socket 令牌或模型
-权重复制进 Git。
-
-服务器已导入匹配镜像且宿主执行器已启动时，在项目根目录执行。已有执行器的服务器
-必须叠加 `deploy/compose.training-agent.yaml`，否则重新创建平台容器会失去 socket
-挂载和 VLM 控制连接；构建/启动要用同一组覆盖文件：
-
-```bash
-docker compose --env-file .env -p hkc-vla \
-  -f compose.yaml -f compose.server.yaml -f deploy/compose.training-agent.yaml \
-  up -d --no-build --force-recreate --wait
-```
-
-`--force-recreate` 会让新增挂载和环境变量生效；普通 `restart` 不会加载这些配置。
-这条命令不安装或修改独立 X-VLA 训练镜像。
-
-## 首次准备 `.env` 和持久化目录
+## 2. 部署前准备
 
 ```bash
 cp .env.example .env
-id -u
-id -g
+chmod 600 .env
 ```
 
-将输出写入 `.env` 的 `APP_UID`、`APP_GID`。默认数据目录是项目内
-`./storage`，MySQL 数据目录是 `./mysql-data`；服务器可设置绝对路径，例如：
+至少配置：
 
 ```dotenv
-HKC_STORAGE_PATH=/path/to/storage
-HKC_MYSQL_DATA_PATH=/srv/hkc-ai/mysql/data
-HKC_TRAINING_AGENT_SOCKET_DIR=/path/to/training-agent/control
+HKC_STORAGE_PATH=/path/to/hkc-storage
+HKC_MYSQL_DATA_PATH=/path/to/mysql-data
+HKC_IMAGE=hkc-data-platform:VERSION_TAG
+HKC_MYSQL_DATABASE=hkc_platform
+HKC_MYSQL_USER=hkc_app
+HKC_MYSQL_PASSWORD=CHANGE_ME_APP_PASSWORD
+HKC_MYSQL_ROOT_PASSWORD=CHANGE_ME_ROOT_PASSWORD
 APP_UID=1000
 APP_GID=1000
 ```
 
-目标目录必须由这组数字 UID/GID 写入。容器内部路径始终为 `/data`，业务代码和
-数据集记录中不得出现宿主机绝对路径。MySQL 容器会管理自己的数据目录权限。
-首次启动前须在 `.env` 中设置非空的 `HKC_MYSQL_PASSWORD` 和
-`HKC_MYSQL_ROOT_PASSWORD`。已有 `.env` 时不要用示例文件覆盖它。
+要求：
 
-`.env.example` 还给出上传限制、Doctor 超时以及空的 VLM 配置。真实 VLM 地址与
-Token 只写入部署机 `.env`，不要提交 Git。
+- storage 与 MySQL 使用不同目录；
+- MySQL 目录位于 Linux 原生文件系统；
+- storage 可使用大容量数据盘，但必须允许应用 UID/GID 读写；
+- `.env` 不提交 Git；
+- 正式部署前确认镜像架构与服务器一致。
 
-## 本机并行验收 MySQL 与旧 SQLite 版本
+推荐把项目源码、storage、MySQL 私有目录和训练执行器目录相互分开。训练 socket
+必须放在支持 Unix socket 的 Linux 文件系统。
 
-两个版本必须使用不同的 Docker 项目名、端口和持久化目录。不要让它们共享可写的
-`storage/`。例如在 MySQL 分支的私有 `.env` 中分别设置全新的
-`HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH`，然后运行：
-
-```bash
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  up -d --no-build --wait
-```
-
-访问地址为 `http://127.0.0.1:18001/login`。旧 SQLite 版可以继续在
-`http://127.0.0.1:8000/login` 运行。MySQL 不发布宿主 3306 端口，只允许 Compose
-内部网络访问。停止 MySQL 版时必须带相同项目名和文件组合：
+## 3. 本机开发
 
 ```bash
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  down
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --force-recreate --wait
 ```
 
-这个本机验收栈执行用户命令时也必须带相同的项目名和配置组合。完整可复制命令见
-根目录 `how_use.md` 的“本机 MySQL 验收版用户管理”，不能直接使用
-`docker compose exec platform` 简写。
+访问 `http://127.0.0.1:8000/login`。
 
-## 默认模式与可信局域网模式
+开发覆盖只读挂载源码。静态文件刷新即可生效，Python 由 Uvicorn reload；依赖、
+Dockerfile 或生产镜像内容变化仍需重建。
 
-项目默认的 `compose.yaml` 将网页发布到 `127.0.0.1:8000`，只有本机能够访问。
-不要修改这个安全默认值。需要临时允许同一可信局域网中的其他机器访问时，叠加
-`deploy/compose.lan.yaml`。
-
-当前平台已有基础登录与服务端会话，但没有 HTTPS。局域网模式仍不能用于公网，
-不要在路由器上配置端口转发，也不要绑定公网地址。
-
-全新数据库没有默认账号。容器首次健康启动后，由管理员交互创建首个用户：
+## 4. 可信局域网
 
 ```bash
-docker compose exec platform \
-  python -m app.cli.create_user --username <用户名>
+read -r -p "请输入本机可信局域网 IPv4：" HKC_LAN_BIND_ADDRESS
+export HKC_LAN_BIND_ADDRESS
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml -f deploy/compose.lan.yaml up -d --build --force-recreate --wait
 ```
 
-密码输入不会显示在终端，命令也不接受密码参数；不要把密码写在命令、Compose、
-`.env` 或文档中。新用户首次登录必须修改初始密码。继续创建其他账号时重复执行
-同一命令。使用下面的命令确认账号：
+`HKC_LAN_BIND_ADDRESS` 必须是本机实际网卡地址。切换网络后重新确认并创建容器。
+防火墙只放行实际可信网段，不开放到公网。
+
+## 5. 服务器部署
+
+确保服务器已经具有 `HKC_IMAGE` 对应镜像，然后：
 
 ```bash
-docker compose exec platform python -m app.cli.list_users
+docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml up -d --no-build --force-recreate --wait
 ```
 
-重置密码、停用和启用用户：
+访问 `http://SERVER_IP:18000/login`。
 
-```bash
-docker compose exec platform \
-  python -m app.cli.reset_user_password --username <用户名>
-docker compose exec platform \
-  python -m app.cli.disable_user --username <用户名>
-docker compose exec platform \
-  python -m app.cli.enable_user --username <用户名>
-```
-
-重置密码会注销全部会话并要求用户下次登录改密；停用也会立即注销该用户全部
-会话。用户可在 `/account/` 修改显示名称和密码，用户名不可修改。
-
-列表不会显示密码哈希或会话令牌。账号位于 MySQL 数据库中；重新创建容器不会
-删除账号，但换用全新 MySQL 数据目录时必须重新创建。详细说明见项目根目录
-`how_use.md`。
-
-### 1. 查找本机的可信内网地址
-
-```bash
-ip -br -4 address show
-ip -4 route show
-```
-
-选择当前联网网卡上的私有 IPv4 地址，例如 `192.168.43.7`。不要选择
-`127.0.0.1`、`docker0` 或名称以 `br-` 开头的 Docker 网桥地址。
-
-### 2. 检查最终配置
-
-以下示例中的 IP 必须替换为本机当前实际地址：
-
-```bash
-export HKC_LAN_BIND_ADDRESS=192.168.43.7
-
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  config --quiet
-```
-
-输出中的端口应为指定内网 IP 的 `8000`，不应同时保留 `127.0.0.1:8000`。
-
-### 3. 启动局域网开发模式或服务器模式
-
-本地开发需要源码热重载：
-
-```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  up -d --build --wait
-```
-
-内网服务器不挂载源码。服务器可联网构建时运行：
-
-```bash
-docker compose \
-  -f compose.yaml \
-  -f deploy/compose.lan.yaml \
-  up -d --build --wait
-```
-
-如果服务器已经通过 `docker load` 导入与当前源码匹配的 `hkc-data-platform:v3.1`
-和 `mysql:8.4`，则不要重新
-联网构建，使用：
-
-```bash
-docker compose \
-  -f compose.yaml \
-  -f deploy/compose.lan.yaml \
-  up -d --no-build --force-recreate --wait
-```
-
-`compose.yaml` 默认使用 `hkc-data-platform:v3.1`；如需使用其他受控标签，只在
-部署机 `.env` 中设置 `HKC_IMAGE`。
-
-在另一台同网段机器的浏览器中访问：
+如果已部署训练执行器，额外叠加：
 
 ```text
-http://192.168.43.7:8000/
+-f deploy/compose.training-agent.yaml
 ```
 
-如果开发机 IP 发生变化，重新设置 `HKC_LAN_BIND_ADDRESS` 并再次执行启动命令。
+环境文件还需设置：
 
-### 4. 验证监听与页面
+```dotenv
+HKC_TRAINING_AGENT_SOCKET_DIR=/path/to/private/socket-directory
+```
 
-开发机执行：
+该目录不能放在 NTFS/exFAT。执行器详情见 `deploy/TRAINING_EXECUTOR.md`。
+
+## 6. 镜像离线迁移
+
+源机器：
 
 ```bash
-ss -lnt '( sport = :8000 )'
-curl -fsS -o /dev/null -w '%{http_code}\n' \
-  "http://${HKC_LAN_BIND_ADDRESS}:8000/dashboard/"
+docker image inspect IMAGE_TAG --format 'OS={{.Os}} ARCH={{.Architecture}} SIZE={{.Size}}'
+docker save IMAGE_TAG | gzip > hkc-platform.tar.gz
+sha256sum hkc-platform.tar.gz > hkc-platform.tar.gz.sha256
 ```
 
-第一条应显示指定内网 IP，第二条应输出 `200`。最终验收仍需要另一台真实局域网
-机器访问，因为开发机访问自己的内网 IP 不能证明中间网络和防火墙均已放行。
-
-### 5. UFW 防火墙
-
-先查看状态：
+目标服务器：
 
 ```bash
-sudo ufw status verbose
+sha256sum -c hkc-platform.tar.gz.sha256
+gzip -dc hkc-platform.tar.gz | docker load
+docker image inspect IMAGE_TAG
 ```
 
-如果 UFW 已启用且另一台机器无法访问，只允许实际可信网段从实际联网网卡进入。
-以下是网卡 `wlp4s0`、可信网段 `192.168.43.0/24` 的示例，使用前必须按实际情况
-替换：
+MySQL 镜像也必须存在。离线镜像不包含宿主 `.env`、storage 或 MySQL 数据。
+
+## 7. 源码挂载与镜像内源码
+
+- 叠加 `compose.dev.yaml`：容器使用宿主 `app/` 和 `migrations/`；
+- 不叠加：容器使用构建镜像时复制进去的代码；
+- `restart` 不会重新读取挂载或环境变量；
+- 配置变化使用 `up -d --force-recreate`；
+- 不挂载源码的部署更新代码时必须重建或导入新镜像。
+
+服务器临时开发可以叠加开发覆盖，稳定部署应移除源码挂载并使用已验证镜像。
+
+## 8. 验证
 
 ```bash
-sudo ufw allow in on wlp4s0 \
-  from 192.168.43.0/24 \
-  to any port 8000 proto tcp \
-  comment 'HKC platform trusted LAN'
+docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml ps
+curl -fsS http://127.0.0.1:18000/healthz
 ```
 
-不要执行不限制来源网段的 `sudo ufw allow 8000`。
+还应确认：
 
-不再需要该规则时，使用相同条件删除：
+- platform 与 mysql 均 healthy；
+- 容器 `/data` 指向预期 storage；
+- MySQL `/var/lib/mysql` 指向预期专用目录；
+- 未登录页面跳转登录；
+- 创建用户后能够首次登录改密；
+- 上传小型测试 ZIP 后容器重启数据仍在；
+- 训练部署时执行器在线。
 
-```bash
-sudo ufw delete allow in on wlp4s0 \
-  from 192.168.43.0/24 \
-  to any port 8000 proto tcp
-```
+## 9. 备份和更新
 
-### 6. 停止局域网模式
+完整备份必须同时包含：
 
-在仍保留同一个 `HKC_LAN_BIND_ADDRESS` 的终端中执行：
+- MySQL 逻辑备份或停机后的数据目录冷备份；
+- 完整 `HKC_STORAGE_PATH`；
+- 私有环境文件；
+- 当前 Git 提交和镜像标签。
 
-```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  down
-```
+推荐顺序：
 
-需要恢复默认本机模式时执行：
+1. 停止创建新的上传、质检、转换和训练任务；
+2. 导出 MySQL；
+3. 备份 storage；
+4. 保存环境文件和镜像清单；
+5. 更新镜像或源码；
+6. 运行迁移并重建平台容器；
+7. 检查健康、登录、DS 映射和任务状态。
 
-```bash
-docker compose -f compose.yaml -f compose.dev.yaml up -d --wait
-```
-
-恢复后，`ss` 应重新显示 `127.0.0.1:8000`。
-
-## 依赖与镜像验收
-
-Python 直接依赖统一来自 `pyproject.toml`；Dockerfile 另外安装 FFmpeg，基础镜像
-提供 HTTPS CA 证书。修改依赖或 Dockerfile 后必须重新构建，不能只 `restart`：
-
-```bash
-docker compose build --pull platform
-docker compose run --rm platform python -m pip check
-docker compose up -d --force-recreate --wait
-docker compose ps
-```
-
-正常结果应为 `pip check` 输出 `No broken requirements found`，`platform` 显示
-`healthy`。运行镜像不包含 pytest/Ruff、CUDA、ROS 2 或 VLA 训练依赖。
-
-默认通过官方 `https://pypi.org/simple` 构建。仅当部署网络无法稳定访问官方 PyPI
-时，可以在本机 `.env` 中临时设置 `PIP_INDEX_URL` 和 `PIP_DEFAULT_TIMEOUT`；不要把
-个人代理或未经审核的镜像地址提交到仓库。恢复正常网络后应切回官方源。
-
-## 更新、备份与迁移设备
-
-代码、镜像、`storage/` 和 MySQL 数据目录是四类不同内容。更换服务器时需要
-迁移 Git 项目、完整 `HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH`，或使用一致的
-MySQL 数据库备份；只推送或拉取镜像不会包含业务数据。
-
-备份前先停止写入：
-
-```bash
-docker compose stop platform mysql
-```
-
-然后由管理员备份 `HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH` 的整个目录，
-完成后再启动：
-
-```bash
-docker compose up -d --wait
-```
-
-禁止只复制旧 `platform.sqlite` 而遗漏 MySQL 和 Raw/Derived/报告文件，也不要在运行上传、
-标注发布、数据处理或质检任务时制作不一致的文件级备份。
-
-更新代码后按顺序执行：拉取/切换到已验收版本、检查 `.env`、执行
-`docker compose config --quiet`、重新构建、再 `up -d --force-recreate --wait`。
-Compose 重建容器不会删除 bind mount 中的持久化目录；不要使用带数据删除含义的
-命令或手工清空 `storage/`。
+不要单独恢复 MySQL 或 storage 后直接投入使用；二者必须来自一致的业务时间点。

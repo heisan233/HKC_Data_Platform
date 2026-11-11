@@ -1,1591 +1,179 @@
-# HKC 数采平台协作与 Codex 交接文档
+# HKC 数采平台协作约定
 
-更新日期：2026-11-10
+更新日期：2026-11-11
 
-这是一份双方开发者和双方 Codex 共用的交接记录。合并后的当前结构、已完成与
-未完成功能、数据生命周期和接手步骤已经集中到 `docs/CODEX_CURRENT_STATE.md`；
-架构规则以根目录 `AGENTS.md` 为准。本文件后面的按人分工与交接内容包含历史
-背景，不得用它覆盖当前集成源码。
+本文只记录当前协作方式和最近一次交接，不保存旧版本流水账。架构规则以
+`AGENTS.md` 为准，功能状态以 `docs/CODEX_CURRENT_STATE.md` 为准。
 
-> 当前开发分支是 `integration/hs-lxp-v3.2.0-cq`，以
-> `integration/hs-lxp-v3.1-cq` 的重庆 X-VLA Docker 提交 `fc41a02` 为基线，
-> 并合入分布式采集功能。
-> 历史分支只供查阅历史。新 Codex 必须先读取 `AGENTS.md` 和
-> `docs/CODEX_CURRENT_STATE.md`。
+## 1. 当前共同基线
 
-### 2026-11-10 重庆 X-VLA Docker 训练联调
+- 分支：`integration/hs-lxp-v3.2.0-cq`；
+- 应用：FastAPI + MySQL 8.4；
+- 数据格式：LeRobot v3；
+- 训练：宿主执行器调用独立 X-VLA Docker；
+- 旧 SQLite 和历史分支不再作为当前实现依据。
 
-本机和重庆服务器 `integration/hs-lxp-v3.1-cq` 均从 `dc5ddee` 修改。平台仍通过
-原 Unix socket 与宿主训练执行器通信；执行器固定调用
-`hkc-xvla-train:lerobot-0.6.2-cu128`，在隔离容器内完成任务表准备、LeRobot 训练和
-离线评估。容器禁网，以执行器 UID/GID 运行，数据集、基座、tokenizer 只读挂载，
-单任务输出及 `/srv/hkc-ai/models/XVLA/work` 可写；GPU 固定为 0。
-执行器现接受新 DS 的 `storage_area=data`，同时保留旧 `raw/derived` 映射。
-平台训练页面与能力说明展示 Docker 环境，不向网页开放镜像、路径或命令参数。
+开始工作前：
 
-共享接口影响：训练 API 和数据库结构不变；执行器运行时状态从宿主 Python 显示为
-Docker，既有运行时 ID 保留。跨维护边界修改了训练页面、执行器、部署说明及
-`AGENTS.md`；没有修改质检判定、MySQL 表或其他模型环境。服务器私有 agent.env
-和 server.env 各有部署前副本，未同步到本机或 Git。服务器平台叠加镜像为
-`hkc-data-platform:v3.1-cq-xvla-docker`，平台/MySQL 容器健康，VLM 服务保持停止。
-
-验证遵照少测试要求：本机仅运行训练执行器定向测试、Ruff 与差异检查；服务器仅用
-已审核可用的 `DS000004` 跑一次进入正式训练的 100-step 小任务 `TR000004`。
-训练、固定留出 Episode 离线前向评估、约 3.0 GiB 模型包哈希校验及平台模型版本
-登记均完成；模型包在 `storage/models/TR000004-xvla.tar.gz`。此前三次在训练前
-暴露的目录映射、容器用户和 CLI 参数错误已修复，其失败任务 `TR000001` 至
-`TR000003` 已清理，编号不复用。未做浏览器逐页人工操作或全量 pytest；离线损失
-与动作 MAE 只用于链路验收，不代表真实机器人任务成功率。该实现已由提交
-`fc41a02` 推送到 `integration/hs-lxp-v3.1-cq`。
-
-### 2026-11-10 分布式采集第二版与网页 Token 重生成
-
-机器人管理页只新增“重新生成 Token”：仅对已有 Token 显示，操作前提示旧值会立即
-失效，成功后复用专用弹窗显示完整新值。没有增加网页删除或补充生成入口。新增接口
-复用 `RobotTokenRepository.regenerate()`，响应设置 `Cache-Control: no-store`；列表等
-普通接口继续只返回前缀。
-
-旧人工单 ZIP 工具移入 `tools/collector_v1/`。新增 `tools/auto_update/` 一次性工具：
-既可直接指定 LeRobot v3 文件夹/ZIP，也可扫描父目录第一层并按顺序上传，完成后退出。
-文件夹本地临时打包；成功或同 RB 重复后写平台/RB 相关上传标记，下次可在打包和
-SHA-256 前跳过。网络/5xx 最多三次，普通单项失败继续，Token 无效或停用则终止；
-跨机器人重复只报告需人工处理，不自动改绑。未增加本地 SQLite、常驻服务、systemd、
-并发、断点续传或服务器上传任务表，网页上传保持不变。
-
-针对机器人、采集 API 与新工具的隔离 MySQL 测试为 `22 passed`；全量隔离 MySQL
-回归为 `154 passed`，仅有既有 Starlette/AnyIO 上游弃用警告。Ruff 全仓库、Python
-3.10 采集工具编译、Shell/JavaScript 语法和 `git diff --check` 均通过。功能已合入
-`integration/hs-lxp-v3.2.0-cq`；尚未部署重庆服务器。
-
-### 2026-11-09 机器人创建 Token 弹窗与测试环境重置工具（本机开发中，未提交）
-
-按最新产品决定，机器人创建 API 的成功响应会且只会返回本次新建机器人的完整
-采集 Token，并设置 `Cache-Control: no-store`；机器人列表、编辑和状态接口仍只返回
-Token 前缀。机器人管理页创建成功后弹出专用窗口，提供复制按钮，关闭后清空浏览器
-页面中的完整值并刷新列表。部署机终端查看、删除和重新生成 Token 的能力保持不变。
-
-新增 `tools/server/reset_platform_data.sh` 与独立说明。脚本必须显式指定环境文件、
-Compose 项目名、实际 Compose 文件，并传入固定确认文本；执行前会拒绝根目录、家目录、
-源码目录、相同目录和不在允许根路径下的目标。它只用于测试环境永久清空 storage 与
-MySQL 数据并重建空白平台，不删除源码、Git 历史或镜像。
-
-验证：机器人与采集相关测试 `15 passed`；隔离 MySQL 全量测试 `147 passed`，仅有
-1 条既有 Starlette/AnyIO 上游弃用警告；Ruff 全仓库、JavaScript/Bash 语法、Python
-编译、脚本缺少确认参数时的拒绝行为和 `git diff --check` 均通过。随后已用该脚本
-清空本机 `runtime-v3.1-cq`，重建后的 users、robots、robot_api_tokens、datasets、
-qc_tasks、conversion_jobs、training_jobs 均为 0，storage 无运行文件；平台和 MySQL
-容器健康，`/healthz` 与登录页正常。本次未提交、推送或部署重庆服务器。
-
-### 2026-11-09 分布式采集第一版（本机开发中，未提交）
-
-在 `integration/hs-lxp-v3.1-cq` 直接开发，未新建分支。新增 MySQL 迁移
-`005_robot_api_tokens.sql`：每台 RB 最多一个机器上传 Token，新机器人自动生成；网页
-只展示状态、前缀和使用时间，完整值仅由部署机终端查看、删除或重新生成。停用 RB
-立即禁止 Token 上传。新增 `/api/v1/collector/` Bearer Token API 和根目录 `tools/`
-采集端工具；现有网页上传保持原接口，并与机器上传复用同一 LeRobot v3 安全解压、
-发布和 DS 登记服务。
-
-采集端第一版一次上传一个完整 ZIP：本地读取 `info.json`、核对 `robot_type`、计算
-SHA-256 并预检后再由 curl 流式上传。成功后自动生成 DS、关联 Token 所属机器人，
-保持不可用、待质检且不自动启动质检。相同 RB 重复 ZIP 返回原 DS；另一台同类型 RB
-必须确认后改绑原 DS；类型不同拒绝。摘要旁路记录位于
-`storage/system/collector-claims/`，没有新增 MySQL 上传任务表。文件夹、批量目录、
-断点续传、自动扫描、心跳和 HTTPS 不在第一版范围。
-
-自动验证：隔离 MySQL 与临时 storage 的完整测试为 `147 passed`，只有 1 条既有
-Starlette/AnyIO 上游弃用警告；Ruff 0.16.8 全仓库、Python 编译和
-`git diff --check` 通过。默认、开发、本机 MySQL 与局域网 Compose 组合完成解析。
-本机人工命令上传仍待完成。没有提交、推送或部署服务器；原有 `how_use.md` 未提交
-修改已保留并在其上追加 Token 命令。
-
-### 2026-11-09 数据管理统一回收站（本机与服务器工作区，未提交）
-
-本机 `integration/hs-lxp-v3.1-cq` 已移除“待登记 Raw”页面入口；新上传和新发布的
-DS 继续自动登记，旧 Raw 手动登记 API 仅保留兼容。数据管理首页改为已登记、待人工
-审核、当前报告、统一回收站四张卡。已登记和待审核列表可将 DS 直接移入回收站，
-报告列表也可直接移入回收站；统一回收站按数据集和单独移入的报告分栏，支持恢复和
-永久清除，所有操作均无确认弹窗。DS 移入时同步搬移当前质检报告；单独回收的报告
-仍独立管理。永久清除 DS 会删除其目录、专属报告、导出缓存和质检等关联管理记录，
-但保留编号序列；有派生 DS、转换任务或训练任务引用时拒绝清除。执行中的质检、训练
-或转换任务阻止将 DS 移入回收站。
-
-共享接口改动：新增迁移 `004_dataset_trash.sql`，为 `datasets` 增加回收状态字段；
-统一 DS 仓库的默认 list/get 仅返回未回收记录，新增按回收状态查询和恢复/清除操作。
-新增 `/data/trash/`、DS 移入/恢复/清除 API 与报告永久清除 API；旧报告回收站 URL
-重定向到统一回收站。跨维护边界只修改质检路由和工作台的 DS 可见性与入口，不改质检
-任务的判定逻辑。文档同步更新 `AGENTS.md`、当前状态和存储说明。
-
-验证：隔离临时 MySQL 与 storage 的全量 pytest `140 passed`（1 条 Starlette/AnyIO
-弃用警告），之后清理旧模板分支并复跑数据管理测试 `17 passed`；Ruff 全仓库、
-JavaScript 语法检查与 `git diff --check` 通过。未在真实业务数据上执行删除操作，也未
-做有账号的浏览器逐页人工验收。
-
-重庆服务器 `192.168.0.163` 与本机同为 `b98ff05` 干净基线；通过 SSH 直接复制
-本次 26 个改动文件，保留两端未提交状态，没有在服务器提交、推送或改写 Git 历史。
-部署前保存 MySQL 逻辑备份于 `/srv/hkc-ai/mysql/backups/pre-trash-20261109.sql`，
-将旧应用镜像保留为 `hkc-data-platform:v3.1-cq-pre-trash`，在现有镜像上叠加新
-`app/` 和 `migrations/`，并仅重建平台容器，保留原 MySQL 容器和训练执行器 socket
-只读挂载。服务器启动后 schema 版本为 4，仍有 2 条 DS、4 条质检任务和 3 个用户；
-平台和 MySQL 容器均健康，`/healthz` 为 200，未登录访问 `/data/trash/` 返回 303。
-服务器登录后的页面操作和真实数据集回收/恢复/清除尚待人工验收。
-
-### 2026-11-09 二期部署续查
-
-续查确认本机与重庆服务器的跟踪文件差异及四个新增文件内容一致；仅补同步了上次
-遗漏的交接文字。服务器重启后，应用继续使用包含二期代码和 003 迁移的正式镜像，
-没有开发源码挂载。平台、MySQL 容器均健康，`/healthz` 为 200，未登录访问数据管理
-页为 303；宿主训练执行器 socket 保持只读挂载，执行器在线。MySQL 仍挂载
-`/srv/hkc-ai/mysql/data`，当前 schema 版本 3，保留 2 条 DS、2 个用户、4 条质检任务。
-新 `storage/data/` 及旧 `raw/`、`derived/` 均存在，分别位于 1.4TB 数据盘；MySQL
-数据位于独立 500GB ext4 分区。旧 MySQL 目录和迁移前备份仍保留。此次没有更改
-业务代码、账号或质检结论，也没有提交、推送或合并。登录后的逐页人工验收与真实
-大数据集上传仍待进行。
-
-### 2026-11-06 二期 DS 目录与可用性改造、重庆 MySQL 数据搬迁
-
-按二期方案新增 `storage/data/<DS 编号>/`：上传、标注、处理、数据定义发布的完整新
-LeRobot v3 数据集进入这里。现有 `raw/`、`derived/` 保留原样，不自动迁移或删除；
-MySQL 原有 DS 编号和目录映射继续有效。`migrations/mysql/003_dataset_availability.sql`
-为 `datasets` 增加 `available/unavailable` 大状态，建立仅供数据管理展示的
-`dataset_status_labels` 表，并根据旧 DS 的最新人工质检结论初始化可用性。新 DS
-默认“不可用、待质检”；最新质检任务人工 PASS 才可用，打回后不可用并显示“待处理”。
-重新扫描或主动重新质检会撤销可用性。状态标签不参与功能筛选，也没有新增“视频需裁剪”。
-
-入口规则：质检只选不可用；处理和数据定义可选两类；标注、训练、转换和 DS 导出只选
-可用，随后继续校验 LeRobot 结构、文件安全与最新质检快照。CV 转换结果仍独立于 DS。
-数据管理页显示可用性、标签和真实目录，支持主动重新质检。仪表盘和各选择页面去掉
-以 Raw/Derived 表示业务类型的提示。跨边界修改涉及 `app/db/`、统一 DS 解析与发布、
-质检、上传、标注、处理、转换、导出、训练、机器人展示、共享文档和模板；统一 DS API
-新增 `availability`、`status_labels` 字段，`storage_area` 仅表达物理位置，
-`/data/api/datasets/{id}/recheck` 与 `/status-labels` 是新接口。原有 URL 保留。
-
-重庆服务器 `192.168.0.163`：旧 MySQL 目录 `/home/zzjj/vscode_project/mySQL_data`
-在停服务后冷复制至 `/srv/hkc-ai/mysql/data`，服务器专用 `server.env` 的
-`HKC_MYSQL_DATA_PATH` 已切换，容器挂载目标仍为 `/var/lib/mysql`。旧目录保留作为
-回退副本；逻辑备份位于 `/srv/hkc-ai/mysql/backups/pre-relocation-20261106.sql`
-和 `pre-phase2-schema-20261106.sql`，目录权限仅部署用户可读。`storage/data/` 已在
-服务器 1.4TB 数据盘上的项目 storage 中创建，与 500GB ext4 分区上的 MySQL 数据
-分离。搬迁前后均为 17 张表、2 条 DS、2 个用户、4 条质检任务；003 上线后为 18 张表、
-迁移版本 1/2/3，现有两条 DS 的物理映射未变。应用和 MySQL 容器健康，`/healthz`
-返回 200；未登录数据管理页返回 303，登录保护保持。服务器代码与本机均是未提交改动，
-没有提交、推送或合并。服务器原镜像保留为
-`hkc-data-platform:v3.1-cq-pre-phase2`；由于联网重建卡在 apt 下载，已在原镜像
-依赖层上叠加当前 `app/` 和 `migrations/`，构建
-`hkc-data-platform:v3.1-cq-local`。随后以正式服务器 Compose 组合重建平台容器，
-当前运行镜像包含 003 迁移和新代码，不依赖开发模式源码挂载。
-
-验证：隔离临时 MySQL 的最终全量 pytest 为 `134 passed`（1 条既有 Starlette/AnyIO
-弃用警告）；Ruff 全仓库、Python 编译、`git diff --check`、默认/开发/局域网 Compose
-解析通过。服务器完成了容器健康、MySQL 表与行数、目录映射、未登录访问保护核对；
-尚未进行有账号的浏览器逐页人工验收或真实大数据集上传。既有两条服务器 DS 当前均
-“不可用”：DS000001 的最新质检任务未获 PASS 判定，DS000002 尚无质检任务；若需
-进入标注、训练、转换或导出，先在质检页完成当前 DS 的人工审核。二期新发布产物也
-须单独质检，来源 DS 的通过结论不会继承。
-
-部署核对时发现仅使用基础/开发/服务器三份 Compose 重建应用容器会丢失宿主训练
-执行器 socket。已在服务器专用 `server.env` 设置
-`HKC_TRAINING_AGENT_SOCKET_DIR`，并使用第四份
-`deploy/compose.training-agent.yaml` 重新创建应用容器；验证 socket 只读挂载、执行器
-在线。最终正式运行组合为 `compose.yaml`、`compose.server.yaml`、
-`deploy/compose.training-agent.yaml`，不叠加 `compose.dev.yaml`；MySQL、平台容器均健康，
-`/healthz` 返回 200，未登录数据管理页返回 303。VLM systemd 服务当时为 `inactive`，
-本次未改变其启停状态。部署说明已修正为“已有执行器时构建和启动均叠加此文件”。
-
-### 2026-11-06 重庆 VLM 启停开关接通（服务器工作区，未提交）
-
-按平台用户统一授权：`training.service.is_operator` 现在对已登录用户名返回真，
-实际请求仍由全站登录中间件验证启用状态及首次改密要求，并要求二次确认头。
-训练页面同步改为“平台用户”，清除已失效的 `HKC_TRAINING_OPERATORS` 配置项；
-新增测试覆盖当前与未来用户名。共享接口 `GET /training/api/catalog` 的
-`can_control_vlm` 权限语义变化，VLM 启停 API 路径和请求格式不变。
-
-服务器上的模型 Compose 仍独立于平台项目，位于 `/srv/hkc-ai/models/`；
-新增外部覆盖文件，把平台容器连接到宿主机私有训练执行器 socket。
-宿主机 systemd 服务 `hkc-qwen3vl.service` 管理现有 VLM Compose，执行器通过
-仅限该服务 start/stop 的 sudoers 授权操作。执行器和 VLM 服务均开机启动，避免平台启动后质检模型缺席；页面停用仅临时
-释放显存，重启服务器会恢复 VLM。X-VLA 训练依赖仍未配置，页面应如实显示其
-不可用。
-
-服务器人工验证：平台、MySQL 容器健康；执行器在线，VLM 运行状态可读，
-`hkc`、`hei_san` 及未来用户名通过权限判断；两轮停用/恢复均使容器状态与
-质检队列暂停状态同步，恢复后 VLM API 可用。第二轮确认正常停用的 systemd
-状态为 `inactive`。默认、开发、局域网及可选执行器 Compose 组合解析通过；
-Python 编译、浏览器脚本语法和 `git diff --check` 通过。临时 MySQL 与测试
-容器隔离运行的 VLM 相关测试为 `3 passed, 15 deselected`，Ruff 对改动的 Python
-文件通过；NTFS 挂载将普通 `.py` 映射为可执行，本次检查忽略 EXE002 误报。
-临时测试容器和网络已清理。没有修改本地电脑项目、提交或推送。
-
-### 2026-11-05 多用户与个人中心开发
-
-当前直接在 `integration/hs-lxp-v3.1-cq` 开发，没有再创建分支。新增 MySQL 结构
-迁移 `002_user_profiles.sql`：用户具备非空显示名称、首次改密状态和最近改密时间；
-旧库已有用户升级时保留原密码，并默认不强制首次改密。新建或终端重置密码的用户
-必须在首次登录后修改初始密码，完成前页面重定向到改密页，API 返回 403。
-
-新增 `/account/` 个人中心，用户可修改显示名称和密码；用户名不可修改。修改密码会
-注销该用户全部服务端会话，要求使用新密码重新登录。终端新增
-`reset_user_password`、`disable_user`、`enable_user`，保留 `create_user` 和
-`list_users`。当前不提供角色、网页注册、网页用户管理或账号删除。
-
-测试覆盖旧用户迁移、新用户首次改密、双浏览器会话全部失效、两名用户并发会话、
-账号停用/恢复和终端命令。Ruff 0.16.8 全仓库通过；隔离 MySQL 全量 pytest 为
-`131 passed`（1 条既有 Starlette/AnyIO 弃用警告）。三种 Compose 组合解析通过，
-开发容器重建后迁移版本为 `1、2`，现有 `hei_san` 保持启用、显示名称为原用户名且
-不强制改密；应用和 MySQL 容器健康，登录页与未登录访问保护正常。测试工具通过
-中科大 PyPI 镜像临时安装，没有修改项目默认镜像源。多用户功能已在本地提交
-`ac640aa`，当前文档整理尚未提交；整个分支尚未推送或部署服务器。
-
-### 2026-11-04 重庆 MySQL 集成分支本机验收
-
-完成内容：从 `origin/integration/hs-lxp-v3.1` 创建独立
-`integration/hs-lxp-v3.1-cq` worktree。保留同事完成的 MySQL 8.4 管理元数据实现，
-只移植重庆部署边界：服务器覆盖默认发布 `0.0.0.0:18000`，移除旧深圳服务器写死的
-训练 socket；新增可选 `deploy/compose.training-agent.yaml`，未部署宿主执行器时不
-叠加；新增 `deploy/compose.local-mysql.yaml`，用于在 `127.0.0.1:18001` 与旧
-SQLite 版并行验收。没有把 v3.0.2 的 `HKC_SYSTEM_PATH` 或 SQLite 独立挂载带入
-MySQL 版本。
-
-本机隔离：MySQL 版使用独立 Docker 项目 `hkc-v31-mysql`、独立 `storage` 和
-`mysql-data`，MySQL 3306 未发布到宿主机；旧 SQLite 容器继续在
-`127.0.0.1:8000` 运行。私有 `.env` 被 Git 忽略且权限为 600，不包含在本次代码
-差异中。首次 MySQL 数据库只创建指定的 `hei_san` 网页用户；未迁移旧 SQLite
-账号、DS 或任务。
-
-验证：官方 Docker Hub 超时后，使用 DaoCloud 镜像取得并校验 `mysql:8.4`
-`linux/amd64`；应用镜像 `hkc-data-platform:v3.1-cq-local` 构建成功，`pip check`
-通过。默认、开发、局域网、服务器、可选训练执行器和本机并行六种 Compose 组合
-通过 `config --quiet`。全仓库 Ruff 0.16.8 通过；隔离 MySQL 全量 pytest 为
-`124 passed`（1 条既有 Starlette/AnyIO 弃用警告）。两个容器健康，`/healthz` 与
-登录页返回 200；受控停止/启动后用户仍保留，真实登录、工作台和退出通过。
-
-未完成：尚未提交、推送或部署重庆服务器；未迁移真实数据；VLM、训练执行器和
-训练环境仍按后续独立阶段处理。服务器部署前必须重新创建生产 `.env`，使用不同的
-强密码，并在备份后停止旧 SQLite 栈再切换。
-
-### 2026-11-04 二阶段平台元数据切换 MySQL
-
-完成内容：`app/db/` 的 DS、用户会话、机器人及关联、质检、转换、训练和旧受控词表
-接口改为 MySQL 8.4/InnoDB。新增 `app/db/mysql.py` 连接和事务层、
-`migrations/mysql/001_initial.sql` 的 16 张平台表与版本记录、启动建表命令。
-`storage/system/platform.sqlite` 原样保留，不读取、不导入、不删除；
-`registry.sqlite3` 由 HS 负责，不在此次改动范围内。旧转换 JSON 任务也不自动导入。
-新库初始为空，原平台账号、DS 登记和任务记录不会出现在新库；需要重新创建账号、
-按业务需要登记 Raw 目录。大型文件仍保存在 `HKC_STORAGE_PATH`。
-
-部署变更：`compose.yaml` 新增独立 MySQL 容器，数据目录由
-`HKC_MYSQL_DATA_PATH` 指定，与 `storage/` 并列；应用容器等待数据库健康后启动。
-`HKC_MYSQL_PASSWORD` 与 `HKC_MYSQL_ROOT_PASSWORD` 必须在部署机 `.env` 中填写。
-镜像增加 MySQL Connector/Python 和建表脚本。共用接口、Python 依赖、Compose、
-镜像、测试隔离及部署文档均有修改，HS 需要评审这些共享边界。HTTP 路由和 DS/RB/CV/TR
-编号格式未改变，数据库连接后端及空库行为发生变化。
-
-验证：隔离 MySQL 8.4 测试容器中全量 `pytest` 为 `124 passed`（1 条既有
-Starlette/AnyIO 弃用警告），全仓库 Ruff 通过，`git diff --check` 通过。
-默认、开发、局域网和服务器四种 Compose 组合均通过 `config --quiet`。
-本机独立应用容器完成启动建表、`/healthz` 和表版本检查；测试验证旧 SQLite 文件
-字节不变、旧账号不导入，以及并发 DS 编号唯一。真实存储和服务器均未用于测试。
-
-已知边界：尚未使用生产 `.env`、真实数据集或服务器执行人工验收；需部署方配置
-MySQL 持久化目录及密码。此轮未提交、推送或合并代码。
-
-以下“一、项目当前状态”及更早记录是一期历史快照；当前事实以
-`AGENTS.md`、`docs/CODEX_CURRENT_STATE.md` 和上方最新交接记录为准。
-
-## 一、项目当前状态
-
-- 当前开发工作位于 `integration/hs-lxp-v3.0.2`，继承
-  `integration/hs-lxp-v3.0.1` 的模型训练集成基线；
-  验收完成前不直接覆盖 `main`。
-- Web 技术栈为 FastAPI、Uvicorn 和 Jinja2。
-- 原始数据上传、数据管理、质检、Episode/task/Subtask 标注和 Episode 数据处理
-  已使用真实 LeRobot v3 文件及统一 DS 编号；其他预留模块仍可能只有框架页面。
-- 数据集与运行结果采用文件夹存储，宿主机目录为 `storage/`，容器内为 `/data`。
-- SQLite 保存 DS 编号映射、展示信息、质检任务和人工审核记录；大型数据文件仍
-  保存在普通目录，`migrations/` 保留给未来表结构升级。
-- 当前为单应用容器，没有 PostgreSQL、Redis 或独立 Worker 容器；训练执行器
-  运行在宿主机 LeRobot 环境中。
-- 当前已有 SQLite 用户、密码哈希和服务端会话保护，但尚无 HTTPS；任何网络开放
-  仍只能面向可信内网。
-
-### 2026-10-28 真实工作台总览
-
-完成内容：移除工作台写死的数据集数量和演示任务，新增真实只读聚合。页面展示
-Raw/Derived DS、Episode/Frame、在用机器人、质检状态、训练任务、模型包、待办、
-最近数据集与最近质检/训练任务；同时显示 `storage` 所在文件系统的已用和可用容量。
-工作台不会递归读取视频内容，不会主动连接训练执行器，也不会修改任何业务状态。
-
-主要修改文件：`app/modules/dashboard/service.py`、`router.py`、工作台模板与独立
-CSS、`base.html` 的工作台高亮条件、`tests/integration/test_dashboard.py`、测试隔离
-及相关状态说明。
-
-验证：`git diff --check` 和 Python 编译通过；工作台专项检查通过，随后全仓库 Ruff
-通过、pytest 共 `122 passed`（另有 1 条既有 Starlette/AnyIO 上游弃用警告）。测试
-使用隔离临时存储，没有读取或修改正式数据。
-
-接口影响：没有新增公开 API、数据库表或依赖；工作台只调用现有登记层并新增页面
-聚合逻辑。共享模板只把 `/dashboard/` 纳入工作台导航高亮。正式镜像未重建，开发
-模式挂载源码后刷新即可查看。
-
-### 2026-10-28 系统管理真实访问日志
-
-完成内容：移除系统管理页写死的 4 条演示日志，新增真实持久化访问日志。认证
-中间件在请求完成后记录登录用户、业务模块、HTTP 方法、纯路径、状态码和耗时；
-日志保存在 `storage/system/logs/platform.jsonl`。页面展示最近/今日/警告/错误统计，
-并支持级别、模块、关键词和显示数量筛选。日志不保存查询参数、正文、Cookie、
-Header、密码或 Token；写入失败不会影响正常业务请求。
-
-主要修改文件：`app/modules/system/service.py`、`router.py`、
-`app/modules/auth/middleware.py`、`app/templates/system.html`、
-`app/static/css/system.css`、`tests/integration/test_system.py`、测试隔离及相关说明。
-
-验证：系统、页面和认证相关专项 Ruff 通过，`20 passed`；全仓库 Ruff 通过，pytest
-共 `120 passed`（另有 1 条 Starlette/AnyIO 上游弃用警告）；`git diff --check`
-通过。开发容器已热重载，真实日志将在下一次已登录业务访问后自动创建。
-
-接口影响：没有新增写操作 API、数据库表或依赖；认证中间件新增脱敏访问日志副作用。
-日志只用于系统管理只读展示，不替代 Docker/Uvicorn 的进程级诊断日志。
-
-### 2026-10-28 数据集 Episode 关节曲线
-
-完成内容：在数据管理的数据集详情页增加只读 Episode 关节曲线。页面可选择
-Episode，并在 `observation.state`（实际状态）和 `action`（控制/目标值）之间切换；
-X 轴为 Episode 内秒数，Y 轴为原始关节值，各维曲线可独立显示或隐藏。名称读取
-`info.json` 的 `names`，缺失时使用“维度 N”。后端从真实 frame Parquet 读取数据，
-时间戳缺失时按 `frame_index / fps` 计算；长 Episode 仅对网页显示结果均匀抽样，
-不会修改来源文件。
-
-主要修改文件：`app/modules/datasets/router.py`、`service.py`、
-`app/templates/data_raw_detail.html`、`app/static/js/data_manage.js`、
-`app/static/css/data.css`、`tests/integration/test_data_management.py` 及交接说明。
-
-验证：数据管理专项 Ruff 和 `11 passed`；全仓库 Ruff 通过，pytest 共
-`118 passed`（另有 1 条 Starlette/AnyIO 上游弃用警告）；JavaScript 语法和
-`git diff --check` 通过。尚待使用者在真实 SmolVLA 数据集页面进行人工视觉验收。
-
-接口影响：新增只读
-`GET /data/api/datasets/{DS}/joint-series?episode_index=...&field_name=...`；没有修改
-SQLite、依赖、Compose 或数据集内容。此次跨维护边界修改 datasets 模块，是为了
-落实领导要求的数据管理详情能力，后续合并时需保留该接口和详情页图表区域。
-
-### 2026-10-28 数据定义 Schema 编辑器重制
-
-完成内容：从提交 `6ee0f5b` 的干净状态撤回未提交的受控词表扫描/组合方案，将
-`/semantics/` 重制为真实 LeRobot v3 Schema 编辑器。页面扫描已登记 DS 的
-`info.json` 与全部 Episode/frame Parquet；Episode 自定义定义写入
-`hkc_extensions.episode_features` 并写入真实元数据列；逐帧数值标量/向量同步写入
-`info.json.features` 和全部 frame 分片，支持全空占位以及 CSV/Parquet 通过
-`episode_index + frame_index` 对齐导入。全空/部分为空会阻止“训练可用”状态，
-平台不自动填 0。
-
-发布边界：Raw 和已有 Derived 不原地修改，结果经 `storage/staging/schema/` 验证后
-发布并登记新的 Derived DS，继承来源和机器人关系。核心索引/定位字段禁止删除；
-其他官方 Feature 删除必须二次确认。旧 `app/db/semantics.py` 和已有 SQLite 表只作
-兼容保留，当前页面不再读写，也未执行破坏性迁移。第一版不新增图片、视频和深度
-媒体文件。
-
-验证：数据定义模块 Ruff 通过，7 项专项集成测试通过；当时全仓库 Ruff 通过，pytest
-共 `117 passed`（另有 1 条 Starlette/AnyIO 上游弃用警告）；JavaScript 语法和
-`git diff --check` 通过。浏览器人工验收尚未完成，自动打开页面时被正常登录保护
-重定向到 `/login`，没有使用或提交任何账号密码。
-
-## 二、分支与人员分工
-
-| 分支 | 当前用途 | 规则 |
-| --- | --- | --- |
-| `integration/hs-lxp-v3.0.2` | 当前机器人—数据集关联开发分支 | 验收前不覆盖 `main` |
-| `integration/hs-lxp-v3.0.1` | 当前训练集成分支 | 在 v3.0 基础上接入服务器训练代码；验收前不覆盖 `main` |
-| `integration/hs-lxp-v3.0` | 上一集成来源 | 集成 v2.1 与 v2.5，保留作训练接入前对照 |
-| `integration/hs-v2.1` | Heisan 来源分支 | 登录、机器人、数据定义、视频裁剪等已冻结能力 |
-| `integration/hs-lxp-v2.5` | LXP 来源分支 | 格式转换、导出和数据管理扩展 |
-| `integration/hs-lxp-v2` | 双方已经合并且可运行的稳定基线 | 保留为上一阶段回退点；未授权不得覆盖 `main` |
-| `main` | 未来验收后的稳定目标 | 当前仍落后于集成分支，不作为新功能起点 |
-| `hs_docker` | Heisan 合并前历史 | 只读参考，不把旧目录覆盖回集成分支 |
-| `lxp_docker_v2` | LXP 合并前历史 | 只读参考，不继续作为独立事实来源 |
-| `feat/platform-v2` | 最初目录重构历史 | 只读参考 |
-
-本阶段双方开始新任务前先获取最新 `integration/hs-lxp-v3.0.2`。如需并行开发，从这一
-分支创建范围明确的功能分支；完成后先提交并验证，再由双方审查集成。不要让两个
-Codex 同时修改同一个共享文件，也不要让它们直接修改 `main`。
-
-## 三、合并前历史分工：Heisan
-
-> 本节记录功能来源和验收背景，其中大部分已经进入当前集成分支；它不再表示
-> Heisan 仍需重新实现这些功能。当前事实见 `docs/CODEX_CURRENT_STATE.md`。
-
-### 目标
-
-让同一可信局域网中的其他机器通过开发机 IP 访问平台，同时不破坏默认仅本机
-访问的配置。
-
-### 推荐实现边界
-
-- 保留通用 `compose.yaml` 中 `127.0.0.1:8000:8000` 的本机默认绑定。
-- 在 `deploy/` 中新增明确命名的局域网 Compose 覆盖配置，通过它绑定宿主机
-  `0.0.0.0:8000` 或指定内网地址。
-- Uvicorn 在容器内继续监听 `0.0.0.0:8000`；真正控制外部可访问范围的是 Docker
-  发布端口与宿主机防火墙。
-- 文档说明启动方式、本机内网 IP、另一台机器的验证方法和停止方式。
-- 局域网配置本身不改数据管理业务；上传模块只负责接收入库，不接管 LXP 负责的
-  数据集列表、详情和导出。
-
-### 验收条件
-
-1. 默认启动时仍只能由本机通过 `127.0.0.1:8000` 访问。
-2. 使用局域网覆盖配置后，另一台同网段机器可以访问指定页面。
-3. `docker compose config` 能正确解析组合后的配置。
-4. 文档说明当前无鉴权、禁止映射到公网，并建议用防火墙限制可信网段。
-5. 停止局域网模式后，不残留额外监听服务。
-
-### 原始数据集上传边界
-
-- 第一版只接收一个完整的 LeRobot v3.0 `.zip` 压缩包。
-- 页面与 API 归 `hs_docker` 维护，路由前缀为 `/ingestion/`。
-- 上传时分块写入 `storage/staging/`，不得把整个大型文件一次性载入内存。
-- 入库前检查 ZIP 路径穿越、符号链接、加密文件、异常压缩率和最低 v3.0 结构。
-- 通过检查后安全解压到 `storage/raw/<内部目录名>/`；失败内容不得进入原始区。
-- 文件式上传记录放在 `storage/system/upload-records/`；入库成功后由 SQLite 统一
-  登记层分配 DS 编号，真实目录名不改。
-- 该结构检查不等于数据质检；Parquet 内容、时间戳和图像质量仍由质检模块处理。
-
-### Episode/task/Subtask 标注边界
-
-- 页面与 API 归 `hs_docker` 维护，路由前缀为 `/annotation/`。
-- 当前只支持 LeRobot v3.0，从 `tasks.parquet`、Episode 元数据和 frame 数据读取
-  真实 task，并根据 Episode 视频索引播放真实相机视频。
-- `tasks.parquet` 按 LeRobot 官方 Pandas 索引语义读取和写回：自然语言 task 是
-  名为 `task` 的 DataFrame 索引，`task_index` 是普通列；Episode 帧数使用官方
-  `length` 字段。读取端保留对平台早期普通 `task` 列和 `num_frames` 的兼容。
-- 浏览器中的修改在正式发布前只是内存草稿，不会写入数据集。
-- 每次正式发布都把源数据集完整复制到 `storage/staging/annotation/`，在临时
-  副本中同步任务表、Episode task 和 frame `task_index`；校验成功后原子移动到
-  `storage/derived/<dataset_id>/`。
-- Episode 执行结果为 `success`、`partial` 或 `failure`；部分成功和失败必须记录
-  原因。Subtask 使用 Episode 相对秒数标注开始/结束，发布时同时换算为帧区间。
-- 扩展标注写入派生副本的 `meta/annotations/episodes.parquet`、
-  `subtasks.parquet` 与 `schema.json`，不加入 LeRobot v3 核心 feature，也不修改
-  原始数据集的核心格式。
-- `storage/raw/` 和既有 `storage/derived/` 均不可原地修改；当前没有覆盖发布和
-  永久删除。
-- 派生版本旁路记录写入 `storage/system/dataset-versions/`，并由当前 SQLite 统一
-  登记层分配 DS 编号和保存来源关系。
-
-### Episode 数据处理边界
-
-- 页面与 API 归 `hs_docker` 维护，路由前缀为 `/preprocess/`。
-- 支持 Episode 筛除、按比例或编号拆分、结构完全兼容的数据集合并、完整顺序
-  重排、精确重复检测与去重，以及指定相机视频画面裁剪。
-- 所有输出先写入 `storage/staging/processing/`，校验后进入
-  `storage/derived/`；源数据集不可原地修改。
-- 处理后重新映射 Episode、frame、全局 index、task index 和旁路标注；视频按
-  Episode 边界重新编码为独立 H.264 MP4。画面裁剪对所选相机全部 Episode 使用
-  同一像素裁剪框，并同步更新 LeRobot v3 feature 的 shape 和视频宽高元数据。
-- 任务记录写入 `storage/system/processing-jobs/`，派生版本登记到
-  `storage/system/dataset-versions/`，同时由 SQLite 统一登记层分配 DS 编号。
-- 精确重复判定只比较标准化 frame Parquet 指纹，不代表视频视觉相似度检测。
-
-## 四、合并前历史分工：LXP
-
-> 数据管理实现已经进入当前集成分支；独立 `export` 页面目前仍是演示常量，真实
-> 导出是这一范围内尚未完成的主要功能。
-
-### 开始前的迁移原则
-
-旧 `lxp_docker` 可作为界面和行为参考，但不能整包复制。旧版含有与 Platform v2
-决策冲突的内容：
-
-- 根目录 `data_catalog.py`、`data_management.py`、`dataset_store.py`；
-- SQLite 数据库存储；
-- 永久清理数据和登记记录；
-- `routers/`、根目录 `templates/`、根目录 `static/` 的旧目录结构；
-- 对旧质检 Worker 的直接耦合。
-
-需要逐项判断旧功能是否仍符合现有需求，再迁移到新模块。任何重置或强制推送都
-必须先得到开发者明确确认。
-
-### 目标文件范围
-
-```text
-app/modules/datasets/       数据集扫描、列表、详情和管理服务
-app/modules/export/         导出任务和下载接口
-app/templates/data*.html    数据管理页面
-app/static/css/data*.css    数据管理样式
-app/static/js/data*.js      数据管理交互
-tests/                      对应测试
+```bash
+git status --short --branch
+git log -1 --oneline --decorate
 ```
 
-### 功能目标
+已有未提交改动必须保留。未经使用者授权，不提交、不推送、不合并、不部署。
 
-1. 将当前简单的数据管理页调整为旧 `lxp_docker` 的数据资产管理样貌。
-2. 从 `settings.data_root` 指向的文件夹读取真实内容，不写死 `/home/...`。
-3. 保留仍符合需求的数据集列表、详情、搜索、目录浏览和安全下载能力。
-4. 增加数据导出：生成导出文件或压缩包到 `storage/exports/`，允许用户下载。
-5. 导出过程不得修改 `storage/raw/` 中的原始数据。
-6. 当前不实现不可恢复的永久删除；旧版 purge 功能不得迁移。
-7. 所有用户提供的路径都必须防止 `../` 等路径穿越。
+## 2. 默认维护范围
 
-### 建议模块结构
+Heisan：
 
-```text
-app/modules/datasets/
-├── router.py       # 页面/API 请求
-├── service.py      # 扫描、查询、整理数据集信息
-└── schemas.py      # 必要时定义请求和响应结构
+- 网页上传与分布式采集工具；
+- 数据标注；
+- 数据处理和视频裁剪；
+- Docker、Compose、局域网和服务器部署。
 
-app/modules/export/
-├── router.py       # 发起导出、查询状态、下载
-└── service.py      # 安全打包并写入 storage/exports
+LXP：
+
+- 数据管理、详情和回收站页面；
+- 质检报告展示；
+- 格式转换与导出；
+- X-VLA 训练接入。
+
+共同评审：
+
+- `app/db/` 和 `migrations/`；
+- DS/RB/CV/TR 编号与目录解析；
+- 质检状态和人工审核；
+- `app/main.py`、`app/templates/base.html`；
+- `pyproject.toml`、Dockerfile、Compose 和存储规范。
+
+跨范围修改时必须说明原因、接口影响和验证方法。
+
+## 3. 共享接口
+
+### 数据集
+
+- 对外主标识始终使用 DS 编号；
+- 真实路径通过 MySQL 的 `storage_area + storage_relpath` 解析；
+- 数据集显示名称唯一，比较忽略首尾空格和英文大小写；
+- 发布新 DS 必须使用统一发布服务，不直接写登记表；
+- 源 DS 不原地修改；
+- 回收站 DS 仍保留登记和机器人关联，永久清除后才清除关系。
+
+### 机器人
+
+- 一个 DS 最多关联一台机器人，一台机器人可关联多个 DS；
+- 派生 DS 只有在所有来源属于同一机器人时自动继承；
+- 停用机器人不能接收新关联或 Token 上传；
+- 网页列表只能获取 Token 前缀；完整值仅在创建/重新生成响应或部署终端显示。
+
+### 质检
+
+- 新 DS 默认不可用、待质检；
+- 活跃质检方案名称唯一；
+- 自动检查完成后仍需人工审核；
+- PASS 标记可用，RECAPTURE 标记不可用；
+- 质检报告文件和 MySQL 任务/审核记录是两类不同信息。
+
+### 文件与配置
+
+- 业务代码只通过 `settings.data_root` 访问数据目录；
+- `HKC_STORAGE_PATH` 与 `HKC_MYSQL_DATA_PATH` 分开；
+- 不提交真实数据、密码、Token、环境文件、模型或日志；
+- 通用配置不写死个人路径、IP、临时代理或镜像源。
+
+## 4. 容易冲突的文件
+
+修改前先确认另一位开发者没有同时工作：
+
+- `app/main.py`、`app/web.py`；
+- `app/templates/base.html`；
+- `app/core/config.py`、`app/core/paths.py`；
+- `app/db/`、`migrations/mysql/`；
+- `app/modules/datasets/lerobot_v3.py`；
+- `compose*.yaml`、`deploy/compose*.yaml`、`Dockerfile`；
+- `pyproject.toml`、`.gitignore`、`.dockerignore`；
+- 根 README、当前状态和协作文档。
+
+不要为了整理顺手修改不属于当前任务的共享文件。
+
+## 5. 分支和合并
+
+1. 从最新共同分支开始；
+2. 先获取远程更新并确认工作区；
+3. 并行任务使用范围明确的功能分支或独立 worktree；
+4. 提交前运行相关测试；
+5. 共享接口变更由双方评审；
+6. 集成分支验收后再决定是否进入 `main`。
+
+禁止使用 `git reset --hard`、`git clean` 或强制推送处理他人改动。
+
+## 6. 验证与汇报
+
+最低验证按改动范围选择：
+
+```bash
+python -m pytest -q -p no:cacheprovider
+python -m ruff check app tests tools
+git diff --check
 ```
 
-### 验收条件
+Compose、JavaScript、真实文件和服务器变更还要执行对应专项验证。汇报必须区分：
 
-1. 页面展示来自测试存储目录的真实文件夹，而不是写死的演示常量。
-2. 数据管理页面的主要链接和按钮有对应后端行为，不只改变外观。
-3. 能导出一个小型测试数据集并下载，且原始数据不被改变。
-4. 空目录、损坏数据集、重名导出和非法路径有明确错误处理。
-5. 不引入数据库依赖，不在项目根目录新增业务 Python 文件。
-6. 对扫描和导出至少提供自动化测试。
+- 代码已实现；
+- 自动化测试已通过；
+- 本机人工验收已通过；
+- 服务器部署与验收已通过。
 
-## 五、共享接口约定
+## 7. 最近交接
 
-Python 代码只能通过以下入口取得存储根目录：
+日期：2026-11-11
 
-```python
-from app.core.config import settings
+分支：`integration/hs-lxp-v3.2.0-cq`
 
-data_root = settings.data_root
-```
+本地已完成：
 
-- 目录含义以 `storage/README.md` 为准；容器内统一为 `/data`。
-- 质检不复制完整数据集；结果由 SQLite 中的任务/人工审核状态和
-  `storage/reports/qc/` 报告表达。页面移除的报告进入
-  `storage/trash/reports/`，不得永久删除，且不影响任务或审核记录。
-- 页面路由继续位于 `/data/` 等现有前缀下。
-- 路由负责参数和响应，文件操作放入 service。
-- 上传文件名、压缩包内部路径和浏览器传来的路径都不可信。
-- 不提交真实数据、账号、密码、Token、`.env` 或其他运行状态。
-- 当前已有登录会话保护，但没有 HTTPS；局域网访问不等于可以部署到公网。
+- 回收站 DS 继续显示在机器人关联列表，并标记“回收站”；永久清除后关系消失；
+- 新增采集端上传标记清理工具；
+- 数据集显示名称不可重复；
+- 活跃质检方案名称不可重复；
+- 精简并重写项目 Markdown 文档。
 
-## 六、每次交接的固定格式
+名称规则：
 
-每位开发者或 Codex 完成一段工作后，在“当前交接记录”顶部增加一条：
+- 忽略首尾空格和英文大小写；
+- 回收站中的 DS 仍占用显示名称；
+- 既有重复记录不会自动改名或删除；
+- 自动上传工具使用文件夹名或 ZIP 去扩展名作为显示名称；
+- 旧单 ZIP 工具支持 `--name`。
+
+验证状态：
+
+- 完整 pytest：`161 passed`；
+- 本轮相关文件 Ruff：通过；
+- 全仓 Ruff 有日志旧模块 5 个既有 E741；
+- 尚未提交、推送或部署重庆服务器。
+
+下一步：
+
+1. 人工验证名称冲突、回收站机器人关联和上传标记清理；
+2. 处理发现的问题；
+3. 提交并推送当前分支；
+4. 更新服务器代码和镜像；
+5. 服务器验收分布式上传、回收站关联和 X-VLA 训练；
+6. 验收后确定下一阶段稳定基线。
+
+## 8. 后续交接模板
 
 ```text
 日期：
-开发者/分支：
+开发者 / 分支：
 完成内容：
 主要修改文件：
 执行的验证：
 未完成或已知问题：
-是否修改共享文件：
+是否修改共享接口：
+是否已提交、推送或部署：
 下一步建议：
 ```
 
-### 当前交接记录
-
-日期：2026-10-28
-
-开发者/分支：Codex / `integration/hs-lxp-v3.0.2`
-
-完成内容：按产品要求统一调整全局左侧导航顺序为工作台、机器人管理、数据定义、
-数据管理、原始数据集上传、数据质检、数据标注、数据处理、格式转换与导出、模型
-训练、系统管理。只修改共享基础模板，不改变任何路由或业务功能。
-
-主要修改文件：`app/templates/base.html`、`tests/integration/test_auth.py`、本交接记录。
-
-执行的验证：Ruff 全部通过，登录/导航相关测试 `5 passed`；一次性隔离容器中完成
-真实登录和浏览器 DOM 验收，11 个导航入口的文字、链接与顺序完全一致，控制台无
-错误；`git diff --check` 通过。
-
-未完成或已知问题：正式镜像未重建，本轮未提交或推送。
-
-是否修改共享文件：是，修改所有登录后页面共同继承的 `base.html`；未改 API、
-SQLite、存储或 Compose。
-
-下一步建议：开发模式下刷新任意登录后页面确认侧栏；生产模式待功能冻结后统一重建
-镜像。
-
-日期：2026-10-28
-
-开发者/分支：Codex / `integration/hs-lxp-v3.0.2`
-
-完成内容：精简机器人注册和编辑界面，只保留平台自动 RB 编号、SN、名称、类型、
-IP 地址和备注。型号、传感器以及表单中的状态选择已移除；新机器人默认在用，状态
-继续通过停用/恢复动作管理，以保留既有数据集关联约束。机器人清单同步改为显示
-编号/SN、名称、类型、IP、备注、状态和关联 DS。
-
-主要修改文件：`app/modules/robots/{schemas,service,router}.py`、机器人模板、
-JavaScript、CSS、机器人集成测试和当前状态文档。
-
-执行的验证：Ruff 全部通过；机器人模块 `8 passed`，相关模块 `25 passed`，完整回归
-测试 `115 passed`，仅一条既有 Starlette/AnyIO 上游弃用警告；Python 编译和
-`git diff --check` 通过。
-
-未完成或已知问题：SQLite 中既有 `model`、`sensors_json` 列暂不删除，避免破坏已有
-数据库；新页面/API 不再提供这两个字段。正式镜像未重建，本轮未提交或推送。
-
-是否修改共享文件：不修改 SQLite 表结构或既有记录；编辑旧机器人时保留其内部
-状态和旧兼容字段，避免无意恢复停用机器人或擦除历史值。
-
-下一步建议：人工确认简化后的字段顺序和清单密度，再决定是否要求 SN 或 IP 必填。
-
-日期：2026-10-27
-
-开发者/分支：Codex / `integration/hs-lxp-v3.0.2`
-
-完成内容：原始数据集上传页新增 `robot_type` 文本框。表单填写时在 Staging 中覆盖
-解压副本的 `meta/info.json` 后再发布到 Raw；留空时沿用包内非空值。包内缺失、
-`null` 或空字符串且表单留空时明确拒绝上传，不再以“未声明”入库。上传记录和成功
-提示展示最终类型；批量接口也接受可选的统一 `robot_type`。
-
-主要修改文件：`app/modules/ingestion/{router,service}.py`、上传模板/JavaScript/CSS、
-`tests/integration/test_ingestion.py`、当前状态、模块和项目说明。
-
-执行的验证：Ruff 全部通过；上传、质检、机器人和数据管理相关测试 `38 passed`，
-完整回归测试 `115 passed`，仅一条既有 Starlette/AnyIO 上游弃用警告；Python 编译
-和 `git diff --check` 通过。
-一次性隔离容器中完成登录和上传页浏览器验收，字段、规则说明及页面脚本正常，
-浏览器控制台无错误。
-
-未完成或已知问题：质检页的多文件上传暂未增加独立文本框；批量 API 已支持一个
-统一覆盖值，未提供每个 ZIP 分别填写不同类型的结构。正式镜像未重建，本轮未提交
-或推送。
-
-是否修改共享文件：不修改 SQLite 表结构或既有数据；只改变后续上传入库规则。
-覆盖仅发生在用户明确填写且数据仍位于 Staging 时，已入库 Raw 不会被回写。
-
-下一步建议：使用者以一个缺失 `robot_type` 的小型真实 ZIP 人工验证“留空拒绝、
-填写成功”，再决定是否在质检批量上传页提供同批统一类型输入。
-
-日期：2026-10-27
-
-开发者/分支：Codex / `integration/hs-lxp-v3.0.2`
-
-完成内容：新增机器人与数据集的统一 SQLite 关联层。一台机器人可关联多个 DS，
-一个 DS 可改绑到另一台机器人；既有 DS 默认未关联。机器人页提供查看、批量关联、
-改绑和解除，类型不一致允许但醒目告警。停用机器人不能接收新关联，仍保留历史关系
-并允许解除。标注、处理等发布的派生 DS 在所有来源关联同一机器人时自动继承。
-数据管理登记清单、列表和详情只读显示采集机器人的 RB 编号与名称。
-
-主要修改文件：`app/db/dataset_robots.py`、`app/db/README.md`、
-`app/modules/datasets/service.py`、`app/modules/robots/{router,schemas,service}.py`、
-机器人模板/JavaScript/CSS、数据管理模板与路由、集成测试和当前状态文档。
-
-执行的验证：机器人及数据管理相关测试 `18 passed`；完整 pytest `112 passed`，仅
-一条既有 Starlette/AnyIO 上游弃用警告；Ruff 全部通过，Python 编译检查和
-`git diff --check` 通过。一次性隔离容器中完成浏览器人工验收：注册机器人、关联
-同类型与不同类型 DS、查看醒目类型告警及数据管理只读显示，浏览器控制台无错误。
-
-未完成或已知问题：本轮不连接真实机器人，不修改数据集文件；关系变更只保留当前
-状态、操作者和更新时间，没有单独的逐次审计事件表。未重建正式镜像，也未提交或
-推送分支。
-
-是否修改共享文件：是，新增同一 `platform.sqlite` 中的 `dataset_robot_links` 表，
-并调整统一 DS 注册流程以继承来源机器人；未修改 `datasets` 表和真实数据文件。
-
-下一步建议：使用者在当前开发分支用真实但可回退的数据集人工验收关联、改绑、
-停用后解除及派生继承；确认后再决定提交、推送和重建部署镜像。
-
-日期：2026-10-27
-
-开发者/分支：Codex / `integration/hs-lxp-v3.0.1`，同步修复服务器 v3.0
-
-完成内容：释放 GPU 后提交 `TR000007` 真实短任务，发现 X-VLA 内部 20 维补齐动作与
-数据集 14 维动作直接比较导致离线评估失败；按 checkpoint 声明的动作维度裁去补齐
-尾部再做后处理，并增加维度匹配回归测试。复测 `TR000008` 完成训练、固定留出
-Episode 0 的 399 帧前向损失/14 维动作 MAE、曲线生成和约 3.0 GB 模型包校验；
-平台模型版本列表和曲线读取均已返回真实结果。`TR000007` 失败记录保留用于溯源。
-
-主要修改文件：`deploy/training_evaluate.py`、`deploy/training_action_metrics.py`、
-`tests/integration/test_training_action_metrics.py`、本交接与状态/执行器文档；修正
-部分既有 Python 文件误设的可执行位，以满足 Ruff 检查。
-
-执行的验证：隔离临时容器中 Ruff 全部通过、pytest `108 passed`；训练页面
-JavaScript 语法和 `git diff --check` 通过；服务器 `TR000008` 状态为
-`COMPLETED`，评估报告含 399 帧、14 维 MAE，模型包 SHA-256 校验通过；
-真实登录后的任务/曲线 API 均返回 200，曲线含 399 个采样点；模型下载端点
-`Range: bytes=0-0` 返回 206 和正确的包大小，随后已退出测试会话。
-
-未完成或已知问题：短任务仅验证技术闭环，不评判模型质量；真实浏览器视觉交互和
-下载按钮的浏览器视觉交互尚待人工验收。当前服务器没有恢复此前主动关闭的
-Fish Speech、ZipVoice 和 RobotVision 推理服务；VLM 服务仍关闭，训练 Conda
-环境未修改。模型包约 3 GB，
-真实数据和训练任务记录均保留。
-
-是否修改共享文件：只调整 `app/db/training.py` 的误设可执行位，不改 SQLite 结构、
-DS 接口、Compose、平台镜像或训练 Conda 环境。
-
-下一步建议：使用者登录服务器页面查看 `TR000008` 的评估曲线并试下载模型包；
-完成界面人工验收后再决定是否提交/推送当前分支。
-
-日期：2026-10-27
-
-开发者/分支：Codex / `integration/hs-lxp-v3.0.1`，同步到服务器 v3.0
-
-完成内容：最终 checkpoint 对固定留出 Episode 同时计算全帧前向损失与逐维动作 MAE；
-每条 Episode 保存抽样曲线、模型包包含曲线文件；任务详情显示检查结果、各维误差与
-真值实线/预测虚线 Canvas，支持切换留出 Episode。旧任务不补造新指标。
-
-主要修改文件：`deploy/training_evaluate.py`、`deploy/training_action_metrics.py`、
-`deploy/training_agent.py`、`app/modules/training/{router,service}.py`、训练页面 JS/CSS、
-训练测试与模块/状态文档。
-
-执行的验证：本地 Python/JavaScript 语法与 `git diff --check` 通过；服务器隔离容器
-中路由、指标和授权读取冒烟检查通过；现有 LeRobot 环境中用模拟数据验证多 Episode
-损失/MAE 聚合与策略重置。使用隔离测试工具运行全套 `107 passed`；新镜像经 Compose
-重建后健康，执行器在线且无排队任务。Ruff 因工具不可用未运行。
-
-未完成或已知问题：服务器空闲显存约 14.8 GB，低于当前训练所需的约 17.6 GB；
-未运行真实 GPU 训练/评估，新任务的完整闭环需释放资源后人工验收。旧任务只显示
-既有前向损失，不自动补算动作曲线。服务器旧源文件归档为
-`HKC_Data_Platform_v3.0-eval-prechange-20261027.tar.gz`，旧镜像保留
-`hkc-data-platform:v3.0-server-pre-eval-20261027` 标签。
-
-是否修改共享文件：是，新增训练 Episode 曲线 API；不改 DS/SQLite 结构、Compose、
-训练 Conda 环境或原始数据集。
-
-下一步建议：显存满足要求后提交一条短训练任务，验收最终报告与图表；补跑完整
-pytest/Ruff。本轮未提交或推送本地分支。
-
-日期：2026-10-27
-
-开发者/分支：LXP + Codex / `integration/hs-lxp-v3.0.1`
-
-完成内容：核对从服务器 v3.0 复制的训练页面、任务/模型版本 API、SQLite 元数据、
-X-VLA 宿主执行器、离线评估和测试；补入与服务器原文件逐字节一致的
-`compose.server.yaml`，并更新训练模块、存储和部署状态说明。主 `Dockerfile`、
-`compose.yaml` 与服务器备份一致，均未改动；服务器旧镜像的代码叠加方案保留在
-`deploy/Dockerfile.training-overlay`。没有复制 `.env`、令牌、SQLite、数据集或权重。
-后续在 `.env.example` 增加空白训练操作员配置和中文注释，不写入真实账号；新平台
-用户不会自动获得 VLM 服务启停权限。
-
-主要修改文件：服务器训练代码见当前工作区 18 项既有改动；本轮新增
-`compose.server.yaml`，更新 `.env.example`、`AGENTS.md`、`docs/CODEX_CURRENT_STATE.md`、
-`storage/README.md`、`deploy/README.md` 及本交接记录。
-
-执行的验证：训练代码合入后的隔离容器全套 pytest 为 `103 passed`，训练页面
-JavaScript 语法检查通过；本轮默认、开发、局域网和服务器四种 Compose 组合均通过
-`config --quiet`，服务器 Compose 文件逐字节比对一致，`git diff --check` 通过。
-新增 `.env.example` 项后再次验证默认与服务器 Compose 组合通过解析。
-本机缺少 Ruff，临时下载失败，因此未完成 Ruff 检查。
-
-未完成或已知问题：本地分支尚未用真实 GPU 执行训练/评估/下载验收；服务器部署仍
-依赖该服务器自己的 `.env`、宿主执行器和基座权重。服务器 Compose 默认通信目录
-是该服务器专用路径，迁移到新服务器须覆盖环境变量。尚未提交或推送。
-
-是否修改共享文件：是，新增服务器 Compose 覆盖，更新共同状态与存储文档；未改动
-主 Dockerfile、默认 Compose、应用入口、统一 DS 接口或真实数据。
-
-下一步建议：审查本分支未提交差异，补跑 Ruff；决定提交后，在目标服务器按当前
-Compose 和已有执行器做一次真实任务验收。
-
-日期：2026-10-23
-
-开发者/分支：Heisan / `integration/hs-lxp-v3.0`
-
-完成内容：生成并验收 `linux/amd64` 服务器部署镜像
-`hkc-data-platform:v3.0-server`。基础镜像复用本机上次从 DaoCloud 获取、同时带有
-官方标签的 Python 3.11 slim 缓存；Python 依赖使用中科大镜像源构建。Compose
-默认镜像改为可由 `HKC_IMAGE` 覆盖的 v3.0 标签，离线导入和服务器 `--no-build`
-步骤已更新。最终 gzip、SHA-256 和说明文件位于项目外的 `docker-images/`。
-
-主要修改文件：`compose.yaml`、`.env.example`、`how_use.md`、
-`deploy/README.md`、`readme.md`、本交接记录；镜像产物不进入 Git。
-
-执行的验证：镜像为 `linux/amd64`、Python 3.11.17、非 root uid/gid 1000；
-`pip check`、h5py/Pillow/核心依赖导入、FFmpeg 和 lerobot-doctor 通过。一次性只读
-源码容器中 Ruff 0.16.8 全部通过，pytest 9.1.1 为 `76 passed`，仅 1 条上游弃用
-警告。三种 Compose 解析通过；不挂载源码的生产式容器 healthy，健康接口 200、
-未登录页面 303、API 401、静态资源 200、`/data` 可写。最终压缩包已通过 gzip、
-SHA-256 和 `docker load` 验证。
-
-未完成或已知问题：尚未复制到目标服务器，也未在服务器实际额外硬盘和局域网地址
-上启动。镜像固定 uid/gid 1000；目标持久化目录必须允许 1000:1000 写入。首次大
-数据转换/导出仍需在服务器确认磁盘空间和处理时间。
-
-是否修改共享文件：修改 Compose 默认镜像标签与公开环境变量模板；不修改应用
-业务、SQLite 表、DS/CV 编号或真实数据。
-
-下一步建议：审查并提交本轮部署配置和文档，推送 v3.0 分支；随后把镜像包、
-校验文件、同提交项目目录和服务器自己的 `.env` 送到目标机，使用 `--no-build`
-完成服务器验收。
-
-日期：2026-10-22
-
-开发者/分支：Heisan + LXP / `integration/hs-lxp-v3.0`
-
-完成内容：从已冻结验收的 `integration/hs-v2.1` 创建独立集成 worktree，合入
-`origin/integration/hs-lxp-v2.5`。人工解决数据库说明、模块说明、全局导航、协作
-记录和项目 README 冲突；保留登录/退出、机器人管理、数据定义、情景管理移除、
-“数据处理”命名和视频裁剪，接入 LeRobot v3 Derived DS → HDF5、CV 任务、转换
-结果展示以及 Derived/CV 打包导出。转换结果使用 CV 编号，不进入 DS 登记表；
-Raw 与 Derived 均继续支持质检。
-
-主要修改文件：`app/db/conversions.py`、`app/modules/conversion/`、
-`app/modules/export/`、`app/modules/datasets/`、转换/数据管理模板与静态资源、
-`pyproject.toml`、`AGENTS.md`、当前状态与协作文档。
-
-执行的验证：冲突标记已清除，`git diff --cached --check` 与 Python 语法编译通过；
-旧验证镜像不含本次新增的 h5py，完整 Ruff/pytest 和页面人工验收留到依赖镜像重建
-阶段执行。
-
-未完成或已知问题：尚未构建包含 h5py/Pillow 的 v3.0 验证镜像，尚未用真实派生
-数据执行转换和导出。首次大数据导出为同步打包，`exports/` 需要后续磁盘清理策略。
-
-是否修改共享文件：是，修改 SQLite 转换任务表、数据管理路由、全局导航、直接
-依赖和共同文档；没有改写现有 DS 编号或真实 storage 数据。
-
-下一步建议：重建验证镜像并运行全套检查；随后用小型已备份 Derived DS 人工完成
-转换、HDF5 文件核对、打包下载和容器重启验收。
-
-日期：2026-10-22
-
-开发者/分支：Heisan / `integration/hs-v2.1`
-
-完成内容：完成第二阶段本地功能冻结与验收。冻结范围覆盖登录、上传、数据管理、
-标注、Episode 数据处理与可视化视频裁剪、质检、报告回收站、机器人档案和数据
-定义；工作台真实统计、导出、转换、训练和系统管理继续明确标记为未完成，不因
-页面可渲染而视为真实功能。新增独立验收记录，修正 README 中对数据定义和当前
-真实能力的过时描述。
-
-主要修改文件：`docs/LOCAL_ACCEPTANCE_2026-10-22.md`、
-`docs/CODEX_CURRENT_STATE.md`、`docs/COLLABORATION.md`、`readme.md`。
-
-执行的验证：使用一次性容器及隔离的 `/tmp/hkc-freeze-test-data` 运行全仓库 Ruff
-0.16.8 和 pytest 9.1.1，结果为 Ruff 全部通过、`70 passed`，仅有 1 条既有
-Starlette/AnyIO 上游弃用警告；8 个 JavaScript 文件语法检查通过；默认、开发和
-局域网三种 Compose 配置通过解析，分别确认默认绑定 `127.0.0.1:8000`、局域网
-覆盖绑定指定 IPv4、宿主机存储映射到 `/data`。运行中开发容器的健康接口、未登录
-页面跳转、API 401、静态资源和 staging 写权限通过；受控重启后恢复 healthy，
-SQLite 文件与用户数量保持不变。使用者已人工完成一次可视化视频裁剪。
-
-未完成或已知问题：内置浏览器无法路由到开发机私有网段，因此页面视觉和操作手感
-以使用者浏览器人工验收为准；真实公司 VLM、跨设备局域网、正式服务器和不挂载
-源码的生产镜像不属于本轮已通过项。标注/处理后台任务仍不能跨容器重启续跑。
-
-是否修改共享文件：只修改验收与状态文档，没有修改 Python、JavaScript、SQLite
-表结构、DS 编号、数据集内容、依赖或 Compose 行为。
-
-下一步建议：保持当前分支功能冻结；合并另一位开发者的最新分支后重新执行完整
-验收，再统一重建正式镜像并部署到服务器。训练模块应通过独立任务接口连接服务器
-训练环境，不把训练依赖装入平台容器。
-
-日期：2026-10-22
-
-开发者/分支：Heisan / `integration/hs-v2.1`
-
-完成内容：按产品命名将导航和接口文档中的“数据预处理”统一改为“数据处理”，
-保留已有 `/preprocess/` 地址以避免破坏链接；在现有不可变派生处理链路中新增
-视频画面裁剪。使用者可选择相机和预览 Episode，直接在真实视频上移动裁剪框，
-或拖动四角、四边调整范围；切换 Episode 时保留同一裁剪框，精确像素坐标仍可在
-折叠设置中校准。裁剪框应用到该相机全部 Episode，其他相机保持原尺寸。输出重新
-编码为 H.264，并同步更新 LeRobot v3 feature 的 `shape`、`video.width` 与
-`video.height`。
-
-主要修改文件：`app/modules/processing/`、`app/templates/preprocess.html`、
-`app/static/css/processing.css`、`app/static/js/processing.js`、公共导航、
-`tests/integration/test_processing.py` 及当前状态与项目说明。
-
-执行的验证：数据处理专项测试使用真实合成 MP4，确认预览接口支持 HTTP Range、
-8×6 视频裁剪为 4×4、帧数保持、元数据同步、源视频不变，并确认越界裁剪安全失败
-且不留下 Derived 半成品；页面测试确认八个拖拽手柄完整渲染。全仓库 Ruff 检查
-通过，全部 `70 passed`，仅保留 1 条既有 Starlette/AnyIO 上游弃用警告。当前运行
-容器 `/healthz` 返回 200。
-
-未完成或已知问题：第一版一次任务只裁剪一个相机，且同一裁剪框应用于该相机的
-全部 Episode；不提供逐帧变化裁剪框、画面缩放或旋转。视频重编码耗时和磁盘占用
-随数据规模增长，任务仍在 Web 进程后台执行，容器重启不能续跑。内置验收浏览器
-无法路由到开发机私有网段，最终拖拽手感仍需使用者在本机浏览器人工确认。
-
-是否修改共享文件：修改公共导航、应用路由标签和文档；未修改 SQLite 表、DS 编号
-规则、上传、标注、质检或机器人模块，也没有新增 Python 依赖。
-
-下一步建议：使用真实小型数据集切换多个 Episode、拖动四角和整体移动裁剪框，
-再发布派生 DS 并播放结果；大规模使用前评估独立 Worker 和任务续跑。
-
-日期：2026-10-22
-
-开发者/分支：Heisan / `integration/hs-v2.1`
-
-完成内容：将 `/semantics/` 从虚构 Episode 文件结构的占位页改为真实数据定义功能。
-页面只读说明平台实际使用的 LeRobot v3 数据集、任务、Episode、帧、视频和旁路
-标注结构；新增 `semantic_definitions` 与 `semantic_definition_numbers` SQLite
-表，为场景、任务、动作和对象四类词条分配 `SD000001` 形式的稳定编号。支持新增、
-编辑、搜索、筛选、排序、停用和恢复；机器编码创建后不可修改，没有永久删除接口。
-
-主要修改文件：`app/db/semantics.py`、`app/modules/semantics/`、
-`app/templates/semantics.html`、`app/static/css/semantics.css`、
-`app/static/js/semantics.js`、`tests/integration/test_semantics.py`，以及数据库、模块、
-当前状态、使用与项目说明。
-
-执行的验证：数据定义专项 Ruff 与 5 项测试通过；随后以
-`HKC_DATA_ROOT=/tmp/hkc-v21-semantics-full-test-data` 隔离真实数据运行全仓库
-Ruff 0.16.8 和 pytest 9.1.1，结果为 Ruff 全部通过、`66 passed`，仅有 1 条既有
-Starlette/AnyIO 上游弃用警告。测试覆盖真实结构页面、稳定 SD 编号、创建、编辑、
-筛选、唯一性、输入校验、停用、恢复和无 DELETE 接口。
-
-未完成或已知问题：词表当前只保存平台管理元数据，不自动修改 Raw/Derived、
-Episode task 或既有 Subtask；也没有与机器人档案或数据集建立外键。自动化测试
-已经通过，但仍需使用者登录后完成人工页面验收。正式生产镜像按使用者决定留到
-更多功能完成后统一重建。
-
-是否修改共享文件：在现有 `platform.sqlite` 新增独立词表，不修改 datasets、
-quality、users 或 robots 既有表；没有增加依赖，没有修改 Compose、DS 接口或
-LeRobot 数据文件。
-
-下一步建议：在页面建立少量真实场景、动作和对象词条，确认团队命名约定；以后
-若要让标注或上传强制引用 SD 编号，先设计自由文本兼容和历史数据迁移方案。
-
-日期：2026-10-22
-
-开发者/分支：Heisan / `integration/hs-v2.1`
-
-完成内容：将 `/robots/` 从 3 条硬编码演示数据改为独立机器人档案管理。新增
-`robots` 与 `robot_numbers` SQLite 表，稳定编号格式为 `RB000001`；支持名称、
-类型、型号、序列号、使用状态、网络地址、传感器和备注的新增、编辑、搜索、筛选、
-停用与恢复。名称和非空序列号唯一，没有永久删除接口。页面只按 `robot_type`
-统计同类型数据集，不修改 datasets 表、不回写数据集文件，也不建立未经设计的
-机器人实例外键。
-
-主要修改文件：`app/db/robots.py`、`app/modules/robots/`、
-`app/templates/robots.html`、`app/static/css/robots.css`、
-`app/static/js/robots.js`、`tests/integration/test_robots.py`，以及当前状态、数据库、
-模块和项目说明。
-
-执行的验证：以 `HKC_DATA_ROOT=/tmp/hkc-v21-test-data` 隔离真实数据运行完整检查；
-Ruff 0.16.8 全部通过，pytest 9.1.1 共 `61 passed`，仅有 1 条既有的
-Starlette/AnyIO 上游弃用警告。机器人测试覆盖空页面、创建、稳定 RB 编号、编辑、
-停用、恢复和无 DELETE 接口。默认、开发和局域网三种 Compose 配置均通过解析。
-本机网络切换后已按当前地址重新创建开发容器，容器保持 healthy；`/healthz` 返回
-200，未登录访问 `/robots/` 返回 303 到登录页，机器人页面 CSS 与 JavaScript
-均返回 200。真实 SQLite 中机器人表为空，没有写入测试机器人。
-
-未完成或已知问题：当前网络地址只是档案，不探测在线状态、不控制机器人；数据集
-仅按 `robot_type` 统计，没有具体 `robot_id` 关联。自动化和未登录静态资源验证已
-完成，但尚未进行登录后的浏览器人工表单验收。正式生产镜像仍未重新构建；当前
-验收对象是挂载最新源码的开发容器和一次性测试容器。
-
-是否修改共享文件：新增同一 `platform.sqlite` 中的机器人表，但没有修改已有用户、
-数据集或质检表；没有增加依赖，没有修改 Compose、DS 接口或 LeRobot 文件。
-
-下一步建议：使用者先登录当前开发页面，人工注册一条可删除前的测试机器人，验证
-编辑、停用、恢复和筛选；确认业务字段后，再决定是否设计数据集到具体机器人的
-稳定关联，不要直接复用可变名称。
-
-日期：2026-10-22
-
-开发者/分支：Heisan / `integration/hs-v2.1`
-
-完成内容：新增无默认账号的基础登录系统。`app/db/users.py` 在既有
-`storage/system/platform.sqlite` 中创建 `users` 与 `user_sessions`；密码使用
-scrypt 独立盐哈希，浏览器只持有随机 Cookie 令牌，数据库只保存其 SHA-256 摘要。
-新增登录、退出、会话失效和全站中间件保护；未登录网页跳转 `/login`，未登录 API
-返回 401。新增公开且不返回业务数据的 `/healthz`，Docker 健康检查改用该地址。
-提供交互式 `python -m app.cli.create_user`，支持可选的 `--username`，但故意不
-提供密码参数；新增 `python -m app.cli.list_users`，只显示不含认证秘密的账号
-摘要。没有在源码、配置或文档中提供默认密码。已在本机被 Git 忽略的 SQLite 中
-创建首个用户 `hei_san`。
-
-主要修改文件：`app/db/users.py`、`app/modules/auth/`、`app/cli/create_user.py`、
-`app/cli/list_users.py`、`app/main.py`、`app/templates/login.html`、
-`app/templates/base.html`、`Dockerfile`、`tests/conftest.py`、
-`tests/integration/test_auth.py`、`tests/unit/test_user_cli.py`、`pyproject.toml` 及相关
-说明文档。
-
-执行的验证：新增 5 项真实 SQLite 认证测试；全仓库 Ruff 0.16.8 检查通过，pytest
-9.1.1 共 53 项全部通过，仅保留既有 Starlette/AnyIO 上游弃用警告。默认、开发和
-局域网 Compose 均通过配置解析。本机真实库确认存在两张新表，`hei_san` 的哈希
-方案为 scrypt，交互密码校验成功；`/healthz` 返回 200，未登录访问 `/dashboard/`
-返回 303 并跳转登录页。当前开发容器健康且已挂载最新源码。
-
-用户命令补充部分已用现有 Python 3.11 运行镜像验证：创建测试用户、密码认证以及
-不泄露密码/哈希的账号列表均通过；真实开发容器的列表命令成功读取持久化库并显示
-`hei_san`。新增的 3 项 CLI 自动化测试已纳入 2026-10-22 的完整测试，当前全套
-结果为 Ruff 通过、pytest `61 passed`。
-
-未完成或已知问题：平台仍未部署 HTTPS、角色权限、找回密码、登录限速和机器人
-API Token，只能用于可信内网。完整源码测试与 Compose 配置验证已经通过，但旧
-正式镜像尚未包含本次登录和机器人管理代码；后续仍需重新构建正式镜像，并进行
-不挂载源码的生产式验收。
-
-是否修改共享文件：是，修改 `app/main.py`、全局 `base.html`、Docker 健康检查和
-同一个 SQLite 文件中的表结构；没有修改 datasets/quality 既有表、DS 编号、数据
-文件或同事负责的数据管理接口。
-
-下一步建议：先由使用者在当前开发容器浏览器中人工登录、退出；网络稳定后使用
-可信 PyPI/公司仓库重新构建镜像并执行生产式验收，再继续真实机器人管理。
-
-日期：2026-10-22
-
-开发者/分支：Heisan / `integration/hs-v2.1`
-
-完成内容：从已验证的 `integration/hs-lxp-v2` 创建下一阶段开发分支
-`integration/hs-v2.1`；按产品决定移除独立情景管理，包括 `/scenes/` 路由、全局
-导航入口、演示模块和模板。机器人管理继续保留；未来场景分类归入数据定义，不再
-建立独立情景管理模块。新增回归测试，明确 `/scenes/` 应返回 HTTP 404，并同步
-当前状态和项目目录说明。
-
-主要修改文件：`app/main.py`、`app/templates/base.html`、
-`tests/integration/test_pages.py`、`AGENTS.md`、`readme.md`、
-`docs/CODEX_CURRENT_STATE.md`、`docs/COLLABORATION.md`；删除
-`app/modules/scenes/` 和 `app/templates/scenes.html`。
-
-执行的验证：在最终集成镜像中以只读源码挂载运行 Ruff 0.16.8，全仓库
-`app tests` 检查通过；pytest 9.1.1 完整运行 48 项全部通过。保留一条来自
-Starlette/AnyIO 的既有上游弃用警告。
-
-未完成或已知问题：本步骤没有实现登录、真实机器人管理、数据定义或工作台；
-这些功能将在 `integration/hs-v2.1` 后续分步完成。代码尚未提交或推送。
-
-是否修改共享文件：是，删除路由注册并修改全局导航；没有修改 SQLite 表结构、
-数据集接口、Docker/Compose、真实数据或运行容器。
-
-下一步建议：审查本次删除差异后，再实现最小登录功能；登录接入时为 Docker 增加
-不受鉴权保护的 `/healthz`，并避免同时修改同事正在维护的数据管理页面。
-
-日期：2026-10-22
-
-开发者/分支：Heisan / `integration/hs-lxp-v2`
-
-完成内容：为合并后的双方 Codex 建立新的单一事实来源。重写根目录 `AGENTS.md`，
-明确当前集成分支、已完成/未完成边界、目录职责、DS 数据生命周期、配置、默认
-维护范围与最低验证要求；新增 `docs/CODEX_CURRENT_STATE.md`，为 LXP 侧 Codex
-提供接手入口、真实路由状态、存储/SQLite 关系和任务工作流。将旧分支与按人任务
-明确标记为历史参考，并修正 `app/db/__init__.py` 中“尚未启用数据库”的过时说明。
-
-主要修改文件：`AGENTS.md`、`docs/CODEX_CURRENT_STATE.md`、
-`docs/COLLABORATION.md`、`readme.md`、`app/db/__init__.py`。
-
-执行的验证：对照当前路由、业务模块、SQLite 代码、存储目录、Compose、依赖和
-测试文件人工核对文档；执行 Markdown/代码差异检查与 Python 语法检查。
-
-未完成或已知问题：真实独立数据导出、格式转换、模型训练与评估仍未实现；旧
-README 后半部分包含早期本机/Windows 运行笔记，不能优先于新的 Codex 规范。
-
-是否修改共享文件：只修改协作说明与 `app/db` 包说明，不改变数据库表结构、API、
-数据集、镜像或运行容器。
-
-下一步建议：同事拉取该提交后让 Codex 先读取 `AGENTS.md` 和
-`docs/CODEX_CURRENT_STATE.md`，再围绕约定模块开始具体任务。
-
-日期：2026-10-22
-
-开发者/分支：Codex / `integration/hs-lxp-v2.5`（来源分支记录）
-
-完成内容：来源分支曾增加服务器训练环境只读盘点。本轮集成没有把包含特定服务器
-地址、目录和环境快照的 `服务器配置.md` 纳入共享分支；训练架构将在后续阶段根据
-当时服务器状态重新核实。
-
-日期：2026-10-22
-
-开发者/分支：LXP / `integration/hs-lxp-v2.5`
-
-完成内容：按最新要求，转换结果不再进入数据集登记流程，也不分配新的 DS 编号。Raw/Derived 的既有 DS 登记方式保持不变；已完成的转换结果以 CV 任务编号关联 `converted/<CV 编号>/`，在 `/data/` 的独立“格式转换结果”区域展示。导出接口接受 Derived DS 或转换 CV 编号，压缩包仍写入 `storage/exports/`。已有的旧版 `converted_datasets` 表及文件保留，但不再用于新结果的登记、查询或展示。
-
-主要修改文件：`app/db/datasets.py`、`app/db/conversions.py`、`app/modules/conversion/service.py`、`app/modules/export/service.py`、`app/modules/datasets/`、`app/templates/data*.html`、`app/templates/export.html`、`app/static/js/export.js`、`tests/integration/test_conversion.py` 及相关说明。
-
-执行的验证：Python 语法编译、应用导入和 `/data/`、`/export/` 页面 HTTP 200；在临时存储目录直接运行现有的转换并导出、旧 JSON 转换任务展示两条集成用例，均通过；`git diff --check` 通过。运行镜像未安装 pytest，临时安装测试依赖因下载超时失败，因此未运行 pytest 命令。
-
-未完成或已知问题：旧版 `converted_datasets` 表作为历史元数据保留，不再显示为已登记数据集；该表清理需要单独制定数据迁移方案。未用真实业务数据运行转换或导出。
-
-是否修改共享文件：本轮未修改 `app/main.py`、`app/templates/base.html`、部署配置或依赖声明。
-
-下一步建议：在数据管理页确认“已登记”与“格式转换结果”两个区域的实际排版，并用一份小型派生数据集确认转换后的 CV 导出文件。
-
-日期：2026-10-22
-
-开发者/分支：LXP / `integration/hs-lxp-v2.5`
-
-完成内容：按本轮确认，完整导出包必须写入 `storage/exports/`。`/export/` 新增独立“数据集导出”区和转换成功任务的导出按钮，可按统一 DS 编号打包已登记的 Derived 或 Converted 数据集为 `tar.gz`；先写入 `staging/export/`，校验来源快照后原子发布到 `exports/`，相同快照复用已生成的包。转换页不再提供“查看数据集”入口，之前新增的 Converted 专用详情页和路由已移除；转换结果仍在数据管理已登记列表显示。
-
-主要修改文件：`app/modules/export/service.py`、`app/modules/export/router.py`、`app/templates/export.html`、`app/static/js/export.js`、`app/static/css/export.css`、`app/modules/datasets/router.py`、`app/templates/data.html`、`app/templates/data_manage.html`、`tests/integration/test_conversion.py` 及相关说明。
-
-执行的验证：仅运行转换、导出和数据管理相关的 15 个集成测试，覆盖 Derived/Converted 压缩包内容、`exports/` 落盘、非法路径和符号链接拒绝；全部通过。相关 Python 文件 Ruff 检查通过，页面与 API 在开发容器返回 HTTP 200，并检查了页面排版。
-
-未完成或已知问题：目前只提供 LeRobot v3.0 → HDF5 转换方案；生成大型压缩包时，首次下载需等待打包完成，且 `exports/` 会占用相应磁盘空间。未使用真实业务数据触发导出。
-
-是否修改共享文件：已在本条记录中提前说明 `app/templates/base.html` 导航文案调整；未改动 Compose、Dockerfile、`main` 或对方业务模块。
-
-下一步建议：在需要导出真实数据时确认 `exports/` 的可用空间；后续按业务需求添加其他转换方案。
-
-日期：2026-10-22
-
-开发者/分支：LXP / `integration/hs-lxp-v2.5`
-
-完成内容：重做 `/export/` 为按转换方案选择的页面，目前只开放 LeRobot v3.0 → HDF5。成功任务在 SQLite 中登记独立 DS 编号，保存来源 DS、格式、目录、转换 CV 任务、规模与展示信息；结果可在数据管理总览和已登记列表中看到。CV 任务状态迁入 SQLite，首次访问会幂等复制旧 JSON 任务并保留原文件；有效的历史成功结果也登记 DS。失败和运行中的任务不登记结果。Converted 专用详情页在下一轮按使用者要求移除。
-
-主要修改文件：`app/db/datasets.py`、`app/db/conversions.py`、`app/modules/conversion/service.py`、`app/modules/datasets/`、`app/modules/export/router.py`、`app/templates/export.html`、`app/templates/data*.html`、`app/static/css/export.css`、`app/static/js/export.js`、相关说明与 `tests/integration/test_conversion.py`。
-
-执行的验证：仅运行转换相关的 6 个集成测试（含 DS 登记、数据管理可见、展示信息修改、历史 JSON 迁移），全部通过；相关 Python 文件 Ruff 检查与 `git diff --check` 通过；当前开发容器中的 `/export/`、`/data/`、`/data/manage/?view=registered`、`/export/api/profiles` 返回 HTTP 200，并在浏览器检查了页面排版。
-
-未完成或已知问题：只实现 HDF5 方案；其他格式需新增转换器和方案定义。历史任务若输出文件已经缺失，不会生成 DS 记录。CV 任务由当前应用进程后台执行，重启时运行中的任务标记为失败。
-
-是否修改共享文件：已在本记录先行说明 `app/templates/base.html` 的导航文案和窄屏主区宽度调整；未改动 Compose、Dockerfile、`main` 或对方业务模块。
-
-下一步建议：用真实已登记的派生数据集从页面发起一次转换，检查生成文件；之后再按业务需求添加第二个转换方案。
-
-日期：2026-10-22
-
-开发者/分支：LXP / `integration/hs-lxp-v2.5`
-
-完成内容：修复开发环境页面无法访问。开发 Compose 热加载了新增转换代码，但正在运行的
-旧 `v2.5` 镜像没有 `h5py`，导致 Uvicorn 子进程导入失败。使用当前依赖重建镜像并
-重新创建开发容器，保留原有 `storage/` 挂载。
-
-主要修改文件：未修改应用代码或部署配置；只补充本交接记录。
-
-执行的验证：运行容器 `pip check` 通过，`h5py` 与 Pillow 可导入，容器状态为
-`healthy`；本机 `http://127.0.0.1:8000/dashboard/`、`/export/` 和
-`/export/api/datasets` 均返回 HTTP 200。
-
-未完成或已知问题：当前 Compose 仅绑定 `127.0.0.1:8000`；其他机器访问仍需按
-`deploy/README.md` 使用可信局域网覆盖配置。
-
-是否修改共享文件：仅更新协作文档；未修改 Compose、Dockerfile 或正式数据。
-
-下一步建议：本机刷新 `/export/`；如需其他机器访问，先确认可信内网地址。
-
-日期：2026-10-22
-
-开发者/分支：LXP / `integration/hs-lxp-v2.5`
-
-完成内容：实现已登记 Derived 数据集的 LeRobot v3.0 → HDF5 格式转换。转换任务
-使用统一 DS 编号定位来源并保存文件指纹，读取官方 task 索引及早期全局 Parquet
-行索引；视频/图像转为逐帧 JPEG，保留平台旁路标注元数据。结果先写入
-`storage/staging/conversion/`，校验后原子发布至 `storage/converted/`，任务元数据
-写入 `storage/system/conversion-jobs/`。页面支持进度查询与 HDF5 分块、清单下载；
-Raw/Derived 来源不原地修改。
-
-主要修改文件：`pyproject.toml`（新增固定版本 `h5py`、`pillow`）、
-`app/modules/conversion/`、`app/modules/export/router.py`、`app/templates/export.html`、
-`app/static/css/export.css`、`app/static/js/export.js`、
-`tests/integration/test_conversion.py`、模块/存储/项目说明。
-
-执行的验证：默认、开发、局域网三种 Compose 组合通过 `config --quiet`；使用临时
-镜像标签完成全新构建，`pip check` 无冲突，容器健康；`/dashboard/`、`/export/`、
-`/export/api/datasets` 均返回 HTTP 200。全仓库 pytest 53 项通过，转换模块 Ruff
-通过，`git diff --check` 通过。测试只用临时合成 LeRobot v3 数据。
-
-未完成或已知问题：尚未用实际业务数据集核对 HDF5 内容和体积；视频会有损重编码
-为 JPEG，可能显著增大存储占用。Web 进程单线程执行，运行中的任务重启后标记失败，
-需重新创建；打包导出不在本次范围内。
-
-是否修改共享文件：修改 `pyproject.toml` 增加 HDF5/JPEG 运行依赖；请另一位开发者
-合并依赖时保留。未修改 Compose、Dockerfile、`app/main.py` 或正式数据集。
-
-下一步建议：双方审阅本分支差异后，在已备份的小型真实 Derived DS 上人工核对
-Episode、动作、图像、标注和生成文件体积，再决定是否集成打包导出。
-
-日期：2026-10-21
-
-开发者/分支：Heisan / `integration/hs-lxp-v2`
-
-完成内容：完成集成计划第十、十一步的依赖、部署和协作规范合并。确认对方分支的
-FastAPI/Jinja2/Uvicorn、上传、Doctor、HTTPX、NumPy 依赖均已进入当前基线，并
-保留本分支处理官方 LeRobot v3 所需的 AV、Pandas、PyArrow；补充代码直接使用的
-Pydantic 固定版本。`pyproject.toml` 成为 Python 直接依赖唯一来源。Dockerfile
-继续使用 Python 3.11 slim 和 FFmpeg，支持可配置 APP_UID/APP_GID 并保持非 root。
-Compose 保留 127.0.0.1:8000 安全默认和可信局域网覆盖，拒绝对方临时 8001；新增
-HKC_STORAGE_PATH、三项上传限制、30 秒优雅停止，并保持单平台容器。同步更新部署、
-换机、备份、依赖边界和双方 Codex 协作规则，示例中不包含公司地址或 Token。
-Dockerfile 与 Compose 支持按部署网络临时覆盖 PIP_INDEX_URL/PIP_DEFAULT_TIMEOUT，
-默认仍使用官方 PyPI。修复全仓库 Ruff 报告的 9 条既有规则问题。
-
-主要修改文件：`pyproject.toml`、`Dockerfile`、`compose.yaml`、`.env.example`、
-`app/core/config.py`、`app/core/paths.py`、`app/modules/logs/router.py`、`app/web.py`、
-`tests/integration/test_pages.py`、`deploy/README.md`、`how_use.md`、`readme.md`、
-`storage/README.md`、`AGENTS.md`、`docs/COLLABORATION.md`。
-
-执行的验证：默认、开发、本机局域网和服务器局域网四种 Compose 组合均通过
-`config --quiet`；另用无密钥环境验证自定义绝对存储路径、UID/GID 与默认端口解析。
-从 DaoCloud 加速地址取得 `linux/amd64` Python 基础镜像后，使用中科大 PyPI
-临时构建源完成最终验证镜像；容器以 uid/gid 1000 非 root 运行，`pip check` 无
-冲突，关键依赖导入、Doctor 0.2.0 与 FFmpeg 通过。全仓库 `ruff check app tests`
-通过，pytest 48 项全部通过，仅有一条来自 Starlette/AnyIO 的上游弃用警告。最终
-镜像在不挂载宿主机源码和真实数据的条件下为 healthy，工作台、上传、数据管理、
-标注、处理、质检和报告回收站页面均返回 HTTP 200。新旧镜像显示大小均约
-1.55 GB，没有因本次合并异常膨胀。
-
-未完成或已知问题：当前网络仍不能直连 Docker Hub，最终验收通过经确认的临时
-加速地址取得基础镜像；生产环境应优先使用公司仓库或受控镜像缓存。全仓库
-`ruff format --check` 会建议机械格式化 28 个历史文件，本次为避免产生大面积无关
-差异，只格式化实际修复文件；规则检查已经完全通过。当前正式运行容器未被替换。
-
-是否修改共享文件：是，修改依赖、Docker/Compose、公开环境变量示例及共同文档；
-未修改 SQLite 表结构、数据集内容、现有 DS 编号、质检任务或真实 `.env`。
-
-下一步建议：双方审阅当前差异后提交并推送集成分支；确认备份和 `.env` 后，再由
-负责人决定是否将正式 Compose 服务替换为本次验收镜像。合并 `main` 前在目标
-服务器使用实际 UID/GID 与 HKC_STORAGE_PATH 再执行一次部署验收。
-
-日期：2026-10-21
-
-开发者/分支：Heisan / `integration/hs-lxp-v2`
-
-完成内容：废止并移除空的 `storage/detected/`。质检不再复制完整数据集，结论由
-SQLite 任务/人工审核状态和 `storage/reports/qc/` 报告共同表达。将原来的报告
-永久删除改为可恢复回收站：页面移除报告时原子移动到
-`storage/trash/reports/<DS 编号>/`，隐藏元数据记录原路径和 UTC 移入时间；新增
-回收站列表、查看、下载和恢复功能，不提供永久清空接口。质检任务和审核历史在
-移入及恢复过程中均保持不变，同名文件不会被覆盖。
-
-主要修改文件：`app/modules/datasets/service.py`、
-`app/modules/datasets/router.py`、`app/templates/data_reports.html`、
-`app/templates/qc_report.html`、`app/static/js/data_reports.js`、
-`app/static/css/data.css`、`tests/integration/test_data_management.py`、
-`storage/trash/reports/.gitkeep`、`storage/README.md`、`AGENTS.md`、
-`readme.md`、`docs/COLLABORATION.md`。
-
-执行的验证：移除前确认 `storage/detected/` 为空；相关 Ruff 检查通过，数据管理与
-质检回归测试共 21 项全部通过。测试覆盖移入、回收站列表/读取、元数据、恢复、
-同名防覆盖、路径安全及任务/审核记录保留。运行中容器保持健康，当前报告页、
-回收站页和质检页均返回 HTTP 200。
-
-未完成或已知问题：首期不提供回收站永久清空功能，也不自动按时间清理。正式存储
-目前没有报告被移动；需要使用者在页面用一份可恢复的测试报告做一次人工验收。
-
-是否修改共享文件：修改了数据管理报告接口和页面、存储约定及协作规则；未修改
-SQLite 表结构、现有 DS 编号、数据集内容、质检任务或人工审核记录。
-
-下一步建议：打开 `/data/reports/` 将一份测试报告移入回收站，再到“回收站”页
-确认查看、下载和恢复均正常；之后再继续真实 VLM 端到端质检验收。
-
-日期：2026-10-21
-
-开发者/分支：Heisan / `integration/hs-lxp-v2`
-
-完成内容：完成集成计划第七步的本地质检适配。确认质检方案版本、Doctor、机器人
-规则、VLM、任务历史、隐藏与恢复、人工审核和数据管理状态回显均已使用统一 DS
-编号；Raw 与 Derived 数据集都可创建质检任务。新增公共 LeRobot v3 task 读取器，
-使标注和 VLM 共用官方 `tasks.parquet` Pandas 索引语义，并让 VLM 正确读取 Episode
-的 `tasks` 列；缺少 Episode task 时可根据 frame `task_index` 回查任务文本。
-
-主要修改文件：`app/modules/datasets/lerobot_v3.py`、
-`app/modules/annotation/service.py`、`app/modules/quality/vlm.py`、
-`tests/integration/test_quality.py`、`readme.md`、`docs/COLLABORATION.md`。
-
-执行的验证：相关 Ruff 检查通过；质检、数据管理和标注集成测试共 26 项全部通过。
-测试覆盖官方索引格式、多 task Episode 传入 VLM、Derived DS 创建质检任务及报告
-保存真实存储区域。VLM 使用模拟函数，没有调用公司服务或上传真实视频。
-
-未完成或已知问题：尚未在公司网络中使用真实 VLM 地址执行端到端视频质检；正式
-测试前仍需确认 `.env` 中地址、Token、模型名及服务器接口兼容性。报告移入回收站
-属于后续计划，不在本步骤中修改。
-
-是否修改共享文件：新增数据集公共元数据读取模块，并让标注、质检共享该逻辑；
-未修改 SQLite 表结构、现有数据集、DS 编号或正式质检记录。
-
-下一步建议：先用一个小型已登记 Raw 数据集关闭 VLM 完成 Doctor/机器人规则人工
-验收，再在公司网络中启用一条 VLM 规则进行端到端验证，最后用 Derived DS 重复
-一次并完成人工审核。
-
-日期：2026-10-21
-
-开发者/分支：Heisan / `integration/hs-lxp-v2`
-
-完成内容：使用 `git worktree move` 将集成 worktree 从 Codex 项目镜像目录安全
-移动到 `~/vscode_project/HKC/HKC_Data_Platform_merge`，保留未提交改动、`.env`、
-SQLite、Raw 数据和上传记录；从新目录重建局域网容器并验证 `/data/staging` 可写。
-同时定位上传误报权限问题：LeRobot v3 ZIP 的 `robot_type` 为 `null` 时，上传预检
-允许继续但统一登记层拒绝，异常最终被错误包装成 500。现统一按“未声明”登记，
-质检方案及重新扫描使用相同规范；其他可预期登记错误会返回真实校验原因。
-
-主要修改文件：`app/modules/datasets/service.py`、
-`app/modules/datasets/router.py`、`app/modules/ingestion/service.py`、
-`app/modules/quality/catalog.py`、`app/modules/quality/service.py`、
-`tests/integration/test_ingestion.py`、`how_use.md`、`readme.md`、
-`docs/COLLABORATION.md`。
-
-执行的验证：新容器健康检查通过，bind mount 已指向新目录，容器临时写入测试
-通过；相关 Ruff 检查通过，上传、质检和数据管理共 23 项测试通过；实际
-`my_sim_dataset.zip` 在一次性临时目录中成功完成解压与登记模拟，识别 47 个
-Episodes、4700 帧并以“未声明”机器人类型登记，未写入正式 storage。
-
-未完成或已知问题：此前 15 条失败上传记录作为历史事实继续保留；实际 ZIP 尚未
-替使用者再次正式上传。未声明机器人类型的数据可以进入平台，但团队仍应在数据
-采集规范中决定是否要求采集端填写明确类型。
-
-是否修改共享文件：修改了统一登记、上传和质检对缺失机器人类型的共同解释；
-未修改 SQLite 表结构、数据集内容或现有 DS 编号。
-
-下一步建议：由使用者在上传页重新提交同一个 ZIP，确认正式入库后获得新 DS 编号；
-再继续第七步质检适配。
-
-日期：2026-10-21
-
-开发者/分支：Heisan / `integration/hs-lxp-v2`
-
-完成内容：验收并补齐集成计划第六步。确认标注和数据处理均使用统一 DS 编号解析
-Raw/Derived 真实目录；发布结果进入 `storage/derived/` 后自动登记新 DS 并保存
-来源关系。数据处理任务输出改为可点击结果，可直接把新派生 DS 载入处理工作台；
-标注发布原有的自动切换新 DS 行为保持不变。
-
-主要修改文件：`app/static/js/processing.js`、`app/static/css/processing.css`、
-`app/templates/preprocess.html`、`tests/integration/test_annotation.py`、
-`tests/integration/test_processing.py`、`readme.md`、`docs/COLLABORATION.md`。
-
-执行的验证：一次性项目容器内运行相关 Ruff 检查通过，标注和处理集成测试共
-10 项全部通过；新增
-断言确认派生结果获得 `DS000002`、登记区域为 `derived`、真实目录映射正确且来源
-为 `DS000001`。`git diff --check` 通过。
-
-未完成或已知问题：数据处理是后台任务，拆分操作可能一次生成多个 DS，因此页面
-在任务完成后提供逐个点击载入，而不是擅自自动选择其中一个。当前容器内任务仍不
-支持重启续跑，该限制不属于本次 DS 适配范围。
-
-是否修改共享文件：修改了数据处理前端及项目说明，没有修改 SQLite 表结构、
-Compose、Dockerfile、上传或质检实现。
-
-下一步建议：人工用小型已备份数据集各发布一次标注派生版本和处理派生版本，确认
-页面能载入新 DS 后，再进入集成计划第七步的质检适配验收。
-
-日期：2026-10-21
-
-开发者/分支：Heisan / `integration/hs-lxp-v2`
-
-完成内容：新增平台日常使用文档，说明切换网络后重新确认局域网 IPv4、使用 LAN
-Compose 覆盖配置强制重建容器、配置和验证公司 VLM、查看状态与日志、停止平台及
-常见网络故障排查方法。
-
-主要修改文件：`how_use.md`、`docs/COLLABORATION.md`。
-
-执行的验证：使用占位局域网地址完成 Compose 组合配置解析；`git diff --check`
-通过。
-
-未完成或已知问题：VLM 的真实地址、端口、Token、公司网段和防火墙规则仍需由
-实际部署环境提供，文档没有写入任何凭据。
-
-是否修改共享文件：只新增使用文档并更新协作交接记录，没有修改应用、镜像或
-Compose 行为。
-
-下一步建议：回到公司网络后按 `how_use.md` 的最短操作清单重新创建容器，并在
-容器内部验证 `/models` 连通性。
-
-日期：2026-10-20
-
-开发者/分支：Heisan / `hs_docker`
-
-完成内容：为数据处理模块增加早期 LeRobot v3 Episode 元数据兼容。源数据缺少
-`data/chunk_index`、`data/file_index` 时，根据 `info.json.data_path` 和 frame
-Parquet 的 `episode_index` 自动反查所在分片；同时把 `num_frames/task` 映射为
-`length/tasks`。兼容仅发生在内存读取层，派生输出补齐标准字段，raw 不被改写。
-
-主要修改文件：`app/modules/processing/service.py`、
-`tests/integration/test_processing.py`、数据处理相关说明。
-
-执行的验证：处理模块 Ruff 通过，全平台 26 项自动化测试通过。真实“测试”数据集
-成功读取 7 个 Episodes、2,647 帧、20 FPS、zhiyan 和 2 路视频；每个 Episode 的
-长度、时长和 task 均成功返回。未向真实数据生成派生版本。
-
-未完成或已知问题：自动反查要求一个 Episode 的 frame 数据位于单个 Parquet；
-如果未来出现一个 Episode 跨多个 Parquet 的非标准数据，需要先增加重组策略。
-
-是否修改共享文件：否；没有增加依赖或修改 Compose。
-
-下一步建议：由使用者继续提出数据处理交互要求；正式执行前先用已备份的小数据
-集验证视频重编码和派生版本的训练读取。
-
-日期：2026-10-20
-
-开发者/分支：Heisan / `hs_docker`
-
-完成内容：将 `/preprocess/` 从静态说明页改为真实 LeRobot v3 数据处理工作台。
-支持 Episode 筛除并生成派生数据集、按比例或显式编号拆分、完全兼容数据集合并、
-Episode 完整顺序重排，以及 frame Parquet 精确重复检测和去重。所有操作保持源数据
-只读，重新映射 Episode/frame/index/task，迁移已有旁路标注，并将视频按新 Episode
-边界重新编码后发布为完整派生数据集。
-
-主要修改文件：`app/modules/processing/`、`app/templates/preprocess.html`、
-`app/static/css/processing.css`、`app/static/js/processing.js`、
-`tests/integration/test_processing.py`、`pyproject.toml` 及项目/模块/存储说明。
-
-执行的验证：处理模块 Ruff 通过；全平台 25 项自动化测试通过；PyAV 人工生成的
-10 帧视频成功裁出 3 帧 H.264 MP4。只读浏览器验证真实 SmolVLA v3 数据成功显示
-50 个 Episodes、19,631 帧、so100、30 FPS 和 2 路视频，五种操作面板可切换，
-Episode 选择联动正常；精确重复扫描完成且未发现重复，控制台无错误。没有对真实
-数据创建派生版本。
-
-未完成或已知问题：第一版每个输出写入单个 Parquet shard；重复检测只比较去除
-全局 index 后的 frame 数据，不解码视频判断视觉相似；任务运行在 Web 进程后台，
-容器重启后不能续跑，也未实现任务取消和并发队列。大数据量或多人并发后应拆分
-独立 Worker。
-
-是否修改共享文件：是，在 `pyproject.toml` 增加 `av==15.0.0`，用于派生数据集的
-视频切片和 H.264 重编码；LXP 合并或重建镜像时必须保留。同步更新了 `AGENTS.md`
-中的 Heisan 负责范围。
-
-下一步建议：先用已备份的小型真实数据集分别人工生成一次筛除和拆分版本，核对
-视频、Parquet 和训练读取；确认后再评估多 shard 输出、持久任务队列和视觉近似
-重复检测。
-
-日期：2026-10-19
-
-开发者/分支：Heisan / `hs_docker`
-
-完成内容：按 LeRobot 官方 v3 实现修正标注模块兼容性。`tasks.parquet` 不再强制
-要求物理 `task` 列，而是使用 Pandas DataFrame 的 task 索引；写回派生版本也采用
-官方索引语义。Episode 帧数改读官方 `length` 字段，并兼容平台早期格式。
-
-主要修改文件：`app/modules/annotation/service.py`、
-`tests/integration/test_annotation.py`、`pyproject.toml` 及标注相关说明。
-
-执行的验证：标注模块 Ruff、5 项标注回归测试以及全平台 21 项自动化测试通过；
-真实 SmolVLA v3 数据成功读取 50 个 Episodes、19,631 帧、1 个 task 和 2 路视频。
-浏览器中 Episode 0000 显示
-454 帧、15.133 秒，两路视频均加载到 readyState 4，控制台无错误。未向真实数据
-发布派生版本。
-
-未完成或已知问题：只适配当前使用到的 LeRobot v3 元数据；尚未运行完整 Doctor
-级别的一致性检查。平台扩展标注仍使用 `meta/annotations/` 旁路文件。
-
-是否修改共享文件：是，在 `pyproject.toml` 增加 `pandas==2.3.3`；LXP 重建镜像
-或调整依赖时应保留 pandas 与 pyarrow。
-
-下一步建议：由使用者在可备份数据集上人工发布一个派生标注版本；随后实现数据
-质检流程并接入 LeRobot Doctor。
-
-日期：2026-10-19
-
-开发者/分支：Heisan / `hs_docker`
-
-完成内容：扩展 `/annotation/`，新增 Episode 执行结果（成功、部分成功、失败及
-原因）和真实 Subtask 时间段标注；支持从视频播放位置取开始/结束时间，记录描述、
-动作类型、对象及该段结果，并在时间轴中查看、定位、编辑和删除。正式发布仍创建
-完整派生数据集；新增标注写入 `meta/annotations/` 旁路 Parquet，同时保存秒数和
-换算后的帧区间，不修改 LeRobot v3 核心 feature。
-
-主要修改文件：`app/modules/annotation/`、`app/templates/annotation.html`、
-`app/static/css/annotation.css`、`app/static/js/annotation.js`、
-`tests/integration/test_annotation.py`、项目和存储说明。
-
-执行的验证：Ruff 通过；全部自动化测试 20 项通过；浏览器使用真实 7 个 Episodes
-和两路视频完成执行结果、失败原因、Subtask 添加、时间轴和暂存流程验证，控制台
-无错误。发布写入测试只使用临时合成数据，没有向真实数据集发布测试版本。
-
-未完成或已知问题：当前是单人浏览器草稿，没有多人审核/锁定、自动保存、后台
-发布队列和断点恢复；Subtask 动作类型为自由输入加常用建议，尚未建立团队统一词表。
-
-是否修改共享文件：是，只更新文档中的标注能力和存储约定；未修改 LXP 的数据
-管理或导出业务。
-
-下一步建议：由使用者用一个可备份数据集人工发布首个标注版本，确认团队希望采用
-的动作类型词表；随后再实现质检或标注审核流程。
-
-日期：2026-10-19
-
-开发者/分支：Heisan / `hs_docker`
-
-完成内容（历史记录，已于 2026-10-21 废止）：曾新增 `storage/detected/`，用于
-保存质检通过后的完整数据集；现已改为 SQLite 状态与 `reports/qc/` 报告表达结论。
-
-主要修改文件：`storage/detected/.gitkeep`、`storage/README.md`、`AGENTS.md`、
-`readme.md`、`docs/COLLABORATION.md`。
-
-执行的验证：确认目录骨架可被 Git 跟踪，且真实运行内容仍受 `.gitignore` 保护；
-`git diff --check` 通过。
-
-未完成或已知问题：当前只建立目录与使用规则，真实质检业务尚未实现，因此不会
-自动向 `detected/` 写入数据集。
-
-是否修改共享文件：是，只补充存储目录约定，没有修改 LXP 的数据管理代码。
-
-下一步建议（已废止）：不再向 `detected/` 写入或复制数据集。
-
-日期：2026-10-19
-
-开发者/分支：Heisan / `hs_docker`
-
-完成内容：实现 `/annotation/` 第一版真实 LeRobot v3 Episode/task 标注工作台；
-读取真实任务表和 Episode 元数据，按元数据定位并播放多相机视频；支持单选、批量
-选择和 task 草稿修改；每次正式发布创建完整派生数据集，并同步更新任务表、
-Episode 元数据、frame `task_index` 和 `info.json.total_tasks`。
-
-主要修改文件：`app/modules/annotation/`、`app/templates/annotation.html`、
-`app/static/css/annotation.css`、`app/static/js/annotation.js`、`pyproject.toml`、
-`tests/integration/test_annotation.py`、存储与协作文档。
-
-执行的验证：Ruff 对本次标注模块检查通过；全部自动化测试 18 项通过；真实上传
-数据成功读取 7 个 Episodes、1 个 task 和 2 路视频索引；真实 MP4 Range 请求返回
-206；浏览器实测两路视频均进入 readyState 4，并同步播放到相同时间点，无控制台
-错误。发布写入测试只使用临时合成数据，确认完整复制且原始数据不变。
-
-未完成或已知问题：当前只修改每个 Episode 的单一 task 提示词；尚未支持帧级
-分段标注、多人审核/锁定、发布任务后台队列和发布进度恢复。完整副本会占用与源
-数据集近似的额外空间，发布期间 HTTP 请求需要保持连接。
-
-是否修改共享文件：是，在 `pyproject.toml` 增加 `pyarrow==26.0.0`，用于直接
-读取和写入 LeRobot v3 Parquet；没有加入 PyTorch、CUDA 或训练框架。LXP 更新
-依赖或镜像时应保留该运行依赖。
-
-下一步建议：由使用者人工修改一个可备份的小数据集并正式发布，确认业务 task
-文案；后续再决定是否增加帧级时间段标注、审核流与后台任务。
-
-日期：2026-10-19
-
-开发者/分支：Heisan / `hs_docker`
-
-完成内容：实现 `/ingestion/` 原始数据集上传页面和真实 API；上传内容分块进入临时
-区，经 ZIP 安全检查和 LeRobot v3.0 最低结构检查后，安全解压到原始区；增加文件
-式上传记录、页面进度反馈和失败原因展示。
-
-主要修改文件：`app/modules/ingestion/`、`app/templates/ingestion.html`、
-`app/static/css/ingestion.css`、`app/static/js/ingestion.js`、`app/main.py`、
-`app/templates/base.html`、`app/templates/data.html`、`tests/integration/`。
-
-执行的验证：Python 语法检查和 `git diff --check` 通过；上传页面、CSS、JavaScript
-实际返回 HTTP 200；自动化测试 16 项通过，覆盖有效 v3 入库、错误版本拒绝和 ZIP
-路径穿越拒绝。
-
-未完成或已知问题：当前只做最低结构验证，不解析 Parquet 语义，也不执行
-LeRobot Doctor；上传在单应用容器内处理，后续超大数据和并发任务需要再评估独立
-Worker；数据管理列表尚需由 `lxp_docker` 读取新入库目录。
-
-是否修改共享文件：是，注册了上传路由、增加公共导航入口，并把数据管理页原有
-无行为的“上传数据”按钮链接到 `/ingestion/`。LXP 合并数据管理页面时应保留该
-链接，不要复制上传业务代码。
-
-下一步建议：先用一个真实但可备份的小型 LeRobot v3.0 ZIP 做人工验收；随后由
-`lxp_docker` 在数据管理列表中扫描 `storage/raw/` 并关联文件式上传记录。
-
-日期：2026-10-19
-
-开发者/分支：Heisan / `hs_docker`
-
-完成内容：新增 `deploy/compose.lan.yaml`，在不改变默认本机绑定的前提下，支持
-显式绑定可信局域网 IPv4 地址；补充启动、验证、停止和 UFW 最小放行说明。
-
-主要修改文件：`deploy/compose.lan.yaml`、`deploy/README.md`、`readme.md`。
-
-执行的验证：默认模式实际监听 `127.0.0.1:8000` 且内网地址拒绝连接；局域网模式
-实际监听 `192.168.43.7:8000`，容器健康，`/dashboard/` 返回 HTTP 200；两种
-Compose 组合均通过 `docker compose config`。
-
-未完成或已知问题：UFW 已启用，但规则详情需要本机 sudo 密码；仍需使用另一台
-位于 `192.168.43.0/24` 的真实机器完成最终访问测试，必要时按部署文档添加仅限
-该网段的防火墙规则。
-
-是否修改共享文件：修改了 `readme.md`，只增加局域网部署入口说明；未修改应用
-页面和数据管理业务。
-
-下一步建议：另一台机器访问 `http://192.168.43.7:8000/`；如果失败，先检查
-`sudo ufw status verbose`，不要开放不限制来源的 8000 端口。
-
-日期：2026-10-19
-开发者/分支：共同基线 / `main`  
-完成内容：Platform v2 目录重构、单容器开发环境、`storage/` 文件存储边界以及
-协作规范。  
-主要修改文件：`app/`、`storage/`、`Dockerfile`、Compose 文件、项目 README。  
-执行的验证：容器健康；`/dashboard/`、`/data/`、`/qc/` 返回 HTTP 200。  
-未完成或已知问题：页面仍以静态演示数据为主；上传、真实扫描、导出、质检等
-业务尚未完整迁移。  
-是否修改共享文件：是，已形成当前 `main` 基线。  
-下一步建议：双方分别在 `hs_docker` 与 `lxp_docker` 完成上述任务，避免交叉修改。
-
-## 七、给双方 Codex 的启动提示
-
-每次开启新的 Codex 对话，可先发送：
-
-```text
-请先完整阅读仓库根目录 AGENTS.md、docs/COLLABORATION.md、readme.md，以及我所
-负责模块中的 README。先报告当前 Git 分支、工作区状态、我的负责范围和可能冲突
-的共享文件，再开始修改。不要修改另一位开发者的负责范围，不要直接推送 main。
-```
+每次只保留最近一次有效交接。更早历史通过 Git 提交记录查询，不再追加到本文。

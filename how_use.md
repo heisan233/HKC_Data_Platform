@@ -1,897 +1,323 @@
-# HKC 数采平台拉取、部署、启动与网络切换
+# HKC 数采平台日常使用手册
 
-本文用于以下常见情况：
+本文只保留当前 MySQL 版本的有效操作。项目原理和功能范围见 `readme.md`，服务器
+部署细节见 `deploy/README.md`。
 
-- 电脑切换了 Wi-Fi、有线网络或手机热点，本机 IPv4 地址发生变化；
-- 原来的网页地址无法访问，需要用新地址重新启动平台；
-- 回到公司网络后，需要让平台连接公司服务器上的 VLM；
-- 查看容器状态、日志，或者停止平台。
+## 1. 第一次使用
 
-> 当前平台已有基础登录鉴权，但没有 HTTPS。局域网模式仍只允许在可信内网使用，
-> 不要映射到公网，也不要在路由器上配置端口转发。
-
-## 当前本机同时运行 SQLite 与 MySQL 版本
-
-当前重庆集成工作目录为：
-
-```text
-/home/heisan/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
-```
-
-本机 MySQL 验收版使用 Docker 项目名 `hkc-v31-mysql`，网页地址是：
-
-```text
-http://127.0.0.1:18001/login
-```
-
-旧 SQLite v3.0.2 仍可保留在 `http://127.0.0.1:8000/login`。两者必须使用不同的
-持久化目录，不能共用可写 `storage/`。在 MySQL 工作目录启动：
+进入包含 `compose.yaml` 的项目根目录：
 
 ```bash
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  up -d --no-build --wait
-```
-
-查看状态与日志：
-
-```bash
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml ps
-
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml logs -f platform mysql
-```
-
-停止时使用完全相同的项目名和配置组合：
-
-```bash
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml down
-```
-
-### 本机 MySQL 验收版用户管理
-
-ps:重庆服务器上创建用户等操作使用以下server.env
-```bash
-cd /media/zzjj/A21E6DDF1E6DACCB/vscode_project/HKC_Data_Platform
-
-docker compose \
-  --env-file /home/zzjj/vscode_project/hkc-platform-config/server.env \
-  -p hkc-vla \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f compose.server.yaml \
-  exec platform \
-  python -m app.cli.create_user --username
-```
-
-
-本机 `18001` 版本必须始终带上项目名 `hkc-v31-mysql` 和三份 Compose 配置，不能
-直接使用简写的 `docker compose exec platform`。
-
-创建用户：
-
-```bash
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform \
-  python -m app.cli.create_user --username <用户名>
-```
-
-查看、重置密码、停用和启用用户：
-
-```bash
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform python -m app.cli.list_users
-
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform python -m app.cli.reset_user_password --username <用户名>
-
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform python -m app.cli.disable_user --username <用户名>
-
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform python -m app.cli.enable_user --username <用户名>
-```
-
-`<用户名>` 必须替换为实际用户名，例如 `test_user`，不能只写到 `--username`。
-创建和重置密码时，终端会隐藏密码输入。
-
-### 机器人采集 Token 管理
-
-新机器人在网页登记成功时会自动生成一个上传 Token，并弹窗显示一次完整值；关闭
-弹窗后网页只显示状态与前缀。
-完整值必须在部署机终端查看；不要把真实 Token 写进 Git、`.env.example` 或文档。
-本机 `18001` 验收版使用同一组 Compose 前缀：
-
-```bash
-# 查看已有机器人的完整 Token
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform python -m app.cli.show_robot_token --robot-id RB000001
-
-# 仅用于旧机器人缺少 Token 的情况
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform python -m app.cli.create_robot_token --robot-id RB000001
-
-# 重新生成会让旧 Token 立即失效
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform python -m app.cli.regenerate_robot_token --robot-id RB000001
-
-# 删除后该机器人不能再通过机器接口上传
-docker compose --env-file .env -p hkc-v31-mysql \
-  -f compose.yaml -f compose.dev.yaml \
-  -f deploy/compose.local-mysql.yaml \
-  exec platform python -m app.cli.delete_robot_token --robot-id RB000001
-```
-
-采集工具索引位于 `tools/README.md`：`tools/collector_v1/` 保留人工单 ZIP 上传；
-`tools/auto_update/` 在采集完成后运行一次，可扫描多个 LeRobot v3 文件夹或 ZIP、
-顺序上传并退出。成功后自动登记 DS、关联机器人并标记为不可用、待质检，不会自动
-启动质检。第二版不是常驻服务，也不需要 systemd。
-
-`.env` 包含本机路径和数据库密码，已被 Git 忽略，不得上传。全新的 MySQL 数据目录
-不会自动继承旧 SQLite 账号和业务记录，需要重新交互创建网页用户。
-
-## 一、同事第一次拉取并构建集成分支
-
-本节适用于同事在另一台 Ubuntu 电脑或服务器上第一次部署
-`integration/hs-lxp-v3.1-cq`。Git 只传输代码和公开配置，不传输 `.env`、数据集、
-MySQL 数据目录、报告、模型或其他运行数据。旧 `platform.sqlite` 原样保留，
-不导入新 MySQL；`registry.sqlite3` 由 HS 独立负责。
-
-### Git 会带来什么
-
-克隆正确分支后，以下公开文件会自动存在，不需要手工重写：
-
-- `Dockerfile`、`compose.yaml`、`compose.dev.yaml`；
-- `deploy/compose.lan.yaml`；
-- `.env.example`；
-- 应用代码、网页资源、数据库表结构代码和 `storage/` 空目录骨架。
-
-### Git 不会带来什么
-
-以下内容被 `.gitignore` 排除或属于操作系统配置，每台设备都必须单独准备：
-
-| 内容 | 新设备上的处理方式 |
-| --- | --- |
-| `.env`、`.env.*` | 从 `.env.example` 新建，重新填写本机路径、UID/GID、IP、VLM 地址和 Token |
-| `storage/` 真实内容 | 新部署保持空目录；迁移时复制完整目录 |
-| MySQL 数据目录 | 新部署使用空目录；迁移时与 `storage/` 一起做一致备份 |
-| `HKC_LAN_BIND_ADDRESS` | 使用新设备当前网卡的私有 IPv4，换网络后重新确认 |
-| 外接硬盘挂载 | 在操作系统中重新挂载并配置开机自动挂载，Git 不管理磁盘 |
-| Docker 代理或镜像加速 | 在新设备重新配置 `/etc/docker/daemon.json` 或 systemd，项目不会上传它们 |
-| UFW/服务器防火墙规则 | 按新网段和实际网卡重新配置，只开放可信内网 TCP 8000 |
-| 已构建 Docker 镜像 | 重新构建、从镜像仓库拉取，或使用 `docker save/load` 单独迁移 |
-| IDE、缓存、日志 | 不需要迁移，会由本机工具和程序重新生成 |
-
-Compose 只会自动读取“项目根目录”中的 `.env`。从另一台设备复制旧 `.env` 很容易
-带入错误 IP、路径或密钥，因此默认做法是从 `.env.example` 重新创建。
-
-### `.env` 变量在什么时候生效
-
-| 变量 | 用途 | 修改后需要什么操作 |
-| --- | --- | --- |
-| `HKC_STORAGE_PATH` | 宿主机持久化目录 | 重新创建容器，并确认目标磁盘已挂载 |
-| `HKC_MYSQL_DATA_PATH` | MySQL 数据目录 | 重新创建容器，并确认权限和磁盘 |
-| `HKC_MYSQL_DATABASE`、`HKC_MYSQL_USER`、`HKC_MYSQL_PASSWORD`、`HKC_MYSQL_ROOT_PASSWORD` | 新库和账号 | 首次启动前配置；密码不得提交 Git |
-| `HKC_IMAGE` | Compose 使用的应用镜像标签 | 重新创建容器；v3.1 镜像必须包含 MySQL 驱动 |
-| `APP_UID`、`APP_GID` | 构建镜像内的非 root 用户 | 必须重新构建镜像；对已加载的离线镜像无效 |
-| `PIP_INDEX_URL`、`PIP_DEFAULT_TIMEOUT` | 构建时下载 Python 包 | 只在重新构建镜像时使用 |
-| `HKC_LAN_BIND_ADDRESS` | 绑定当前设备的可信内网 IPv4 | 使用局域网覆盖配置重新创建容器 |
-| `VLM_BASE_URL`、`VLM_API_TOKEN` | 容器运行时连接 VLM | 重新创建容器，普通 `restart` 不够 |
-| `QC_DOCTOR_TIMEOUT_SECONDS`、上传限制 | 容器运行参数 | 重新创建容器 |
-
-不要在宿主机 `.env` 中设置 `HKC_DATA_ROOT`。它是容器内部固定的 `/data`；宿主机
-目录只能通过 `HKC_STORAGE_PATH` 配置。
-
-### 1. 分支负责人先发布最新代码
-
-同事开始拉取前，分支负责人必须先在当前开发机完成代码审查、提交和推送：
-
-```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
-git status --short --branch
-git log -3 --oneline --decorate
-```
-
-只有工作区修改已经提交，并且执行以下命令成功后，另一台机器才能取得最新版本：
-
-```bash
-git push origin integration/hs-lxp-v3.1-cq
-```
-
-不要为了推送而执行 `git reset`、`git clean` 或强制覆盖远程分支。需要提交哪些
-文件应先由双方审查决定。
-
-### 2. 同事检查 Docker
-
-```bash
-docker --version
-docker compose version
-docker info --format 'Docker Server {{.ServerVersion}}'
-```
-
-三条命令都应正常输出。若最后一条出现访问 `/var/run/docker.sock` 权限不足，应先
-完成 Docker 用户组配置并重新登录，不要长期依赖 `sudo docker`。
-
-### 3. 第一次克隆指定分支
-
-```bash
-mkdir -p ~/vscode_project/HKC
-cd ~/vscode_project/HKC
-
-git clone \
-  --branch integration/hs-lxp-v3.1-cq \
-  https://github.com/heisan233/HKC_Data_Platform.git \
-  HKC_Data_Platform_v3.1-cq
-
-cd HKC_Data_Platform_v3.1-cq
-git status --short --branch
-git log -1 --oneline --decorate
-```
-
-如果同事电脑上已经有这个仓库，不要再次克隆。在工作区没有未提交修改的前提下：
-
-```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
-git fetch origin
-git switch integration/hs-lxp-v3.1-cq
-git pull --ff-only origin integration/hs-lxp-v3.1-cq
-```
-
-如果本地还没有同名分支，则使用：
-
-```bash
-git switch --track origin/integration/hs-lxp-v3.1-cq
-```
-
-`--ff-only` 会在本地与远程已经分叉时停止，避免自动制造意外合并。遇到这种情况先
-查看 `git status` 和本地提交，不要使用强制拉取。
-
-### 4. 创建这台设备自己的配置
-
-```bash
+cd /path/to/HKC_Data_Platform
 cp .env.example .env
-id -u
-id -g
-nano .env
+chmod 600 .env
 ```
 
-将 `APP_UID`、`APP_GID` 改为两条 `id` 命令的实际输出。开发机可保留：
+编辑 `.env`：
 
-```dotenv
-HKC_STORAGE_PATH=./storage
-HKC_MYSQL_DATA_PATH=./mysql-data
-```
+- `HKC_STORAGE_PATH`：数据集、报告、导出和模型目录；
+- `HKC_MYSQL_DATA_PATH`：MySQL 私有数据目录；
+- `HKC_MYSQL_PASSWORD`：平台 MySQL 账号密码；
+- `HKC_MYSQL_ROOT_PASSWORD`：MySQL root 密码；
+- `APP_UID`、`APP_GID`：持久化目录所有者；
+- 可选的 VLM、局域网和训练执行器配置。
 
-重庆服务器的 MySQL 持久化目录已迁至 `/srv/hkc-ai/mysql/data`，在服务器专用
-`server.env` 中设置 `HKC_MYSQL_DATA_PATH=/srv/hkc-ai/mysql/data`。Compose 将它挂载
-为 MySQL 容器内的 `/var/lib/mysql`；这与应用容器的 `/data`（平台 `storage/`）是
-两套独立目录。新数据集写入 `storage/data/<DS 编号>/`，旧 `raw/`、`derived/`
-保持原样。修改 MySQL 路径时不能只改变量，须停服务、备份、冷复制并核对数据后再启动。
+两个 MySQL 密码必须非空且不同，不能写入 Git。storage 与 MySQL 目录也不能使用同一
+路径。
 
-服务器建议设置为已经备份、权限明确的绝对目录。真实 VLM 地址和 Token 只写入
-本机 `.env`，不得提交 Git，也不要直接复制其他人的 `.env`。首次启动前还必须在
-本机 `.env` 填写非空的 `HKC_MYSQL_PASSWORD` 和 `HKC_MYSQL_ROOT_PASSWORD`。
-
-外部存储目录必须在启动前存在，并由 `APP_UID:APP_GID` 对应的用户写入。例如，
-假设额外硬盘已经可靠挂载到 `/mnt/hkc-data`：
+检查目录：
 
 ```bash
-sudo install -d -o "$(id -u)" -g "$(id -g)" /mnt/hkc-data/storage
+mkdir -p "$(awk -F= '/^HKC_STORAGE_PATH=/{print $2}' .env)"
+mkdir -p "$(awk -F= '/^HKC_MYSQL_DATA_PATH=/{print $2}' .env)"
 ```
 
-然后在 `.env` 中设置：
+如果路径含空格或复杂字符，请不要使用上面的便捷命令，改为人工创建准确目录。
 
-```dotenv
-HKC_STORAGE_PATH=/mnt/hkc-data/storage
-```
+## 2. 本机开发
 
-不要把尚未挂载的目录写进 `.env`，否则系统可能在根分区创建同名普通目录，导致
-数据写到错误磁盘。服务器还应由管理员配置 `/etc/fstab`，并在启动平台前用
-`findmnt` 确认额外硬盘确实已挂载。
-
-新的 Git 克隆不会包含原设备的数据。需要复用数据时，必须另行备份原设备
-`HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH` 的完整内容；不能通过 Git 上传。
-
-### 5. 准备基础镜像和 Python 下载源
-
-优先尝试官方 Docker Hub：
+启动或重新创建：
 
 ```bash
-docker pull python:3.11-slim-bookworm
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --force-recreate --wait
 ```
 
-如果当前网络无法访问 Docker Hub，应优先使用公司内部镜像仓库。仅作临时开发
-验证时，也可以从已经审核的加速地址拉取，再标记成 Dockerfile 使用的标准名称：
-
-```bash
-docker pull docker.m.daocloud.io/library/python:3.11-slim-bookworm
-docker tag \
-  docker.m.daocloud.io/library/python:3.11-slim-bookworm \
-  python:3.11-slim-bookworm
-```
-
-默认通过官方 PyPI 构建。如果官方 PyPI 下载过慢，可只在本机 `.env` 中临时改为：
-
-```dotenv
-PIP_INDEX_URL=https://mirrors.ustc.edu.cn/pypi/simple
-PIP_DEFAULT_TIMEOUT=120
-```
-
-不要把个人代理、公司地址或临时镜像地址写进 `.env.example`。
-
-### 6. 网络不稳定服务器使用离线镜像
-
-离线部署必须准备**与 v3.1 代码匹配**的应用镜像，以及 `mysql:8.4` 镜像；
-一期 `hkc-data-platform:v3.0-server` 镜像不包含本次 MySQL 实现，不能用于 v3.1。
-由可联网的构建机在相同架构上构建并导出：
-
-```bash
-docker compose build platform
-docker pull mysql:8.4
-docker save -o hkc-v3.1-images.tar hkc-data-platform:v3.1 mysql:8.4
-sha256sum hkc-v3.1-images.tar > hkc-v3.1-images.tar.sha256
-```
-
-在目标机器校验并导入，再配置本机 `.env`（含两个非空 MySQL 密码和两个独立的
-持久化目录），使用 `docker compose up -d --no-build --wait` 启动。镜像包不包含
-`.env`、`storage/` 或 MySQL 数据目录。
-
-```bash
-sha256sum --check hkc-v3.1-images.tar.sha256
-docker load --input hkc-v3.1-images.tar
-docker compose up -d --no-build --wait
-```
-
-### 7. 第一次构建并以本机开发模式启动
-
-建议先只允许本机访问，确认平台正常后再开放可信局域网：
-
-```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  config --quiet
-
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  up -d --build --wait
-```
-
-浏览器访问：
+访问：
 
 ```text
-http://127.0.0.1:8000/
+http://127.0.0.1:8000/login
 ```
 
-#### 创建和检查平台用户
+`compose.dev.yaml` 只读挂载 `app/` 和 `migrations/`，Python 改动通常会自动
+重载。修改依赖、Dockerfile 或镜像内文件后必须重新构建。
 
-全新 MySQL 数据库没有默认账号。容器健康后必须由管理员交互创建首个用户。推荐
-明确写出用户名，密码仍由终端隐藏输入：
-
-> 本节命令适用于使用相同默认 Compose 组合启动的环境。当前开发机的 `18001`
-> MySQL 验收版请使用文档开头“本机 MySQL 验收版用户管理”的完整命令。
+查看状态和日志：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  exec platform \
-  python -m app.cli.create_user --username <用户名>
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml ps
+
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml logs -f --tail=200 platform
 ```
 
-将 `<用户名>` 换成实际用户名，不要输入尖括号。也可以省略 `--username`，此时
-用户名同样由终端询问。随后根据提示输入两次密码；密码不会显示。命令故意不提供
-`--password` 参数，禁止把密码写入 Git、`.env`、Compose、文档或命令参数。
-
-同一命令既能创建首个用户，也能继续创建其他用户。用户名不区分英文字母大小写，
-重复创建会明确失败且不会覆盖旧密码。新用户首次登录后只能进入修改初始密码页面；
-设置至少 8 位的新密码并重新登录后，才可访问平台其他页面。创建后可安全查看账号摘要：
+停止但保留数据：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  exec platform \
-  python -m app.cli.list_users
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml down
 ```
 
-列表只显示 ID、用户名、显示名称、启用状态、初始密码状态、创建时间和最近登录时间，
-不显示密码哈希、密码或会话令牌。用户保存在 MySQL 中：重启或重建容器不会丢失；使用全新 MySQL
-数据目录时不会自动带来旧用户，必须重新创建。
-
-重置密码、停用和重新启用用户：
+仅重启已有容器：
 
 ```bash
-# 重置为新的初始密码；终端会隐藏输入，用户下次登录必须自行改密
-docker compose exec platform \
-  python -m app.cli.reset_user_password --username <用户名>
-
-# 停用后立即注销该用户全部浏览器会话
-docker compose exec platform \
-  python -m app.cli.disable_user --username <用户名>
-
-# 重新启用；原密码或重置后的初始密码规则保持不变
-docker compose exec platform \
-  python -m app.cli.enable_user --username <用户名>
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml restart platform
 ```
 
-平台不提供公开注册、网页后台用户管理或账号删除。普通用户登录后点击页面右上角的
-显示名称进入 `/account/`，可修改显示名称和密码。用户名不可修改，显示名称不能为空。
-修改密码成功后，该用户在所有浏览器和设备上的会话都会失效，必须使用新密码重新
-登录；退出登录只结束当前浏览器会话。
+`restart` 不会重新读取新的 Compose 挂载、端口或环境变量。配置变化时使用
+`up -d --force-recreate --wait`。
 
-正式部署或局域网部署时命令相同，只需在启动平台所用的项目目录中执行：
+## 3. 本机 18001 并行验收
+
+当 8000 端口被另一套平台占用时：
 
 ```bash
-docker compose exec platform \
-  python -m app.cli.create_user --username <用户名>
+docker compose --env-file .env -p hkc-v31-mysql -f compose.yaml -f compose.dev.yaml -f deploy/compose.local-mysql.yaml up -d --build --wait
 ```
 
-如果没有使用 Docker，也可以在项目 Python 环境中执行：
+访问 `http://127.0.0.1:18001/login`。项目名 `hkc-v31-mysql` 只是容器命名隔离，
+不改变数据库内容；必须仍使用独立 storage 和 MySQL 目录。
 
-```bash
-python -m app.cli.create_user --username <用户名>
-python -m app.cli.list_users
-python -m app.cli.reset_user_password --username <用户名>
-python -m app.cli.disable_user --username <用户名>
-python -m app.cli.enable_user --username <用户名>
-```
+## 4. 可信局域网
 
-此时命令写入 `HKC_MYSQL_HOST`、`HKC_MYSQL_PORT`、`HKC_MYSQL_DATABASE` 指定的
-MySQL；执行前务必确认连接配置，避免在错误的数据库中创建账号。
-
-检查容器、依赖和工作台：
-
-```bash
-docker compose -f compose.yaml -f compose.dev.yaml ps
-
-docker compose -f compose.yaml -f compose.dev.yaml \
-  exec platform python -m pip check
-
-curl -fsS http://127.0.0.1:8000/healthz
-```
-
-正常结果应为容器 `healthy`、pip 没有依赖冲突并返回 `{"status":"ok"}`。浏览器
-打开平台后应先进入 `/login`；需要让其他设备访问时，再按照本文“三、选择访问
-方式”的局域网步骤重新创建容器。
-
-### 8. 开发前运行自动化测试
-
-正式运行镜像不包含 pytest/Ruff。测试须连接**隔离的** MySQL 测试实例，提供
-`HKC_TEST_MYSQL_HOST`、`HKC_TEST_MYSQL_PORT`、
-`HKC_TEST_MYSQL_ROOT_PASSWORD`；测试逐例创建和删除独立数据库。
-完整测试命令见 `tests/README.md`。不可将测试配置指向正式 MySQL 服务或
-真实 `storage/`。
-
-### 9. 以后获取同事提交的更新
-
-先停止正在修改文件，确认自己的工作已经提交或妥善保存，然后执行：
-
-```bash
-git status --short --branch
-git fetch origin
-git pull --ff-only origin integration/hs-lxp-v3.1-cq
-```
-
-普通 Python/HTML/CSS 修改在开发模式下通常会热重载；如果更新包含 Dockerfile、
-`pyproject.toml` 或 Compose 配置，则重新执行：
-
-```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  up -d --build --force-recreate --wait
-```
-
-## 二、进入项目目录
-
-打开终端，进入包含 `compose.yaml` 的项目根目录：
-
-```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
-```
-
-确认位置正确：
-
-```bash
-pwd
-ls compose.yaml compose.dev.yaml deploy/compose.lan.yaml
-```
-
-下文所有 Docker 命令都在这个目录执行。
-
-首次运行时创建本机配置；如果 `.env` 已存在则不要覆盖：
-
-```bash
-cp .env.example .env
-id -u
-id -g
-```
-
-确认 `.env` 中的 `APP_UID`、`APP_GID` 与两条命令输出一致。默认
-`HKC_STORAGE_PATH=./storage`；如果服务器把数据放在其他磁盘，应改成对应绝对
-路径，并保证该目录归相同 UID/GID 所有。容器内路径始终是 `/data`。
-
-## 三、选择访问方式
-
-### 方式 A：只有本机访问
-
-如果只需要在运行 Docker 的这台电脑上打开网页，不需要其他电脑访问，执行：
-
-```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  up -d --force-recreate --wait
-```
-
-浏览器访问：
-
-```text
-http://127.0.0.1:8000/
-```
-
-这种模式绑定 `127.0.0.1`，切换网络后一般不需要修改 IP。
-
-### 方式 B：允许可信局域网中的其他设备访问
-
-这种模式需要使用电脑在当前网络中的 IPv4 地址。切换网络后，地址可能改变，
-必须用新地址重新创建容器；只执行 `docker compose restart` 不会更新端口绑定。
-
-#### 1. 查找当前 IPv4 地址
+查看本机 IPv4：
 
 ```bash
 ip -br -4 address show
 ip -4 route show
 ```
 
-选择当前联网网卡上的私有 IPv4，例如：
+把可信局域网网卡的实际地址写入当前终端：
+
+```bash
+read -r -p "请输入本机可信局域网 IPv4：" HKC_LAN_BIND_ADDRESS
+export HKC_LAN_BIND_ADDRESS
+```
+
+启动开发模式局域网：
+
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml -f deploy/compose.lan.yaml up -d --build --force-recreate --wait
+```
+
+另一台同网机器访问：
 
 ```text
-192.168.123.45
+http://LAN_IP_ADDRESS:8000/login
 ```
 
-不要选择以下地址：
+切换网络后 IP 可能变化，需要重新设置变量并重新创建容器。不要把局域网端口转发到
+公网；如启用防火墙，只允许实际可信网段访问。
 
-- `127.0.0.1`；
-- `docker0` 上的地址；
-- `br-` 开头的 Docker 网桥地址；
-- 已经断开的旧网卡地址。
+## 5. 服务器运行
 
-也可以让系统根据默认路由获取候选地址：
+服务器基础组合发布 `0.0.0.0:18000`：
 
 ```bash
-ip route get 1.1.1.1 | awk '{for (i=1; i<=NF; i++) if ($i=="src") {print $(i+1); exit}}'
+docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml up -d --no-build --force-recreate --wait
 ```
 
-如果电脑同时开启 VPN、多个网卡或虚拟网络，自动结果可能不是其他设备能够访问的
-地址，仍需结合 `ip -br -4 address show` 人工确认。
-
-#### 2. 设置本次使用的新地址
-
-把示例 IP 替换为刚才查到的实际地址：
+`--no-build` 要求 `HKC_IMAGE` 指定的镜像已经存在。需要宿主训练执行器时增加：
 
 ```bash
-export HKC_LAN_BIND_ADDRESS=192.168.123.45
+-f deploy/compose.training-agent.yaml
 ```
 
-确认变量：
+并在服务器环境文件中设置 `HKC_TRAINING_AGENT_SOCKET_DIR`。完整服务器目录与备份
+要求见 `deploy/README.md`。
+
+服务器状态：
 
 ```bash
-echo "$HKC_LAN_BIND_ADDRESS"
+docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml ps
 ```
 
-这个 `export` 只对当前终端有效。以后新开终端或再次切换网络，需要重新执行。
+如果运行时叠加了训练执行器文件，之后所有 `up`、`exec`、`logs` 和 `down`
+命令都应保持同一组 `-f` 参数。
 
-固定 IP 的服务器也可以把地址写入本机 `.env`，这样新终端无需再次 `export`：
+## 6. 用户管理
 
-```dotenv
-HKC_LAN_BIND_ADDRESS=192.168.123.45
-```
+以下示例使用本机开发组合。服务器上替换为实际环境文件、项目名和 Compose 组合。
 
-Shell 中已经 `export` 的值优先于 `.env`。更换设备或网络后必须修改其中一处，并
-执行带 `--force-recreate` 的启动命令。如果继续使用旧设备 IP，Docker 可能报告
-`cannot assign requested address`，其他机器也会访问失败。
-
-#### 3. 检查 Compose 配置
+创建用户：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  config --quiet
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.create_user --username USERNAME
 ```
 
-命令没有输出并正常返回，表示配置能够解析。
-
-#### 4. 用新 IP 重新创建容器
+列出用户：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  up -d --force-recreate --wait
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.list_users
 ```
 
-网络切换本身通常不需要重新构建镜像。只有修改了 `Dockerfile`、Python 依赖或镜像
-内容时，才增加 `--build`：
+重置密码：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  up -d --build --force-recreate --wait
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.reset_user_password --username USERNAME
 ```
 
-#### 5. 打开网页
-
-本机和同一可信局域网中的其他设备都使用新地址：
-
-```text
-http://192.168.123.45:8000/
-```
-
-局域网模式只绑定指定的内网 IP，因此 `http://127.0.0.1:8000/` 不一定可用。
-
-## 四、配置公司网络中的 VLM
-
-VLM 配置保存在项目根目录的 `.env` 中。`.env` 已被 Git 忽略，不要提交，也不要
-把真实 Token 写进 `.env.example`。
-
-如果第一次配置，可先创建本地文件：
+停用或恢复：
 
 ```bash
-cp .env.example .env
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.disable_user --username USERNAME
+
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.enable_user --username USERNAME
 ```
 
-如果 `.env` 已存在，不要再次复制覆盖，直接编辑：
+新建或重置密码后，用户下次登录必须修改密码。停用用户会立即注销其全部会话。
+
+## 7. 机器人 Token
+
+机器人通常在网页创建时自动生成 Token，并弹窗显示一次。网页列表只显示前缀。
+
+终端查看完整 Token：
 
 ```bash
-nano .env
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.show_robot_token --robot-id RB000001
 ```
 
-填写公司 VLM 服务的实际地址和 Token，例如：
-
-```dotenv
-HKC_STORAGE_PATH=./storage
-APP_UID=1000
-APP_GID=1000
-VLM_BASE_URL=http://192.168.123.105:实际端口/v1
-VLM_API_TOKEN=实际令牌
-QC_DOCTOR_TIMEOUT_SECONDS=1800
-```
-
-上面的内容只展示关键字段，不是一份完整 `.env`。请保留从 `.env.example` 复制的
-PIP 下载源、上传大小限制等其他行，只修改当前设备确实需要调整的值。
-
-注意：
-
-- 地址、端口和 Token 必须以公司实际部署为准；
-- `HKC_STORAGE_PATH` 是宿主机目录，不要把它改成容器路径 `/data`；
-- `VLM_BASE_URL` 通常写到 `/v1`，平台会继续请求 `/models` 和
-  `/chat/completions`；
-- 不要把 Markdown 链接写法或方括号复制进 `.env`；
-- 修改 `.env` 后，必须执行 `up -d --force-recreate --wait`，普通 `restart`
-  不会把新的环境变量重新注入容器。
-
-按照“方式 A”或“方式 B”的启动命令重新创建容器后，可从容器内部检查 VLM：
+为旧机器人补充 Token：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  exec platform \
-  python -c 'import os,httpx; u=os.environ["VLM_BASE_URL"].rstrip("/"); t=os.environ.get("VLM_API_TOKEN","EMPTY"); r=httpx.get(u+"/models",headers={"Authorization":"Bearer "+t},timeout=8,trust_env=False); print(r.status_code); print(r.text[:300])'
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.create_robot_token --robot-id RB000001
 ```
 
-以上命令是局域网模式的写法。如果使用仅本机模式，应去掉
-`-f deploy/compose.lan.yaml`。
-
-常见结果：
-
-- HTTP `200`：通常表示容器可以访问 VLM；
-- HTTP `401` 或 `403`：地址可达，但 Token 或权限不正确；
-- `Connection refused`：目标地址可达，但端口没有服务监听；
-- `ConnectTimeout`、`No route to host`：网络、路由或防火墙不通；
-- `/models` 返回 `404`：当前 VLM 服务可能没有提供平台所需的 OpenAI 兼容接口。
-
-## 五、确认平台是否启动成功
-
-局域网模式使用：
+重新生成：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  ps
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.regenerate_robot_token --robot-id RB000001
 ```
 
-正常情况下，`platform` 服务应显示为运行状态。查看实际端口绑定：
+删除：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  port platform 8000
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.delete_robot_token --robot-id RB000001
 ```
 
-输出应类似：
+完整 Token 只能保存到采集机权限受限的文件或临时环境变量，不能提交仓库。
 
-```text
-192.168.123.45:8000
-```
+## 8. 采集端一次性上传
 
-本机测试工作台：
+第二版工具位于 `tools/auto_update/`：
 
 ```bash
-curl -fsS -o /dev/null -w '%{http_code}\n' \
-  "http://${HKC_LAN_BIND_ADDRESS}:8000/dashboard/"
+cd tools/auto_update
+cp config.env.example config.env
+chmod 600 config.env
 ```
 
-正常应输出 `200`。
-
-查看实时日志：
+编辑服务器地址和 Token 文件路径后，将多个 LeRobot v3 文件夹或 ZIP 放入
+`datasets/`，运行：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  logs -f --tail=100 platform
+./upload_once.sh
 ```
 
-按 `Ctrl+C` 只会退出日志查看，不会关闭容器。
-
-## 六、停止平台
-
-局域网模式：
+也可显式指定：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  down
+./upload_once.sh /path/to/dataset-a /path/to/dataset-b.zip
 ```
 
-仅本机模式：
+数据集显示名称自动使用文件夹名或 ZIP 去掉扩展名后的名称。平台不允许重复显示
+名称；需要自定义时先重命名来源。
+
+成功上传会写 `.hkc-uploaded.json`。测试平台重置后如需从头上传，只清理本地标记：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  down
+./clear_upload_markers.sh
 ```
 
-`down` 会删除应用容器和 Compose 网络，但不会删除：
+该命令不会删除本地数据集，也不会删除服务器 DS。详见
+`tools/auto_update/README.md`。
 
-- 已构建的镜像；
-- 宿主机 `HKC_STORAGE_PATH` 目录中的数据集、报告和导出文件；
-- 宿主机 `HKC_MYSQL_DATA_PATH` 目录中的 MySQL 数据；
-- 项目代码。
+## 9. 更新代码与镜像
 
-不要增加 `-v`，以免误删以后可能使用的 Docker 卷。
-
-## 七、切换网络后的最短操作清单
-
-如果只是 IP 改变，按下面执行即可：
+先确认工作区：
 
 ```bash
-cd ~/vscode_project/HKC/HKC_Data_Platform_v3.1-cq
-
-ip -br -4 address show
-
-export HKC_LAN_BIND_ADDRESS=新的实际IPv4地址
-
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  up -d --force-recreate --wait
-
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  ps
+git status --short --branch
+git pull --ff-only
 ```
 
-然后访问：
+开发挂载模式中，`app/` 修改通常直接生效。以下变化需要重建镜像：
 
-```text
-http://新的实际IPv4地址:8000/
-```
-
-## 八、仍然打不开时的排查顺序
-
-### 1. 检查容器
+- `Dockerfile`；
+- `pyproject.toml`；
+- 镜像中未挂载的文件；
+- 正式服务器不挂载源码时的任何代码变化。
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  ps
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml build platform
+
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --force-recreate --wait
 ```
 
-如果未运行，查看日志：
+遇到镜像仓库或 Python 包下载超时时，应先处理网络、代理或受控镜像源，再继续构建；
+不要在通用 Compose 中写死临时镜像站。
+
+## 10. 备份
+
+完整恢复需要同时备份：
+
+1. `HKC_STORAGE_PATH`；
+2. MySQL 逻辑备份或完整 `HKC_MYSQL_DATA_PATH` 冷备份；
+3. 服务器私有环境文件；
+4. 与当前提交匹配的应用镜像或可重建源码。
+
+在线导出 MySQL 的示例：
 
 ```bash
-docker compose \
-  -f compose.yaml \
-  -f compose.dev.yaml \
-  -f deploy/compose.lan.yaml \
-  logs --tail=200 platform
+docker compose --env-file .env -f compose.yaml exec -T mysql sh -c 'exec mysqldump -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' > hkc-platform.sql
 ```
 
-### 2. 检查是否仍绑定旧 IP
+复制 MySQL 私有目录前必须先停 MySQL 容器，不能在其写入过程中直接复制。
+
+## 11. 常见故障
+
+### 网页打不开
 
 ```bash
-ss -lnt '( sport = :8000 )'
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml ps
+curl -I http://127.0.0.1:8000/healthz
+ss -lnt | grep -E ':8000|:18000|:18001'
 ```
 
-如果显示旧 IP，重新设置 `HKC_LAN_BIND_ADDRESS`，再运行带
-`--force-recreate` 的启动命令。
+- `PORTS` 为空：启动时缺少正确覆盖文件，重新 `up --force-recreate`；
+- 容器 unhealthy：查看 `logs platform` 和 `logs mysql`；
+- 切换网络后局域网失效：重新确认 IP 并重新创建容器；
+- 本机能开、其他电脑不能开：检查 Docker 绑定地址、同网段和防火墙。
 
-### 3. 检查访问设备是否处于同一网络
+### `docker compose restart` 报找不到配置
 
-手机热点、公司访客 Wi-Fi 和公司内部网络可能互相隔离。两台设备即使都能上网，
-也不一定能够彼此访问。先确认它们位于允许互访的可信网段。
+必须先进入项目根目录，或者显式提供所有 `-f` 和 `--env-file`。
 
-### 4. 检查 UFW
+### 修改代码后页面没有变化
 
-```bash
-sudo ufw status verbose
-```
+- 开发模式确认容器挂载的是当前工作区；
+- 查看 Uvicorn reload 日志；
+- 强制刷新浏览器缓存；
+- 正式模式重新构建镜像并创建容器。
 
-如果 UFW 已启用，原来只允许手机热点网段的规则不会自动适配公司网段。应由网络
-管理员确认当前网卡和可信网段，再只允许该网段访问 TCP 8000。不要直接执行不限制
-来源的 `sudo ufw allow 8000`。
+### 上传名称冲突
 
-### 5. 检查是否启动了另一个旧项目容器
+数据集显示名称和活跃质检方案名称不能重复。比较时忽略首尾空格和英文大小写。
+回收站中的 DS 仍占用名称，永久清除后才可复用。
 
-```bash
-docker compose ls
-docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Ports}}'
-```
+### 自动上传显示“标记跳过”
 
-确认正在访问的是当前项目的 `platform` 服务，而不是以前目录启动的旧容器。
+这是采集端本地标记，不代表当前平台一定仍保留该 DS。测试环境重置后运行
+`tools/auto_update/clear_upload_markers.sh`，再重新上传。
 
-## 九、需要记住的区别
+### 训练页面显示执行器离线
 
-- `docker compose restart`：只重启现有容器，不更新 IP 绑定和 `.env` 环境变量；
-- `docker compose up -d --force-recreate`：按当前配置重新创建容器，切换网络时使用；
-- `--build`：重新构建镜像，仅代码依赖或 Dockerfile 改变时需要；
-- `logs -f`：查看日志，不会启动或停止容器；
-- `down`：停止并移除容器，不会删除 `storage/` 中的真实数据。
+检查服务器启动时是否叠加 `deploy/compose.training-agent.yaml`，以及 socket 目录、
+宿主执行器和模型专属容器。详见 `deploy/TRAINING_EXECUTOR.md`。

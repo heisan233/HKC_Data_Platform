@@ -1,14 +1,24 @@
-# MySQL 表结构版本
+# MySQL 迁移
 
-`mysql/001_initial.sql` 创建二阶段全新的平台管理元数据表；
-`mysql/002_user_profiles.sql` 为用户增加显示名称、首次改密状态和最近改密时间。
-版本记录保存在 MySQL 的 `schema_migrations`。应用启动时按编号顺序执行尚未应用的
-迁移，并拒绝版本断层或高于当前代码的数据库。
+平台启动时由 `python -m app.cli.init_mysql` 按编号执行
+`migrations/mysql/*.sql`。已执行版本记录在 `schema_migrations`。
 
-`002` 会把升级前已有用户的显示名称设为原用户名，并保持为“无需首次改密”。因此
-升级不会改变现有 `hei_san` 等账号的密码或登录要求；新建、重置密码的用户才需要
-在首次登录后修改初始密码。
+## 当前迁移
 
-本目录保存可提交的数据库结构脚本，不保存数据库文件、备份、真实数据或密钥。
-现有 `storage/system/platform.sqlite` 不导入 MySQL，也不由本目录脚本修改。
-`registry.sqlite3` 不在此范围内。
+| 版本 | 内容 |
+| --- | --- |
+| `001_initial.sql` | 用户、DS、机器人、质检、转换、训练和兼容词表基础表 |
+| `002_user_profiles.sql` | 显示名称、首次改密和密码修改时间 |
+| `003_dataset_availability.sql` | `data` 存储区、可用性和状态标签 |
+| `004_dataset_trash.sql` | 数据集回收状态 |
+| `005_robot_api_tokens.sql` | 机器人机器上传 Token |
+
+## 规则
+
+- 新结构使用更高编号的新文件；
+- 已发布、已执行的 SQL 不得修改；
+- 迁移必须可在已有数据上安全执行；
+- 迁移目录不存放数据库文件、备份、数据集、密码或 Token；
+- 表结构变更需同步仓储层、测试和文档；
+- 正式部署前先备份 MySQL；
+- 测试只在隔离数据库中运行迁移。

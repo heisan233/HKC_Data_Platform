@@ -1,19 +1,11 @@
-# 一次性扫描上传工具（第二版）
+# 一次性批量采集上传工具
 
-该目录可整体复制到 Ubuntu 22.04 采集电脑。工具只依赖 Python 3.10+ 和 `curl`：
-每次启动后扫描一次、按顺序上传、输出汇总并退出，不安装后台服务，也不会持续监听。
+该工具在采集完成后运行一次：扫描多个 LeRobot v3 文件夹或 ZIP，顺序上传，然后
+退出。它不是后台服务，也不会持续监视目录。
 
-## 1. 初次配置
+## 1. 环境
 
-把机器人完整 Token 保存到私有文件（权限建议为 `600`），然后建立本地配置：
-采集电脑示例：
-
-```bash
-mkdir -p "$HOME/.config/hkc-collector"
-chmod 700 "$HOME/.config/hkc-collector"
-printf '%s\n' '这里粘贴完整Token' > "$HOME/.config/hkc-collector/RB000001.token"
-chmod 600 "$HOME/.config/hkc-collector/RB000001.token"
-
+要求 Ubuntu/Linux、Python 3、curl 和可访问的平台地址。
 
 ```bash
 cd tools/auto_update
@@ -21,70 +13,116 @@ cp config.env.example config.env
 chmod 600 config.env
 ```
 
-编辑 `config.env`：
-<!-- 本機127.0.0.1:18001 -->
-```bash
-HKC_SERVER=http://192.168.0.163:18000
+配置：
+
+```dotenv
+HKC_SERVER=http://PLATFORM_HOST:PORT
 HKC_TOKEN_FILE=$HOME/.config/hkc-collector/RB000001.token
-HKC_AUTO_SCAN_DIR=/实际路径/tools/auto_update/datasets
+HKC_AUTO_SCAN_DIR=/path/to/datasets
 HKC_RETRY_ATTEMPTS=3
 ```
 
-`config.env`、Token、待上传数据和上传标记都不会提交 Git。
+Token 文件建议：
 
-## 2. 推荐工作方式：扫描父目录一次
+```bash
+install -d -m 700 "$HOME/.config/hkc-collector"
+chmod 600 "$HOME/.config/hkc-collector/RB000001.token"
+```
 
-把每个完整 LeRobot v3 文件夹或 ZIP 放到 `datasets/` 的第一层，例如：
+不要提交 `config.env` 或 Token。
+
+## 2. 数据放置
+
+默认扫描 `datasets/` 第一层：
 
 ```text
 datasets/
-├── collection-001/          一个完整数据集，内含 meta/info.json
-├── collection-002.zip       另一个完整数据集
-└── collection-003/          第三个完整数据集
+├── dataset-a/       完整 LeRobot v3 文件夹
+├── dataset-b.zip    完整 LeRobot v3 ZIP
+└── dataset-c/
 ```
 
-采集和文件复制全部结束后执行：
+每个直接子文件夹或 `.zip` 视为一个独立数据集；不会递归把更深层目录当成新数据集。
+
+显示名称规则：
+
+- 文件夹：使用文件夹名；
+- ZIP：使用去掉 `.zip` 的文件名；
+- 第二版没有 `--name` 参数；
+- 需要自定义名称时先重命名文件夹或 ZIP；
+- 名称与平台现有 DS 重复时会被拒绝。
+
+## 3. 执行
+
+扫描配置目录：
 
 ```bash
 ./upload_once.sh
 ```
 
-工具不会递归把一个数据集的内部目录误当成多个数据集。它会逐个核对 LeRobot v3、
-`robot_type` 和平台 Token 对应机器人，再顺序上传。网络错误或平台 5xx 最多尝试三次；
-一个数据集格式错误不会阻止后面的数据集，但 Token 无效或机器人停用会终止整批。
-
-## 3. 直接指定文件夹或 ZIP
-
-无需移动到 `datasets/`：
+直接指定来源：
 
 ```bash
-./upload_once.sh /data/run-001 /data/run-002.zip
+./upload_once.sh /path/to/dataset-a /path/to/dataset-b.zip
 ```
 
-文件夹会先打包到 `temporary/`，上传结束后删除临时 ZIP。打包内容保留数据集根目录，
-不会包含 `.hkc-uploaded.json`。原数据集不会被移动或删除。
+工具会依次：
 
-## 4. 已上传标记
+1. 验证 Token 和机器人状态；
+2. 检查 `meta/info.json` 与 `robot_type`；
+3. 将文件夹临时打包到 `temporary/`；
+4. 计算 SHA-256 并调用预检；
+5. 上传 ZIP；
+6. 成功或同 RB 已存在时写本地标记；
+7. 输出汇总并退出。
 
-上传成功或平台确认完全相同的数据已存在后：
+网络错误和服务端 5xx 按 `HKC_RETRY_ATTEMPTS` 重试。普通单项失败后继续下一个；
+Token 无效或机器人停用会终止剩余队列。
 
-- 文件夹：写入 `<数据集>/.hkc-uploaded.json`；
-- ZIP：写入 `<文件名>.zip.hkc-uploaded.json`。
+## 4. 上传标记
 
-标记保存 DS 编号、RB 编号、平台地址和上传时间。下次运行时，只有平台地址和 RB
-编号均与当前配置相同时才直接跳过，且跳过发生在本地打包和 SHA-256 之前。删除标记
-会允许再次检查；平台的 SHA-256 防重复机制仍会避免创建重复 DS。
+文件夹成功后写：
 
-不同机器人遇到完全相同数据且需要人工确认归属时，本工具会把该项记为失败，不自动
-改绑。请使用第一版人工工具或网页核对后再处理。
+```text
+dataset-a/.hkc-uploaded.json
+```
 
-## 5. 退出结果
+ZIP 成功后写：
 
-末尾会显示：发现、新上传、平台已存在、标记跳过、失败数量。
+```text
+dataset-b.zip.hkc-uploaded.json
+```
 
-- 退出码 `0`：全部成功/跳过，或没有数据；
-- 退出码 `1`：至少一个数据集失败；
-- 退出码 `2`：配置、Token 验证或扫描目录无法使用。
+标记包含平台地址、RB 和 DS。下次对同平台、同 RB 运行时，会在打包和 SHA-256 前
+跳过。
 
-失败项不写标记，修复后再次运行即可。第二版不包含常驻扫描、systemd、断点续传、
-并发上传或本地 SQLite 队列。
+测试平台被重置后，服务器 DS 已消失，但采集机标记仍存在。清除标记：
+
+```bash
+./clear_upload_markers.sh
+```
+
+指定目录：
+
+```bash
+./clear_upload_markers.sh /path/to/datasets
+```
+
+该命令只删除 `.hkc-uploaded.json`，不删除数据集文件、ZIP 或服务器 DS。
+
+## 5. 重复与类型
+
+- 同 RB、相同 ZIP：平台返回已有 DS；
+- 不同 RB、相同 ZIP：工具报告冲突，不自动改绑；
+- 机器人类型不一致：拒绝；
+- ZIP 缺少类型：当前工具要求先补齐，避免无人值守确认；
+- 上传成功：自动关联 RB，状态为不可用、待质检，不自动启动质检。
+
+## 6. 当前限制
+
+- 没有常驻监听或 systemd 服务；
+- 没有断点续传、并发和本地 SQLite 队列；
+- 文件夹每次实际上传前都临时打包；
+- 工具依赖调用 curl 完成流式上传；
+- 只支持可信内网 HTTP；
+- 只支持完整 LeRobot v3 文件夹或 ZIP。

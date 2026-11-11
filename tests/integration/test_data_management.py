@@ -292,6 +292,26 @@ def test_metadata_changes_and_missing_directory_are_visible(platform):
     assert "目录缺失" in client.get("/data/manage/?view=registered").text
 
 
+def test_dataset_display_name_cannot_duplicate_another_dataset(platform):
+    client, root = platform
+    dataset(root, "first")
+    dataset(root, "second")
+    assert client.post("/data/api/register", json={
+        "folders": ["first", "second"],
+    }).status_code == 200
+    records = DatasetRepository(root).list()
+    first = next(row for row in records if row["storage_relpath"] == "first")
+    second = next(row for row in records if row["storage_relpath"] == "second")
+
+    response = client.patch(f"/data/api/datasets/{second['id']}", json={
+        "name": f"  {first['name']}  ", "description": "", "tags": [],
+    })
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "数据集名称已存在，请使用其他名称"
+    assert DatasetRepository(root).get(second["id"])["name"] == second["name"]
+
+
 def test_unsafe_paths_cannot_be_registered_or_served(platform):
     client, root = platform
     dataset(root, "safe")

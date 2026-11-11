@@ -24,7 +24,7 @@ from fastapi import UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.db.dataset_robots import DatasetRobotRepository
-from app.db.datasets import DatasetRepository
+from app.db.datasets import DATASET_NAME_CONFLICT, DatasetRepository
 from app.modules.datasets import service as datasets
 
 MIB = 1024 * 1024
@@ -541,7 +541,16 @@ async def receive_dataset_upload(
                 clean_name,
             )
         except ValueError as exc:
-            raise UploadValidationError(f"数据集登记失败：{exc}") from exc
+            message = str(exc)
+            raise UploadValidationError(
+                f"数据集登记失败：{message}",
+                code=(
+                    "dataset_name_conflict"
+                    if message == DATASET_NAME_CONFLICT
+                    else "validation_error"
+                ),
+                status_code=409 if message == DATASET_NAME_CONFLICT else 400,
+            ) from exc
         registered_dataset_id = registered["id"]
         if collector_robot_id:
             try:

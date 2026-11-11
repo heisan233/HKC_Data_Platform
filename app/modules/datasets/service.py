@@ -193,7 +193,9 @@ def publish_staged_dataset(
     if root.is_symlink() or data_root.is_symlink():
         raise ValueError("数据集存储目录不安全")
     data_root.mkdir(parents=True, exist_ok=True)
-    dataset_id = DatasetRepository(root).reserve_id()
+    repository = DatasetRepository(root)
+    repository.ensure_name_available(display_name)
+    dataset_id = repository.reserve_id()
     final = data_root / dataset_id
     if final.exists() or final.is_symlink():
         raise ValueError("数据集编号目录已存在")

@@ -1,26 +1,29 @@
-# 分布式采集模块
+# 分布式采集服务端
 
-`collector` 提供给已登记机器人调用的机器上传 API。它不使用浏览器 Cookie，而是读取
-`Authorization: Bearer <Token>`；Token 由 `app/db/robot_tokens.py` 管理。登录中间件只
-放行该 URL 前缀，模块路由仍会逐个请求验证 Token 和机器人状态。
+本模块提供机器人采集端使用的 Bearer Token API，前缀为 `/api/v1/collector`。它不
+使用浏览器 Cookie。
 
-## 第一版接口
+## 接口
 
-- `GET /api/v1/collector/profile`：检查 Token 并返回 RB 编号、名称、类型和状态；
-- `POST /api/v1/collector/uploads/preflight`：检查 SHA-256、大小、机器人类型和重复；
-- `POST /api/v1/collector/uploads`：接收一个完整 LeRobot v3 ZIP；
-- `POST /api/v1/collector/uploads/rebind`：同类型另一台机器人确认真实归属后改绑原 DS。
+| 接口 | 用途 |
+| --- | --- |
+| `GET /profile` | 验证 Token 并返回所属 RB 摘要 |
+| `POST /uploads/preflight` | 上传前检查类型、摘要和重复情况 |
+| `POST /uploads` | 接收一个完整 LeRobot v3 ZIP |
+| `POST /uploads/rebind` | 确认跨机器人重复数据的改绑 |
 
-上传成功后复用 `ingestion.service.receive_dataset_upload` 完成分块保存、ZIP 安全检查、
-结构校验、解压和 DS 发布，再自动关联 Token 所属 RB。新 DS 保持不可用、待质检，
-不会自动启动质检。
+## 规则
 
-## 防重复和存储
+- 每台机器人最多一个有效 Token；
+- 停用机器人立即不能上传；
+- ZIP `robot_type` 必须与机器人档案一致；
+- 同一 RB 的相同 SHA-256 返回已有 DS；
+- 不同 RB 的相同 ZIP：类型不同拒绝，类型相同需要人工确认改绑；
+- 成功上传后自动分配 DS、关联 RB，并保持不可用、待质检；
+- 不自动启动质检；
+- 摘要 claim 保存在 `storage/system/collector-claims/`。
 
-精确重复以完整 ZIP 的 SHA-256 判断。运行记录写入
-`storage/system/collector-claims/<SHA-256>.json`，只包含摘要、DS、RB 和处理状态；
-不保存 Token 或 ZIP 内容，也不新增 MySQL 上传任务表。文件锁和原子替换用于避免同一
-摘要并发提交创建两个 DS。
+服务端一次只接收一个 ZIP。文件夹打包、批量扫描、顺序上传、重试和本地标记由
+`tools/auto_update/` 实现；旧人工单 ZIP 工具位于 `tools/collector_v1/`。
 
-客户端实现和操作说明位于根目录 `tools/README.md`。第一版只支持可信内网 HTTP 的
-单 ZIP 上传；文件夹、批量目录、断点续传、自动扫描、心跳和公网 HTTPS 尚未实现。
+当前只适用于可信内网 HTTP，没有 HTTPS、断点续传或常驻客户端。

@@ -71,6 +71,9 @@
 .robot-dataset-table small { margin-top: 4px; color: #8794a2; }
 .robot-dataset-table button { border: 0; background: transparent; color: #c04646; cursor: pointer; }
 .robot-dataset-linked { background: #f3faf6; }
+.robot-dataset-trashed { background: #f4f5f7; color: #798593; }
+.robot-dataset-trashed.robot-dataset-linked { background: #f1f4f3; }
+.robot-trash-badge { display: inline-flex; padding: 2px 7px; border-radius: 10px; background: #e2e6ea; color: #596675; font-size: 11px; font-weight: 700; }
 .robot-type-warning { display: inline-flex; margin-top: 5px; padding: 2px 6px; border-radius: 4px; background: #fff1d7; color: #966400; font-size: 11px; font-weight: 700; }
 .robot-dataset-current { color: #23834b; font-weight: 700; }
 @media (max-width: 850px) {

@@ -123,6 +123,40 @@ def test_one_plan_batch_tasks_and_plan_deletion_keep_reports(platform, monkeypat
         for item in payload["dataset_ids"]]
 
 
+def test_active_quality_plan_names_must_be_unique(platform):
+    client, root = platform
+    _dataset(root / "raw" / "first")
+    _dataset(root / "raw" / "second")
+    assert client.post("/data/api/register", json={
+        "folders": ["first", "second"],
+    }).status_code == 200
+    first = client.post("/qc/api/plans/from-dataset/DS000001")
+    assert first.status_code == 200
+    plan = first.json()
+
+    automatic_duplicate = client.post("/qc/api/plans/from-dataset/DS000002")
+    manual_duplicate = client.post("/qc/api/plans", json={
+        "name": f"  {plan['name']}  ",
+        "robot_type": plan["robot_type"],
+        "config": plan["config"],
+    })
+    unique = client.post("/qc/api/plans", json={
+        "name": "另一套质检方案",
+        "robot_type": plan["robot_type"],
+        "config": plan["config"],
+    })
+    renamed_duplicate = client.put(f"/qc/api/plans/{unique.json()['id']}", json={
+        "name": plan["name"],
+        "robot_type": plan["robot_type"],
+        "expected_version": 1,
+        "config": plan["config"],
+    })
+
+    for response in (automatic_duplicate, manual_duplicate, renamed_duplicate):
+        assert response.status_code == 409
+        assert response.json()["detail"] == "质检方案名称已存在，请使用其他名称"
+
+
 def test_hiding_task_preserves_report_reviews_and_raw(platform, monkeypatch):
     client, root = platform
     _dataset(root / "raw" / "sample")

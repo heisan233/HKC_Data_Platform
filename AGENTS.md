@@ -1,243 +1,136 @@
-# HKC 数采平台 Codex 开发规则
+# HKC 数采平台开发规则
 
-本文件是本仓库内所有 Codex/ChatGPT 的强制入口。开始修改前，必须依次完整阅读：
+本文件是仓库内 Codex/ChatGPT 的强制入口。开始工作前依次阅读：
 
-1. `AGENTS.md`（本文件）；
-2. `docs/CODEX_CURRENT_STATE.md`（当前集成状态与目录说明）；
-3. `docs/COLLABORATION.md`（历史交接记录）；
-4. 所负责模块的 README 和测试。
+1. 本文件；
+2. `docs/CODEX_CURRENT_STATE.md`；
+3. 与任务相关的模块 README 和测试；
+4. 需要协作时再读 `docs/COLLABORATION.md`。
 
-如果旧聊天、旧分支或旧文档与当前工作区冲突，以当前分支源码、测试、本文件和
-`docs/CODEX_CURRENT_STATE.md` 为准。不要根据旧对话猜测项目状态。
+旧聊天、旧分支和旧部署记录只作参考。发生冲突时，以当前分支源码、自动化测试、
+本文件和当前状态文档为准。
 
-## 1. 当前共同基线
+## 1. 当前基线
 
-- `integration/hs-lxp-v3.2.0-cq` 是当前共同开发分支；它以重庆 X-VLA Docker 训练
-  提交 `fc41a02` 为基线，并合入机器人 Token 分布式采集第一、二版。
-  `integration/hs-lxp-v3.1-cq`、`integration/hs-lxp-v3.1`、
-  `integration/hs-lxp-v3.0.2` 及其来源分支保留为历史参考。
-- `integration/hs-v2.1` 与 `integration/hs-lxp-v2.5` 是本轮两个来源分支，保留为
-  只读回退点；不得将任一来源分支整批覆盖回当前集成分支。
-- `main` 是一期已合并基线；当前二阶段功能先在 `integration/hs-lxp-v3.2.0-cq`
-  开发和验收，不直接写入 `main`。
-- `hs_docker`、`lxp_docker_v2`、`feat/platform-v2` 和更早分支只用于查看历史，
-  不得把其中的目录或文件整批覆盖回当前集成分支。
-- 开始工作前必须执行 `git status --short --branch` 和 `git log -1 --oneline`；
-  发现他人未提交修改时必须保留，不能重置、清理或覆盖。
-- 未经使用者明确授权，不得删除分支、强制推送、改写历史、直接合并到 `main`，
-  也不得提交或推送代码。
+- 当前共同开发分支：`integration/hs-lxp-v3.2.0-cq`。
+- `main` 是一期基线，不直接承接当前二阶段开发。
+- `integration/hs-lxp-v3.1*`、`v3.0*`、`hs_docker`、`lxp_docker*` 等均为历史参考，
+  不得整批覆盖回当前分支。
+- 每次工作前必须执行：
 
-## 2. 当前产品与技术事实
+```bash
+git status --short --branch
+git log -1 --oneline --decorate
+```
 
-- 技术栈：Python 3.11、FastAPI、Uvicorn、Jinja2、原生 JavaScript/CSS。
-- 当前二阶段代码部署形态：一个应用容器加一个 MySQL 容器。网页/API 和基础质检
-  仍在应用容器中运行；没有 PostgreSQL、Redis 或独立 Docker Worker。
-  X-VLA 训练执行器是独立的宿主机进程。
-- 大型 VLA 数据集始终保存在普通文件夹中。MySQL 只保存稳定 DS 编号、真实目录
-  映射、来源关系、质检任务和人工审核等管理元数据。
-- 当前真实数据集格式以 LeRobot v3 为准；已支持把已审核可用的 DS 转换为
-  HDF5。不要假定 LeRobot v2、ROS bag、MCAP 或 RLDS 已经实现。
-- 当前已有 MySQL 用户、scrypt 密码哈希和服务端 Cookie 会话保护，但没有 HTTPS；
-  仍只能开放到可信内网，禁止宣称可安全暴露到公网。
-- 当前应用镜像不安装 CUDA、ROS 或 VLA 训练环境。重庆 X-VLA 的 LeRobot 训练
-  与离线评估在独立 Docker 镜像中执行；宿主机训练执行器通过 Unix socket 与平台
-  通信，并保留受限 VLM 服务控制。旧宿主 Conda 部署仍可使用。以后新增模型仍须
-  保持训练环境与平台容器隔离。
+- 工作区已有改动属于当前开发者。不得重置、清理、覆盖或顺手格式化无关文件。
+- 未经明确授权，不得提交、推送、合并、改写历史、强制推送或删除分支。
 
-## 3. 已完成与未完成边界
+## 2. 架构事实
 
-已连接真实文件或 MySQL 的功能：
+- Python 3.11、FastAPI、Uvicorn、Jinja2、原生 JavaScript/CSS。
+- 平台由一个应用容器和一个 MySQL 8.4 容器组成。
+- 启动入口是 `app.main:app`。
+- MySQL 保存用户、DS/RB 编号、目录映射、质检、转换和训练等管理元数据。
+- 大型数据集、报告、导出包和模型仍保存在 `storage/` 文件目录中。
+- 平台应用镜像不安装 CUDA、ROS 或 VLA 训练环境。X-VLA 训练通过独立宿主执行器
+  调用模型专属容器。
+- 当前没有 HTTPS，只能面向可信内网，不能宣称可安全暴露到公网。
 
-- `auth`：无默认账号的用户表、显示名称、首次强制改密、密码哈希、服务端会话、
-  个人中心、登录、退出和全站访问保护；
-- `robots`：独立机器人档案、稳定 RB 编号、新增/编辑、停用/恢复，以及 DS 的
-  关联、改绑和解除；每台机器人有一个机器上传 Token，创建成功时网页弹窗显示一次
-  完整值，之后网页只显示状态与前缀；部署机终端仍可查看、删除或重新生成；
-- `collector`：可信内网的机器人 Bearer Token 上传 API、LeRobot v3 单 ZIP 预检、
-  SHA-256 防重复、类型确认、自动 DS 登记和机器人关联；
-- `ingestion`：单个 LeRobot v3 ZIP 上传、批量包装接口、安全解压、上传阶段
-  `robot_type` 声明/覆盖、Raw 入库和自动分配 DS 编号；
-- `datasets`：统一 DS 登记、可用性和状态标签、列表、详情、显示信息、重新扫描、视频
-  访问、质检状态和报告管理；
-- `annotation`：真实 Episode/task/Subtask 读取、视频播放、标注以及完整派生数据集
-  发布；
-- `processing`：Episode 筛除、拆分、兼容数据集合并、重排、精确重复检测、去重和
-  指定相机视频画面裁剪，所有结果生成新的 DS；
-- `quality`：版本化质检方案、Doctor、机器人规则、VLM 调用、任务历史、人工审核、
-  隐藏/恢复和 JSON 报告；
-- `conversion`：已审核可用的 LeRobot v3 DS → HDF5 单线程后台转换，结果使用
-  CV 编号保存在 `storage/converted/`，不进入 DS 登记表；
-- `export`：将可用 DS 或已完成的 CV 转换结果打包到 `storage/exports/` 下载；
-- `training`：已登记 LeRobot v3 DS 训前校验、X-VLA 基座微调任务、训练指标、
-  留出 Episode 离线前向损失、模型包和任务回收站；实际训练依赖已配置的宿主执行器；
-- `dashboard`：真实只读工作台，聚合 DS、机器人、质检、训练、待办与 storage 所在
-  文件系统容量，不修改业务记录；
-- `system`：脱敏、持久化的真实访问日志和只读筛选；
-- 统一回收站：数据集和报告可移入回收站、恢复，并可在回收站中永久清除。
-  数据管理的删除操作单击立即执行，不使用弹窗或二次确认。
-
-仍是占位或未完整实现的功能：
-
-- 训练尚无真实机器人任务成功率评估；
-- 独立情景管理页面和 `/scenes/` 路由已按产品决定移除；未来场景分类归入数据
-  定义，不重新建立独立情景管理模块；
-- `semantics`：真实 LeRobot v3 Schema 编辑器；扫描 `info.json` 与全部 Episode/frame
-  Parquet，支持 Episode 扩展字段、数值逐帧 Feature 占位或索引导入，并以完整
-  DS 发布。结构已声明不等于满足训练要求。
-
-Codex 不得因为页面能够打开就声称功能已完成。判断标准是：是否读取真实数据、
-是否有后端行为、是否有测试以及是否通过人工验收。
-
-## 4. 目录与职责
+## 3. 目录职责
 
 ```text
 app/
-├── main.py                 FastAPI 入口，只注册路由和静态目录
-├── web.py                  共享 Jinja2 模板对象
-├── core/                   路径、配置等跨模块基础能力
-├── db/                     MySQL 访问代码，不存放数据库文件
-├── modules/                按业务能力组织 Python 代码
-├── templates/              Jinja2 HTML 模板
-└── static/                 CSS、JavaScript 和网页图片
+├── main.py          FastAPI 入口与路由注册
+├── web.py           共享 Jinja2 模板对象
+├── core/            配置、路径等公共能力
+├── db/              MySQL 访问代码
+├── modules/         按业务能力组织的后端模块
+├── templates/       页面结构
+└── static/          CSS、JavaScript 和图片
 
-storage/                    宿主机运行数据；真实内容不提交 Git
-├── data/                   新发布数据集统一存储，一个 DS 一个完整目录
-├── raw/                    既有原始数据集，保留旧 DS 映射
-├── derived/                既有派生数据集，保留旧 DS 映射
-├── converted/              CV 编号管理的 HDF5 转换结果
-├── training-runs/          训练任务状态、日志与离线评估结果
-├── models/                 通过验证的模型包
-├── staging/                上传、标注、处理、转换、导出时的临时内容
-├── reports/qc/             质检 JSON 报告
-├── trash/reports/          可恢复的报告回收站
-├── trash/datasets/         可恢复的数据集及其当前质检报告
-├── exports/                Derived/CV 的 tar.gz 导出产物
-└── system/                 上传记录、版本和文件式任务记录
-    └── collector-claims/   分布式采集 ZIP 摘要与 DS 去重旁路记录
-
-mysql-data/                 MySQL 容器私有数据目录，独立于 storage/，不提交 Git
-
-deploy/                     局域网 Compose 覆盖和部署说明
-docs/                       架构、协作和当前状态文档
-migrations/                 MySQL 表结构脚本，不是旧数据仓库
-tests/                      自动化测试，结构尽量对应业务模块
+storage/             运行数据，不提交 Git
+migrations/mysql/    MySQL 迁移脚本
+deploy/              部署覆盖、训练执行器和部署说明
+tools/               采集端与服务器维护工具
+tests/               自动化测试
 ```
 
-业务模块固定放置：
+模块内部遵循：
 
-- `app/modules/datasets/`：统一数据集登记、列表、详情与报告管理；
-- `app/modules/auth/`：登录/退出路由、Cookie 会话与全站访问保护；
-- `app/modules/robots/`：机器人档案与 DS 关联管理，不连接或控制真实机器人；
-- `app/modules/semantics/`：LeRobot v3 结构扫描、字段定义与 Schema 派生发布；
-- `app/modules/ingestion/`：ZIP 上传、校验和 Raw 入库；
-- `app/modules/collector/`：机器人 Token 认证、上传预检、防重复和改绑确认；
-- `app/modules/annotation/`：Episode/task/Subtask 标注与发布；
-- `app/modules/processing/`：Episode 处理及 Derived 构建；
-- `app/modules/quality/`：质检方案、规则、VLM、任务和报告；
-- `app/modules/export/`：可用 DS 与 CV 转换结果的安全打包和下载；
-- `app/modules/conversion/`：LeRobot v3 → HDF5 转换及 CV 任务管理。
-- `app/modules/training/`：训练任务、训前校验、执行器通信与模型包管理。
+- `router.py`：HTTP 参数、状态码、页面和 API 响应；
+- `service.py`：业务流程、文件处理、校验和外部调用；
+- `schemas.py`：Pydantic 请求/响应结构；
+- `app/db/*.py`：MySQL 查询和事务；
+- 浏览器交互放在 `app/static/js/`，不得只在前端伪造业务数据。
 
-禁止在项目根目录重新创建 `data_catalog.py`、`data_management.py`、
-`dataset_store.py` 或其他业务 Python 文件。
+共享 LeRobot v3 读取能力优先复用 `app/modules/datasets/lerobot_v3.py`。禁止在项目
+根目录新增零散业务 Python 文件。
 
-## 5. 模块内部规则
+## 4. 数据与编号规则
 
-- `router.py`：HTTP 参数、状态码、页面/API 响应；不得堆放复杂文件处理。
-- `service.py`：业务流程、文件扫描、构建、校验和外部调用。
-- `schemas.py`：Pydantic 请求/响应结构。
-- `app/db/*.py`：MySQL 表初始化和查询。
-- `templates/` 决定页面结构，`static/js/` 负责浏览器交互；业务数据必须通过模块
-  API 获得，不能只在 JavaScript 中伪造。
-- 共享 LeRobot v3 元数据读取逻辑优先放在
-  `app/modules/datasets/lerobot_v3.py`，不要在标注、处理、质检中各写一套。
+- 浏览器和 API 使用稳定的 `DS000001`、`RB000001`、`CV-...`、`TR...` 编号。
+- 新数据集存放到 `storage/data/<DS 编号>/`；旧 `raw/`、`derived/` 映射继续保留。
+- `storage_area` 只表示物理位置；业务资格以 `availability` 和实际校验结果为准。
+- 新 DS 默认“不可用、待质检”，人工审核通过后才可进入标注、训练、转换和导出。
+- 数据集显示名称必须唯一；比较时忽略首尾空格和英文大小写。回收站中的记录仍占用
+  名称，永久清除后才可重新使用。
+- 活跃质检方案名称必须唯一。
+- 上传、标注、处理和数据定义必须先在 `staging/` 构建完整副本，校验后发布新 DS；
+  不得原地修改已登记源数据集。
+- 普通删除只进入回收站。永久清除只能从回收站执行，并须检查派生、转换和训练引用。
+- `detected/` 已废止；质检状态由 MySQL 和 `reports/qc/` 表达。
+- 所有业务代码通过 `settings.data_root` 取得数据根目录，禁止写死个人绝对路径。
 
-## 6. 数据与 DS 编号规则
+## 5. 数据库与迁移
 
-- 浏览器/API 对数据集使用 `DS000001` 形式的稳定编号，不直接暴露真实目录作为
-  主标识。
-- MySQL 数据目录由 `HKC_MYSQL_DATA_PATH` 映射，独立于 `HKC_STORAGE_PATH`。
-  MySQL 映射新 DS 编号到 `data/<DS 编号>`，旧 DS 保持原 `raw/<目录>` 或
-  `derived/<目录>` 映射；数据集字节不写入数据库。服务器 MySQL 私有数据位于
-  `/srv/hkc-ai/mysql/data`，与平台 storage/data 独立。
-  旧 `storage/system/platform.sqlite` 保留原样，不导入新库，也不再被平台读写。
-  `registry.sqlite3` 由 HS 单独负责，不在本次变更范围内。
-- 转换结果使用 `CV-...` 任务编号映射 `converted/<CV 编号>`，不占用 DS 编号；
-  `conversion_jobs` 只保存任务元数据，HDF5 文件仍保存在普通目录。
-- 业务代码通过 `app.core.config.settings.data_root` 取得数据根目录，禁止写死
-  `/home/...`、项目绝对路径或宿主机的 `storage/`。
-- 容器内数据根目录始终是 `/data`；宿主机由 `HKC_STORAGE_PATH` 映射。
-- 旧 `raw/`、`derived/` 在正常业务流程中保持原样，不自动移动；用户主动将对应 DS
-  移入回收站时才允许搬移其目录。任何已登记源 DS 都不得
-  原地修改。上传、标注、筛除、拆分、合并、重排和去重先在 `staging/` 生成完整
-  数据集，校验后移入 `data/<新 DS 编号>/` 并登记。
-- `storage_area` 只是物理位置，不代表数据集类型。MySQL 的 `availability` 是
-  “可用/不可用”大状态；状态标签仅在数据管理页展示，功能选择不得依赖它们。
-  质检只选不可用，处理和数据定义可选两类，标注、训练、转换和 DS 导出只选可用。
-  新 DS 默认不可用、待质检；审核 PASS 后可用，打回后不可用。业务流程不强制线性。
-- 合并或重排时必须同步 Episode 元数据、frame Parquet、全局 `index`、
-  `episode_index`、task 索引、旁路标注以及必要的视频映射。
-- `detected/` 已废止。质检状态由 MySQL 与 `reports/qc/` 表达，不复制完整数据集。
-- 普通列表的删除只能移入回收站；仅回收站提供永久清除。永久清除 DS 时须清理
-  其文件、专属报告和关联管理记录，但 DS 编号永不复用；仍被派生 DS、转换或训练
-  任务引用的 DS 不得永久清除。报告单独清除时保留质检任务和人工审核历史。
-  移入回收站、恢复和永久清除均单击立即执行，不弹窗确认；后端仍须检查路径、
-  任务状态和依赖关系，并在页面内反馈失败原因。
+- 当前平台只使用 MySQL 8.4；旧 SQLite 文件不导入、不读写，也不是当前事实来源。
+- `HKC_MYSQL_DATA_PATH` 与 `HKC_STORAGE_PATH` 必须分开配置。
+- 表结构变化通过新的 `migrations/mysql/NNN_*.sql` 实现；已执行迁移不得修改内容。
+- 修改共享仓库层、迁移或编号逻辑前，先检查所有调用方和现有测试。
+- 测试必须使用隔离 MySQL 和临时 storage，绝不能指向正式数据。
 
-## 7. Git、密钥与配置
+## 6. 安全与配置
 
-- 不得提交 `.env`、Token、密码、公司 VLM 地址、真实数据集、数据库目录、报告、模型、
-  导出包、缓存或日志。
-- 用户必须通过部署机终端命令交互管理：`create_user` 创建、
-  `reset_user_password` 重置密码、`enable_user` 启用、`disable_user` 停用；不得在
-  源码、Compose、文档或测试中加入默认账号及真实密码。新建或重置密码的用户必须
-  首次登录改密，现有迁移用户不得被强制改密。
-- 机器人采集 Token 不属于网页用户会话。新机器人自动生成一个 Token；只有创建成功
-  和显式“重新生成 Token”响应可返回完整值供网页弹窗显示一次，列表、编辑、状态等
-  其他网页接口只能返回前缀。重新生成必须让旧值立即失效；网页不提供删除或补充生成。
-  部署机终端命令仍可查看、删除或重新生成。采集端只保存到权限受限的本地文件或
-  临时环境变量，禁止写入仓库。
-- `.env.example` 只保存公开占位值；换设备时从它新建 `.env`。
-- `compose.yaml` 默认只绑定 `127.0.0.1:8000`；
-  `deploy/compose.lan.yaml` 才负责可信局域网绑定；`compose.dev.yaml` 只增加源码热
-  重载，并只读挂载 `app/` 与 `migrations/`，启动前仍会执行 MySQL 迁移。
-- 个人 IP、代理和临时镜像源不能写入通用 Compose 文件。
-- `pyproject.toml` 是 Python 直接依赖的唯一来源，不再维护第二份
-  `requirements.txt`。
-- 应用容器保持非 root。`APP_UID`、`APP_GID` 应与持久化目录所有者匹配。
+- 不得提交 `.env`、密码、Token、公司 VLM 地址、真实数据、MySQL 目录、日志、报告、
+  导出包、模型或缓存。
+- `.env.example` 只保存公开占位值；每台设备单独创建 `.env`。
+- 网页用户通过容器终端命令创建、重置、启用和停用；密码必须交互输入，不能写在
+  命令、源码或文档中。
+- 机器人 Token 与网页会话不同。网页只有创建机器人或重新生成 Token 时返回一次
+  完整值；其他接口只返回状态和前缀。部署终端可查看、生成、删除或重新生成。
+- 上传文件名、ZIP 内路径、浏览器路径和客户端声明均不可信，必须进行路径和结构校验。
+- 默认 Compose 只绑定 `127.0.0.1:8000`；局域网访问必须显式叠加对应覆盖文件。
+- `compose.dev.yaml` 只读挂载 `app/`、`migrations/` 并启用热重载，不代表生产部署。
 
-## 8. 当前维护边界
+## 7. 当前维护边界
 
-合并后双方都基于同一套代码工作，但默认维护边界仍用于减少冲突：
+- Heisan：上传、采集工具、标注、数据处理、Docker/Compose 和部署。
+- LXP：数据管理、详情、报告、格式转换、导出与训练接入。
+- 共同评审：`app/db/`、统一 DS 接口、质检状态、`app/main.py`、`base.html`、依赖、
+  Compose 和存储规范。
 
-- Heisan：上传、标注、Episode 处理、Docker/Compose、局域网与服务器部署；
-- LXP：数据管理页面、数据集详情、报告展示、格式转换和真实导出；
-- 共同评审：`app/db/`、统一 DS 接口、质检状态、`app/main.py`、`base.html`、
-  `pyproject.toml`、Docker/Compose 和存储规范。
+跨边界修改不是禁止，但必须说明原因、接口影响和验证方式，避免两个开发者同时修改
+同一个共享文件。
 
-跨边界修改不是禁止，但必须先说明原因、接口影响和验证方式。不要为了格式化或
-整理顺手修改对方模块。
+## 8. 验证要求
 
-## 9. 容易冲突的共享文件
+- Python 改动：运行相关 pytest 和 Ruff；共享 DB/数据集逻辑改动运行完整测试。
+- JavaScript 改动：至少运行语法检查和对应页面测试。
+- Compose 改动：解析实际使用的基础、开发、局域网和服务器组合。
+- 文件处理改动：覆盖非法路径、缺失文件、重复、失败清理和源数据不变。
+- 完成后执行 `git diff --check`。
+- 汇报必须区分：代码已写、自动化测试通过、本机人工验收、服务器验收。
 
-修改下列文件前先检查另一位开发者的工作，并在交接记录中说明：
+当前完整测试基线和已知问题以 `docs/CODEX_CURRENT_STATE.md` 为准，不在本文件维护
+易过期的测试数量和服务器快照。
 
-- `app/main.py`、`app/web.py`；
-- `app/templates/base.html`；
-- `app/core/config.py`、`app/core/paths.py`；
-- `app/db/`；
-- `compose.yaml`、`compose.dev.yaml`、`compose.server.yaml`、
-  `deploy/compose.lan.yaml`、`Dockerfile`；
-- `pyproject.toml`、`.gitignore`、`.dockerignore`；
-- `storage/README.md` 和统一 DS/LeRobot 读取代码。
+## 9. 文档职责
 
-## 10. 最低验证与交接
+- `readme.md`：项目介绍、目录和快速启动；
+- `how_use.md`：日常启动、停止、账号、Token 和故障排查；
+- `docs/CODEX_CURRENT_STATE.md`：当前功能边界和未完成项；
+- `docs/COLLABORATION.md`：当前分工、共享接口和最近交接；
+- 模块 README：该模块的真实职责、接口和限制。
 
-- Python 改动至少运行相关测试和 Ruff 检查；共享逻辑改动运行完整测试。
-- Docker 配置改动必须验证默认、开发和局域网三种 Compose 组合。
-- 测试必须使用隔离的临时 `HKC_DATA_ROOT`，不得修改真实 `storage/`。
-- 不得用真实业务数据作为 Git 测试样本。
-- 完成后更新 `docs/COLLABORATION.md` 顶部交接记录，写清改动、验证、已知问题和
-  是否修改共享接口。
-- 汇报时区分“代码已写”“自动化测试通过”“本机人工验证通过”“服务器验收通过”，
-  不得把其中一种说成全部完成。
+文档只描述当前有效行为，不再追加旧版本开发流水账。

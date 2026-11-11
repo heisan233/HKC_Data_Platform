@@ -143,7 +143,12 @@ def update_display(dataset_id: str, body: DisplayChange):
         raise HTTPException(400, "名称须为 1–100 个字符")
     if len(description) > 500 or len(tags) > 10 or any(len(tag) > 30 for tag in tags):
         raise HTTPException(400, "备注或标签超出长度限制")
-    return DatasetRepository(storage_root()).update_display(dataset_id, name, description, tags)
+    try:
+        return DatasetRepository(storage_root()).update_display(
+            dataset_id, name, description, tags
+        )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.patch("/api/datasets/{dataset_id}/status-labels")

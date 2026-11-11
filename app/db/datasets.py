@@ -16,6 +16,7 @@ from app.db.mysql import IntegrityError, Row, connection, ensure_schema
 STORAGE_AREAS = frozenset({"raw", "derived", "data"})
 AVAILABILITY = frozenset({"available", "unavailable"})
 STATUS_LABELS = frozenset({"待质检", "待处理"})
+DATASET_NAME_CONFLICT = "数据集名称已存在，请使用其他名称"
 
 
 def utc_now() -> str:
@@ -46,6 +47,21 @@ class DatasetRepository:
     def initialize(self) -> None:
         """Ensure the fresh MySQL schema exists without scanning dataset folders."""
         ensure_schema()
+
+    @staticmethod
+    def _ensure_name_available(db, name: str, exclude_id: str | None = None) -> None:
+        key = name.strip().casefold()
+        rows = db.execute("SELECT id,name FROM datasets").fetchall()
+        if any(
+            row["id"] != exclude_id and str(row["name"]).strip().casefold() == key
+            for row in rows
+        ):
+            raise ValueError(DATASET_NAME_CONFLICT)
+
+    def ensure_name_available(self, name: str, exclude_id: str | None = None) -> None:
+        self.initialize()
+        with self.connection() as db:
+            self._ensure_name_available(db, name, exclude_id)
 
     def list(self, storage_area: str | None = None, *, availability: str | None = None,
              deleted: bool | None = False) -> list[dict]:
@@ -107,8 +123,10 @@ class DatasetRepository:
         area = _area(storage_area)
         relpath = _child_name(storage_relpath)
         sources = list(dict.fromkeys(source_dataset_ids or []))
+        clean_name = name.strip()
         try:
             with self.connection() as db:
+                self._ensure_name_available(db, clean_name)
                 if db.execute(
                     "SELECT 1 FROM datasets WHERE storage_area=? AND storage_relpath=?",
                     (area, relpath),
@@ -130,7 +148,7 @@ class DatasetRepository:
                      description, tags_json, source_dataset_ids_json, info_sha256,
                      registered_at, updated_at, availability)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unavailable')""",
-                    (dataset_id, seq, area, relpath, name, robot_type, "", "[]",
+                    (dataset_id, seq, area, relpath, clean_name, robot_type, "", "[]",
                      json.dumps(sources, ensure_ascii=False), digest, timestamp, timestamp))
                 db.execute("INSERT INTO dataset_status_labels (dataset_id,label,created_at) VALUES (?,?,?)",
                            (dataset_id, "待质检", timestamp))
@@ -231,6 +249,7 @@ class DatasetRepository:
     def update_display(self, dataset_id: str, name: str, description: str, tags: list[str]) -> dict | None:
         self.initialize()
         with self.connection() as db:
+            self._ensure_name_available(db, name, dataset_id)
             result = db.execute("""UPDATE datasets SET name=?, description=?, tags_json=?, updated_at=?
                 WHERE id=?""", (name, description, json.dumps(tags, ensure_ascii=False),
                                 utc_now(), dataset_id))

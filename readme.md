@@ -1,699 +1,188 @@
-# HKC 数采平台：环境配置与修改记录
+# HKC VLA 数据采集平台
 
-> 双人协作开发前，请先阅读根目录 `AGENTS.md`、
-> `docs/CODEX_CURRENT_STATE.md` 和 `docs/COLLABORATION.md`。前两份是合并后的
-> 当前规则与事实，后一份保留交接记录。
+HKC 数采平台用于管理机器人采集的 LeRobot v3 数据集，并提供上传、质检、标注、
+处理、格式转换、导出和 X-VLA 训练任务入口。
 
-## 当前集成开发基线
+当前共同开发分支为 `integration/hs-lxp-v3.2.0-cq`。平台面向可信内网使用，
+尚未配置 HTTPS，不应直接暴露到公网。
 
-当前开发分支是 `integration/hs-lxp-v3.1-cq`，基于二阶段 MySQL 分支
-`integration/hs-lxp-v3.1`；更早的集成分支只作为历史参考。
+## 当前能力
 
-重庆适配和多用户工作在该分支进行：保留 v3.1 的 MySQL
-业务实现，只调整可移植部署配置。本地可通过 `deploy/compose.local-mysql.yaml`
-在 18001 与旧 SQLite 版并行验收；服务器训练执行器改为可选覆盖，不写死旧机器路径。
+- 多用户登录、首次改密、个人中心和服务端会话；
+- 机器人档案、稳定 RB 编号、停用/恢复和采集 Token；
+- 网页 ZIP 上传与机器人命令行分布式上传；
+- MySQL 统一 DS 登记、机器人关联、数据集详情和回收站；
+- LeRobot v3 Episode/task/Subtask 标注；
+- Episode 筛除、拆分、合并、重排、去重和视频画面裁剪；
+- Doctor、机器人规则、可选 VLM、人工审核和质检报告；
+- LeRobot v3 → HDF5 转换及数据集/转换结果导出；
+- Schema 扫描与 Episode/数值逐帧字段扩展；
+- X-VLA 训练任务、离线评估和模型包管理；
+- 工作台真实统计与脱敏访问日志。
 
-本目录仍是 Git worktree：它是同一仓库的独立检出目录，不是项目代码内部的一层
-结构。其他 worktree 可以保留，但每个目录有自己的当前分支和未提交文件。
+功能的准确边界和未完成项见
+[`docs/CODEX_CURRENT_STATE.md`](docs/CODEX_CURRENT_STATE.md)。
 
-当前平台已完成目录迁移，并接入多用户登录、上传、数据管理、标注、处理、质检、
-机器人档案、数据定义、HDF5 转换、打包导出和 X-VLA 训练等真实功能；工作台读取
-真实聚合数据，系统管理展示真实脱敏访问日志。所有入口、路由、模板和静态资源已
-移入 `app/`。后续功能应继续遵守下面的实际目录结构，避免重新在项目根目录堆放
-业务文件：
-
-数据集和运行结果保存在 `storage/`。平台管理元数据使用独立 MySQL 8.4 服务，
-数据目录由 `HKC_MYSQL_DATA_PATH` 指定。旧 `storage/system/platform.sqlite`
-原样保留，不导入、不读写；`registry.sqlite3` 不在此次变更范围内。
-大型数据文件不写入数据库；`migrations/mysql/` 保存建表脚本。
+## 架构
 
 ```text
-HKC_Data_Platform_v3.1-cq/
-├── app/
-│   ├── main.py                 # FastAPI 应用入口，只负责组装应用和注册路由
-│   ├── web.py                  # 多个页面共享的 Jinja2 模板对象
-│   ├── core/                   # 路径、环境配置等全项目共用的基础代码
-│   ├── db/                     # MySQL 管理元数据访问代码
-│   ├── modules/                # 按业务能力组织代码，不与 HTML 严格一一对应
-│   │   ├── dashboard/          # 工作台
-│   │   ├── datasets/           # DS 登记、列表、详情、状态和报告
-│   │   ├── ingestion/          # 网页 ZIP 上传和统一上传服务
-│   │   ├── collector/          # 机器人 Token、机器上传预检和 SHA-256 去重
-│   │   ├── quality/            # LeRobot、自定义规则和 VLM 质检
-│   │   ├── processing/         # 裁剪、合并、拆分、重排、去重
-│   │   ├── annotation/         # Episode/task/Subtask 标注与派生发布
-│   │   ├── conversion/         # 可用 LeRobot v3 DS 转换为 HDF5
-│   │   ├── training/           # X-VLA 训练、离线评估和模型包管理
-│   │   ├── robots/             # 机器人管理
-│   │   ├── system/             # 系统管理
-│   │   ├── semantics/          # LeRobot v3 Schema 扫描、字段定义与派生发布
-│   │   ├── export/             # /export 页面与转换 API 入口
-│   │   ├── models/             # v1 未注册页面，等待归并
-│   │   └── logs/               # v1 未注册页面，等待归并
-│   ├── templates/              # Jinja2 HTML 模板
-│   └── static/                 # 浏览器直接加载的 CSS、JavaScript、图片
-├── tests/                      # 单元、接口和集成测试
-├── migrations/                 # MySQL 建表与后续升级脚本
-├── deploy/                     # 本地与服务器部署配置
-├── tools/                      # 可复制到采集电脑的命令上传工具与说明
-├── storage/                    # 数据集、处理结果和平台运行数据，实际内容不提交 Git
-├── Dockerfile                  # 应用镜像构建说明
-├── compose.yaml                # 应用和 MySQL 容器定义
-├── compose.dev.yaml            # 本地热重载覆盖配置
-├── compose.server.yaml         # 重庆服务器 18000 端口与日志覆盖
-├── pyproject.toml              # Python 项目和直接依赖声明
-├── .env.example                # 可公开的配置示例，不包含真实密钥
-└── readme.md                   # 开发、运行、部署和目录规范
+浏览器或采集端
+        │
+        ▼
+FastAPI 应用容器
+        ├── MySQL 8.4：用户、编号、目录映射、任务和审核元数据
+        ├── storage/：数据集、报告、导出包和模型文件
+        ├── 可选 VLM 服务
+        └── 可选宿主训练执行器 → 独立 X-VLA Docker
 ```
 
-### 先区分四类内容
+平台镜像不包含 CUDA、ROS 或模型训练依赖。训练环境必须与平台应用容器隔离。
 
-1. `app/modules/` 保存“平台能够做什么”的 Python 代码，例如上传、质检和转换。
-2. `storage/` 保存真正的数据集、处理结果、报告和平台产生的普通文件。
-3. `app/db/` 保存 MySQL 访问代码；MySQL 数据目录与 `storage/` 分开。
-4. `migrations/mysql/` 保存平台表结构脚本；它不是旧数据存档。
-
-原始数据集上传、数据管理、Episode/task/Subtask 标注、Episode 数据处理
-和数据质检已经读写真实 LeRobot v3 文件。数据管理扫描真实存储目录，
-并通过 MySQL 分配 DS 编号；转换已接入真实可用 DS 数据，打包导出结果保存到 `storage/exports/`，
-训练页面使用真实 MySQL 任务与宿主执行器接口；宿主执行器未部署时会明确显示不可用，
-不会生成虚假的成功任务。
-
-分布式采集通过 `/api/v1/collector/` 接收机器人 Bearer Token。旧版人工 ZIP 工具位于
-`tools/collector_v1/`；第二版 `tools/auto_update/` 可在采集完成后运行一次，扫描父目录
-中的多个 LeRobot v3 文件夹/ZIP，顺序上传并退出。文件夹在设备本地临时打包，成功后
-写入轻量上传标记，重复运行可在打包和 SHA-256 前跳过。平台成功入库后自动分配 DS、
-关联 RB 并标记为不可用、待质检；现有网页上传保持不变。
-
-### `modules` 与页面、按钮的关系
-
-`templates/` 决定页面长什么样，`modules/` 负责平台能做什么。两者不是一一对应：
-一个页面可以调用多个业务模块，一个业务模块也可以同时提供网页接口和机器人
-HTTP API。
-
-每个模块中的 `router.py` 只应接收 HTTP 请求和返回结果；实际业务以后写在同一
-模块的 `service.py` 或更具体的子目录中。例如质检按钮的调用链应为：
+## 目录
 
 ```text
-qc.html 中的按钮
-  -> quality/router.py 接收请求
-  -> quality/service.py 组织流程
-  -> quality/robot_rules.py、vlm.py 执行自定义检查，Doctor 由服务层调用
-  -> storage/reports/ 保存报告
+app/
+├── core/          配置和公共路径
+├── db/            MySQL 仓储层
+├── modules/       业务模块
+├── templates/     Jinja2 页面
+└── static/        CSS、JavaScript 和图片
+
+migrations/mysql/  MySQL 迁移
+deploy/            Compose 覆盖与训练执行器
+tools/             采集端和服务器维护工具
+tests/             自动化测试
+storage/           运行数据，不提交 Git
 ```
 
-所以“网页按钮代码和数据检查代码分开”是正确做法；它们可以归属同一个
-`quality` 业务模块，但不应该堆在同一个路由函数中。更详细的说明见
-`app/modules/README.md`。
+主要运行目录：
 
-### 当前文件存储方案
-
-- 旧 `storage/raw/` 与 `storage/derived/` 数据集保留原目录；新上传和新发布结果统一放在 `storage/data/<DS 编号>/`。
-- 数据管理在 MySQL 中分配 DS 编号，保存真实目录映射、可用性与展示用状态标签。
-- 质检选择当前不可用的已登记 DS；统一报告保存在 `storage/reports/qc/<DS 编号>/`。
-- 数据管理首页显示待人工审核数量；Raw 列表按最新质检任务显示未质检、待审核、已审核通过、打回重采等状态。质检完成本身不等于人工通过。
-- 正在上传、解压或校验的内容放在 `storage/staging/`。
-- 处理、标注和数据定义生成的新版本放在 `storage/data/<新 DS 编号>/`，不原地修改源数据。
-- 质检报告和导出包分别放在 `storage/reports/` 与 `storage/exports/`。
-- 从页面移除的质检报告进入
-  `storage/trash/reports/<DS 编号>/`，同时记录原路径和移入时间；报告可在回收站
-  页面恢复，不提供永久清空功能。
-- 数据集内容由目录结构和 LeRobot 自身元数据提供；登记与展示信息保存在 MySQL。
-
-### 文件放置规则
-
-- 新业务代码必须放进 `app/modules/<业务领域>/`，不要为每个按钮在项目根目录
-  新建一个 Python 文件。
-- 路由只处理 HTTP 输入输出；具体业务放在同领域的服务代码中，文件读写与业务
-  判断分开。未来启用数据库后，数据库访问也应保持独立。
-- 页面模板放进 `app/templates/`，公共布局和组件集中维护；CSS、JavaScript、
-  图标和图片放进 `app/static/`。
-- 测试代码统一放进 `tests/`，目录尽量与 `app/` 的业务结构对应。
-- Docker、Compose 和依赖声明属于项目源代码，必须提交 Git。
-- 原始数据集、处理结果、模型权重、运行状态文件、日志、缓存和 `.env` 不提交
-  Git，应通过宿主机目录或 Docker volume 挂载。
-- 程序内部统一使用容器路径 `/data`。开发机和服务器只通过 Compose 配置决定
-  `/data` 实际对应哪个宿主机目录，业务代码不得写死个人目录。
-- 密码、Token、API Key 只允许通过环境变量或密钥管理方式提供，仓库中只保存
-  `.env.example`。
-
-### 首期容器边界
-
-当前版本暂时把网页/API 和数据集基础自检放在同一个应用镜像、同一个
-应用容器中，以降低本地开发复杂度。代码仍需保持模块边界，耗时操作通过统一
-任务接口调用，避免直接写进页面路由。后续如果 LeRobot Doctor、视频扫描、VLM
-质检或数据处理影响网页稳定性，再将任务执行模块拆为独立 Worker 容器，而不必
-重写业务逻辑。
-
-所有 `storage/` 和 MySQL 数据目录都必须持久化到容器外部；删除或重建应用容器
-不应导致数据集、任务记录或质检报告丢失。
-
-### 运行依赖与镜像边界
-
-Python 直接依赖只在 `pyproject.toml` 中维护并固定版本：FastAPI/Uvicorn/Jinja2
-负责网页，Pydantic 负责请求模型，python-multipart 负责上传，Pandas/PyArrow
-负责 LeRobot v3 Parquet，NumPy/AV/FFmpeg 负责数据和视频处理，HTTPX 负责 VLM
-接口，`lerobot-doctor` 负责官方结构检查。开发工具 pytest 和 Ruff 位于 `dev`
-可选依赖中，不安装进正式运行镜像。
-
-首期镜像不包含 CUDA、PyTorch、ROS 2 或任何 VLA 训练环境。平台负责管理、处理和
-质检数据；以后每种训练模型继续使用独立镜像，避免把互相冲突的大型依赖塞进平台
-容器。
-
-`Dockerfile` 使用自带 HTTPS CA 证书的 Python 3.11 slim 基础镜像，安装 FFmpeg，
-并以非 root 用户运行。
-`APP_UID`/`APP_GID` 控制容器用户数字 ID，应与宿主机持久化目录所有者一致。
-镜像构建默认使用官方 PyPI；`PIP_INDEX_URL`、`PIP_DEFAULT_TIMEOUT` 只提供部署机
-按网络条件临时覆盖，不改变项目依赖版本。
-
-### 当前启动方式
-
-直接使用本机 Python 时，先配置 `HKC_MYSQL_HOST`、`HKC_MYSQL_PORT`、
-`HKC_MYSQL_DATABASE`、`HKC_MYSQL_USER`、`HKC_MYSQL_PASSWORD`，再从项目根目录运行：
-
-```bash
-python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```text
+storage/
+├── data/                 新发布的 DS 数据集
+├── raw/                  历史原始目录映射
+├── derived/              历史派生目录映射
+├── staging/              临时构建区
+├── reports/qc/           质检报告
+├── converted/            HDF5 转换结果
+├── exports/              导出包
+├── training-runs/        训练任务输出
+├── models/               模型包
+├── trash/                数据集和报告回收站
+└── system/               日志、上传记录和采集摘要
 ```
 
-使用应用与 MySQL 两个容器运行；先在本机 `.env` 中填写两个非空 MySQL 密码：
+## 五分钟本机启动
+
+### 1. 准备配置
 
 ```bash
 cp .env.example .env
-docker compose -f compose.yaml -f compose.dev.yaml up --build
+chmod 600 .env
 ```
 
-`.env` 中的 `HKC_STORAGE_PATH` 决定宿主机持久化目录，默认是项目内 `./storage`；
-`HKC_MYSQL_DATA_PATH` 决定独立的 MySQL 持久化目录，默认是 `./mysql-data`。
-容器内部数据集路径始终使用 `/data`。上传大小、解压大小和 ZIP 文件数限制也可在 `.env`
-调整。真实 VLM 地址和 Token 只能写入 `.env`。
+编辑 `.env`，至少为以下两项设置不同的非空强密码：
 
-默认端口只绑定 `127.0.0.1`。需要让可信局域网中的其他机器临时访问时，不要直接
-修改 `compose.yaml`，请按 `deploy/README.md` 使用
-`deploy/compose.lan.yaml` 覆盖配置。当前已有基础登录与服务端会话，但没有
-HTTPS，仍禁止开放到公网。
+```dotenv
+HKC_MYSQL_PASSWORD=CHANGE_ME_APP_PASSWORD
+HKC_MYSQL_ROOT_PASSWORD=CHANGE_ME_ROOT_PASSWORD
+```
 
-机器人管理页 `/robots/` 使用同一个平台 MySQL 库保存独立机器人档案，为每条记录
-分配 `RB000001` 形式编号。注册/编辑只包含 SN、名称、类型、IP 地址和备注，新记录
-默认在用；状态通过停用/恢复操作管理。页面支持搜索和状态筛选，并且
-不预置演示机器人，也不会自动连接或控制真实设备。一台机器人可关联多个 DS；
-关联、改绑和解除只在机器人管理页操作，数据管理页只读显示 RB 编号与名称。类型
-不一致允许关联但会告警，派生 DS 在来源关系唯一一致时自动继承。关系仅保存在
-MySQL，不修改数据集文件或 `meta/info.json`。
+真实密码不得提交 Git。
 
-数据定义页 `/semantics/` 是真实 LeRobot v3 Schema 编辑器。它扫描 `info.json`、
-Episode/frame Parquet，显示字段来源、dtype、shape、物理类型、完整率和训练可用
-状态。Episode 字段可使用统一值或统一空值；逐帧数值标量/向量可建立全空占位，
-也可从 CSV/Parquet 按 `episode_index + frame_index` 导入。每次修改都复制完整
-数据集并登记新的 DS，源数据集不原地修改。核心字段禁止删除，
-其他官方 Feature 删除前需要醒目警告和二次确认。
-
-全新数据库没有默认用户。容器健康启动后，由管理员交互创建首个账号：
+### 2. 启动开发环境
 
 ```bash
-docker compose exec platform \
-  python -m app.cli.create_user --username <用户名>
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml up -d --build --wait
 ```
 
-密码使用 scrypt 哈希保存，浏览器 Cookie 只携带随机会话令牌；MySQL 只保存该
-令牌的摘要。创建与重置密码命令只允许隐藏式交互输入密码，不提供密码参数。新建
-或被重置密码的用户首次登录后必须设置自己的新密码；修改密码会注销该用户全部
-会话。用户可以在 `/account/` 修改非空显示名称和密码，登录用户名不可修改。管理员
-通过终端执行 `list_users`、`reset_user_password`、`disable_user` 和 `enable_user`
-查看、重置、停用及启用账号；平台不提供网页注册、网页用户管理或账号删除。
-完整说明见 `how_use.md`，真实用户名和密码不得提交 Git 或写入文档。
+`compose.dev.yaml` 会只读挂载 `app/` 和 `migrations/`，并启用 Uvicorn 热重载。
 
-容器内代码路径为 `/opt/hkc-platform`，数据路径固定为 `/data`；默认情况下
-`./storage` 会挂载到 `/data`。修改 Python 或模板后，开发覆盖配置中的
-Uvicorn `--reload` 会重新加载应用。正式部署时只使用 `compose.yaml`，代码来自
-镜像而不是宿主机源码挂载。
+### 3. 创建首个用户
 
-### 原始数据集上传（第一版）
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml exec platform python -m app.cli.create_user --username USERNAME
+```
 
-启动平台后访问：
+密码在终端中交互输入，不会出现在命令历史。新用户首次登录必须修改初始密码。
+
+### 4. 打开平台
+
+访问 [http://127.0.0.1:8000/login](http://127.0.0.1:8000/login)。
+
+状态与日志：
+
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml ps
+
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml logs -f platform
+```
+
+停止：
+
+```bash
+docker compose --env-file .env -f compose.yaml -f compose.dev.yaml down
+```
+
+`down` 不会删除绑定挂载的 `storage/` 和 MySQL 数据目录。
+
+## 数据集流程
 
 ```text
-http://127.0.0.1:8000/ingestion/
+上传 LeRobot v3 ZIP
+    ↓ 安全解压、最低结构校验、分配 DS 编号
+不可用 / 待质检
+    ↓ Doctor、规则、可选 VLM、人工审核
+可用
+    ├── 标注 → 新 DS → 重新质检
+    ├── 数据处理 → 新 DS → 重新质检
+    ├── 数据定义 → 新 DS → 重新质检
+    ├── HDF5 转换与导出
+    └── X-VLA 训练
 ```
 
-局域网模式则把 `127.0.0.1` 换成开发机的可信内网 IPv4 地址。页面接受一个完整
-的 LeRobot v3.0 `.zip`，需要填写平台显示名称；`robot_type` 和备注可选。服务端不会把完整 ZIP
-载入内存，而是分块写入 `storage/staging/`。只有同时通过以下检查才会移动到
-`storage/data/<DS 编号>/`，随后由 MySQL 自动登记并返回稳定的 `DS000001`
-形式平台编号：
+任何派生操作都不会原地修改源 DS。数据集显示名称必须唯一；质检方案的活跃名称也
+必须唯一。名称比较会忽略首尾空格和英文大小写。
 
-上传页的 `robot_type` 规则是：文本框填写时，以表单值为准，并在发布到 data/ 前覆盖
-临时解压副本的 `meta/info.json`；文本框留空时沿用压缩包中的非空值。如果压缩包
-缺少该字段、值为 `null` 或空字符串，同时文本框也留空，平台拒绝入库并要求手动
-填写。这样 MySQL、重新扫描、质检和后续导出始终读取同一个类型值。
+## 分布式采集
 
-- 有效且未加密的 ZIP，不包含绝对路径、`../` 路径穿越或符号链接；
-- 一个压缩包中只有一个数据集（允许外层有一个同名总目录）；
-- `meta/info.json` 中 `codebase_version` 为 `v3.0`；
-- 存在 `meta/stats.json`、`meta/tasks.parquet`、`meta/episodes/**/*.parquet`；
-- 存在 `data/**/*.parquet`；`videos/` 为可选目录；
-- 文件数量、压缩大小、解压大小、压缩率和服务器剩余空间均在安全范围内。
+- `tools/collector_v1/`：人工上传单个 ZIP，可用 `--name` 指定唯一显示名称；
+- `tools/auto_update/`：采集结束后一次扫描多个文件夹或 ZIP，顺序上传后退出；
+- 自动上传的显示名称取文件夹名或 ZIP 去扩展名；需要自定义时先重命名来源；
+- 上传成功后自动分配 DS、关联 Token 所属机器人，并保持“不可用、待质检”。
 
-默认单个 ZIP 上限为 10 GiB，解压总量上限为 50 GiB，文件数上限为 200,000。
-部署时可通过 `HKC_MAX_UPLOAD_BYTES`、`HKC_MAX_EXPANDED_BYTES` 和
-`HKC_MAX_ARCHIVE_FILES` 环境变量覆盖（大小单位均为字节）。上传记录保存在
-`storage/system/upload-records/`，失败的临时文件会清理，不会进入原始区。
-单文件页面与质检页批量上传共用同一套校验、落盘和登记事务；批量接口为
-`POST /ingestion/api/uploads/batch`，每批最多 20 个 ZIP，也接受一个可选的
-`robot_type` 表单字段并统一用于本批文件。
+详见 [`tools/README.md`](tools/README.md)。
 
-这一步只检查安全性和 LeRobot v3.0 的最低结构，并不解析 Parquet 的实际字段，
-也不等于数据质检。内容级检查仍由后续数据质检模块完成。
+## Compose 文件
 
-### Episode/task/Subtask 数据标注
+| 文件 | 用途 |
+| --- | --- |
+| `compose.yaml` | 基础服务，默认 `127.0.0.1:8000` |
+| `compose.dev.yaml` | 开发源码只读挂载和热重载 |
+| `deploy/compose.lan.yaml` | 指定可信局域网 IPv4，端口 8000 |
+| `deploy/compose.local-mysql.yaml` | 本机并行验收，`127.0.0.1:18001` |
+| `compose.server.yaml` | 服务器发布，默认 `0.0.0.0:18000` |
+| `deploy/compose.training-agent.yaml` | 可选宿主训练执行器 socket |
 
-先通过“原始数据集上传”入库 LeRobot v3.0 数据，然后访问：
+具体命令见 [`how_use.md`](how_use.md) 和
+[`deploy/README.md`](deploy/README.md)。
 
-```text
-http://127.0.0.1:8000/annotation/
+## 开发与测试
+
+```bash
+python -m pip install -e '.[dev]'
+python -m pytest -q -p no:cacheprovider
+python -m ruff check app tests tools
+git diff --check
 ```
 
-工作流程如下：
-
-1. 页面从 MySQL 列出已审核可用的 DS 编号，再映射到数据库记录的真实目录；
-   旧目录保持原样，未登记的旧测试目录不会自动导入。
-2. 选择数据集后，平台读取 `meta/tasks.parquet`、Episode 元数据和视频索引。
-   其中 task 按 LeRobot 官方结构作为 Pandas DataFrame 索引读取，Episode 帧数
-   使用官方 `length` 字段；同时兼容本平台早期的普通 `task` 列和 `num_frames`。
-3. 左侧选择一个或多个 Episode，中间播放该 Episode 的真实多相机视频。
-4. 右侧可修改总体 task，选择 Episode 执行结果（成功、部分成功、失败），并记录
-   失败或未完全成功的原因。
-5. 通过视频播放头获取相对 Episode 的开始/结束时间，添加 Subtask 描述、动作
-   类型、对象和该段执行结果；时间段允许留空档但不能重叠。
-6. 点击“暂存当前 Episode”后仍只是浏览器草稿，刷新页面会丢弃，源文件不会改变。
-7. 填写派生版本名称并正式发布。平台将源数据集完整复制到临时区，在副本中同步
-   更新任务表、Episode task、frame `task_index` 和 `info.json.total_tasks`；扩展
-   标注写入 `meta/annotations/`。
-8. 校验通过后，新数据集进入 `storage/data/<新 DS 编号>/`，自动登记新的
-   DS 编号，版本记录进入
-   `storage/system/dataset-versions/`；原始数据集和既有派生版本始终保持不变。
-
-因此一次正式发布需要近似一个完整源数据集的额外磁盘空间。平台使用
-`pandas==2.3.3` 与 `pyarrow==26.0.0` 按 LeRobot 官方索引语义处理 Parquet，
-没有把 PyTorch、CUDA 或 VLA 训练依赖加入 Web 容器。Subtask 的秒数相对 Episode
-开始位置，并自动保存对应的
-`start_frame` 与排他结束帧 `end_frame_exclusive`。Episode 结果和 Subtask 使用
-平台旁路 Parquet 保存，不加入 LeRobot v3 核心 feature，因此不会破坏标准训练
-字段。当前不包含多人审核或后台发布队列。
-
-标注模块提供以下真实 API：
-
-```text
-GET  /annotation/api/datasets
-GET  /annotation/api/datasets/{dataset_id}
-GET  /annotation/api/datasets/{dataset_id}/episodes/{episode_index}/video?camera=...
-POST /annotation/api/publish
-```
-
-### 数据处理
-
-访问：
-
-```text
-http://127.0.0.1:8000/preprocess/
-```
-
-页面通过 MySQL 读取所有已登记 DS（包括可用和不可用）的真实
-LeRobot v3 数据集，提供以下操作：
-
-1. 筛除指定 Episode，保留其余 Episode 并连续重新编号；
-2. 按比例或显式 Episode 编号拆分为多个完整数据集；
-3. 合并 FPS、机器人类型、features 及 Parquet schema 完全兼容的数据集；
-4. 按给定的完整排列重排 Episode；
-5. 根据去除全局 `index` 和 `episode_index` 后的 frame Parquet SHA-256 指纹检测
-   精确重复 Episode，并保留每组编号最小的一个；
-6. 对指定相机的全部 Episode 使用统一像素区域裁剪画面，其他相机保持原尺寸。
-
-视频画面裁剪直接预览所选相机的真实 Episode 视频。裁剪框可整体移动，四角和
-四边均可拖动调整；切换 Episode 时保留同一裁剪框，便于确认它适用于整套数据。
-页面会把显示坐标换算为原始视频像素，精确 `X/Y/宽/高` 保留在折叠设置中。输出
-宽高必须为偶数且裁剪框不能超出源视频；平台会重新编码 H.264，并同步更新
-`meta/info.json` 中该视频 feature 的 `shape`、`video.width` 和 `video.height`。
-当前功能只裁剪、不拉伸画面，源数据集始终保持不变。
-
-读取端同时兼容平台早期生成的 v3 Episode 元数据：如果只有 `num_frames/task`，
-且缺少 `data/chunk_index`、`data/file_index`，平台会根据各 frame Parquet 中的
-`episode_index` 只读反查文件位置。原始数据不会被改写；生成派生版本时会补齐
-`length/tasks` 和标准 data 分片索引。
-
-所有操作只读取源数据。任务先在 `storage/staging/processing/<job_id>/` 中生成
-完整 LeRobot v3 数据集，校验后原子移动到 `storage/data/<新 DS 编号>/` 并
-自动登记新的 DS 编号；任务
-记录与派生版本记录分别写入 `storage/system/processing-jobs/` 和
-`storage/system/dataset-versions/`。Episode、frame、全局 index 和 task index 会
-重新映射；已有 `meta/annotations/` 旁路标注也会跟随 Episode 一起迁移。
-任务完成后，“最近任务”中的每个输出会显示新分配的 DS 编号；点击该结果即可在
-数据处理工作台载入新的派生数据集。拆分任务可能产生多个 DS，使用者可以分别
-选择需要继续查看或处理的输出。
-
-带视频的数据集会按新 Episode 边界提取并重新编码为独立 H.264 MP4，因此处理
-时间和新占用空间接近一个完整派生数据集。Web 容器只增加 `av==15.0.0` 负责视频
-读写，没有安装完整 LeRobot、PyTorch 或 CUDA 训练依赖。第一版任务仍由 Web
-进程中的后台任务执行，容器重启不能续跑；大规模并发处理后续再拆到 Worker。
-
-处理模块提供以下真实 API：
-
-```text
-GET  /preprocess/api/datasets
-GET  /preprocess/api/datasets/{dataset_id}
-POST /preprocess/api/datasets/{dataset_id}/duplicates
-GET  /preprocess/api/jobs
-GET  /preprocess/api/jobs/{job_id}
-POST /preprocess/api/jobs
-```
-
-### 数据质检
-
-打开 `/qc/` 上传或选择当前不可用的已登记 LeRobot v3 数据集。先从数据集创建质检方案，
-在方案页配置机器人字段与阈值、Doctor 检查项、机器人专项规则及 VLM 判断要求。
-每次保存方案都会生成新版本。任务页选择方案后只调整本次启用的规则；任务保存
-方案版本、启用项和数据集文件指纹快照。同一方案可供多个同类型数据集复用：
-一次勾选多个不可用数据集或上传多个 ZIP，会为每个数据集各创建一个任务，提交后
-留在任务列表查看进度。方案可从列表删除；删除后不再用于新任务，已有任务、
-版本快照和报告仍可查询。
-
-任务依次执行 `lerobot-doctor` 0.2.0、机器人专项规则、VLM 视频规则。Doctor 使用
-该版本实际提供的 11 项原生检查；机器人专项读取元数据、Parquet 与 MP4；VLM
-依据 Episode 时间边界截取视频片段，通过 `VLM_BASE_URL` 指向的 OpenAI 兼容接口
-请求模型，默认模型为 `qwen3-vl-4b`。VLM 连接所需的 `VLM_BASE_URL` 和
-`VLM_API_TOKEN` 通过 `.env`/Compose 环境变量设置。项目的 `.env.example`
-仅保留可公开的占位配置；实际服务地址和密钥必须在部署机的 `.env` 中设置。
-运行前会快速检查 VLM 服务连通性，连接失败会在报告中说明原因。
-VLM 使用与标注模块相同的官方 v3 task 读取规则：支持 `tasks.parquet` 的 Pandas
-索引格式、Episode 的 `tasks` 列，并在必要时根据 frame 的 `task_index` 回查任务文本。
-未配置接口时，可在方案或任务中关闭 VLM 规则。视频片段只放在 `staging/` 的
-任务临时目录，执行后删除。
-
-每个任务只生成一份 JSON 报告，包含 Doctor、机器人专项和 VLM 三部分，位于
-`storage/reports/qc/<DS 编号>/<任务 ID>.json`。页面支持人工通过、待复核、
-打回重采、按原配置重跑和下载报告。任务列表可将已结束的记录移出当前显示，并在“已移出记录”
-中恢复；任务、报告、人工判定和源数据集均保留。列表分页显示，每页 20 条。
-人工复核保留历史；覆盖系统结果
-为通过时须填写理由。报告首页显示三部分结论，点击后进入各自的双列详细结果；
-报告仅记录检查结果，不自动修改原始数据。
-
-### 数据格式转换与导出
-
-访问 `/export/`，先选择转换方案，再从已审核可用的 LeRobot v3 数据集选择来源 DS 编号。
-目前开放 LeRobot v3.0 → HDF5。页面展示进度；完成后结果以 CV 任务编号关联
-`converted/` 目录，在数据管理页的“格式转换结果”区域单独展示，不参与 DS 登记。
-页面提供“导出数据集”按钮：可选择可用 DS 或转换结果，生成包含完整目录的 `tar.gz` 并下载；转换结果包包含
-`manifest.json` 和全部 `chunk_*.hdf5`。
-每个 HDF5 文件最多包含 10 个 Episode。来源只读，任务临时目录位于
-`storage/staging/conversion/`，成功结果位于 `storage/converted/<CV 编号>/`，
-导出时先在 `storage/staging/export/` 打包，再原子发布到 `storage/exports/`；相同文件快照复用已有压缩包。
-任务状态与结果管理元数据位于 MySQL；旧 JSON 任务记录不自动导入。视频/图像帧转换为 JPEG，
-`meta/annotations/` 旁路标注作为元数据文件保存到 HDF5。
-
-接口为 `GET /export/api/profiles`、`GET /export/api/datasets`、`GET /export/api/exportable-datasets`、`POST /export/api/conversions`
-（JSON：`{"profile_id":"lerobot-v3-hdf5","source_dataset_id":"DS000001"}`）、`GET /export/api/conversions`、
-`GET /export/api/conversions/{task_id}` 和
-`GET /export/conversions/{task_id}/files/{filename}`，以及完整打包下载
-`GET /export/archive/{dataset_id}`（数据集使用 DS 编号，转换结果使用 CV 编号）。
-
-### 当前已知边界
-
-- 机器人直接调用的 HTTP 采集上传接口仍待实现；当前真实入口是网页单个 ZIP 上传
-  和复用统一服务的批量上传。
-- 格式转换当前只支持已审核可用的 LeRobot v3.0 DS → HDF5；不支持图片、视频
-  或深度媒体字段的新增转换。
-- 真实训练依赖独立宿主执行器、Conda/CUDA 环境和模型权重；未部署执行器时不能
-  提交真实训练。
-- PostgreSQL、Redis 和独立 Worker 暂不加入当前 Compose。
-- 当前没有管理员/普通用户角色，也不提供网页注册、网页用户管理或账号删除。
-
-当前本地功能冻结与验收结果见
-`docs/LOCAL_ACCEPTANCE_2026-10-22.md`。附录中的 v1 Windows/Conda 内容只用于
-历史追溯，不能作为当前版本的运行或功能状态说明。
-
-## 附录：v1 原型历史记录
-
-> 以下内容记录 2026-09-22 的 v1 Windows/Conda 原型，仅供追溯。其中
-> `main:app`、根目录 `routers/`、`templates/` 等路径已经失效；Platform v2
-> 请以上面的目录规范和 `app.main:app` 启动方式为准。
-
-记录日期：2026-09-22
-
-## 1. 项目概况
-
-本项目是基于 FastAPI + Jinja2 的机器人数据采集平台演示原型，采用后端渲染 HTML 页面。
-
-- 项目目录：`D:\APP\PyCharm\Project\HKC_Data_Platform`
-- Conda 环境：`hkc-data-platform`
-- 当前入口：`main.py` 中的 `app`
-- 访问方式：直接进入工作台，无需登录。
-- 当前业务数据主要保存在 Python 常量中，尚未连接数据库。
-
-```text
-HKC_Data_Platform/
-├── main.py               # 应用入口、静态资源挂载、路由注册
-├── routers/              # 13 个业务路由模块
-├── templates/            # 16 个 Jinja2 页面模板
-│   ├── base.html         # 公共布局、导航和样式
-│   ├── dashboard.html    # 工作台
-│   ├── login.html        # 保留但未使用的登录页面
-│   └── settings.html     # 保留但未使用的设置页面
-├── static/
-│   ├── css/              # 当前为空
-│   └── js/               # 当前为空
-└── readme.md
-```
-
-## 2. 环境与依赖
-
-使用 Windows PowerShell 或 PyCharm Terminal。需预先安装并配置 Anaconda 或 Miniconda。
-
-以下版本来自当前 `hkc-data-platform` 环境的实际检查，并非项目的最低版本要求。
-
-| 组件 | 当前版本 | 用途 |
-| --- | --- | --- |
-| Python | 3.11.16 | 运行 Python 代码 |
-| FastAPI | 0.141.1 | Web 应用与路由 |
-| Starlette | 1.6.0 | FastAPI 底层 Web 组件与模板响应 |
-| Uvicorn | 0.53.0 | ASGI 服务启动 |
-| Jinja2 | 3.1.6 | HTML 模板渲染 |
-| python-multipart | 0.0.32 | 表单和文件上传解析；当时的 v1 无认证原型暂不需要 |
-| pytest | 9.1.1 | 可选测试工具 |
-| httpx | 0.28.1 | 可选 HTTP 客户端与测试依赖 |
-| Ruff | 0.16.8 | 可选代码检查和格式化工具 |
-
-`datetime`、`random` 是 Python 标准库，不需要额外安装。当前页面演示不需要 CUDA、PyTorch、YOLO 模型权重、Node.js 或数据库服务。
-
-### 2.1 首次创建环境
-
-```powershell
-cd D:\APP\PyCharm\Project\HKC_Data_Platform
-conda create -n hkc-data-platform python=3.11 -y
-conda activate hkc-data-platform
-python -m pip install --upgrade pip
-```
-
-如果环境已经存在，直接激活即可，不需要重复创建。
-
-### 2.2 安装运行依赖
-
-以下命令固定了本次验证涉及的主要运行依赖版本：
-
-```powershell
-python -m pip install "fastapi==0.141.1" "starlette==1.6.0" "uvicorn[standard]==0.53.0" "jinja2==3.1.6"
-```
-
-后续需要表单或文件上传时安装：
-
-```powershell
-python -m pip install "python-multipart==0.0.32"
-```
-
-可选开发依赖：
-
-```powershell
-python -m pip install "pytest==9.1.1" "httpx==0.28.1" "ruff==0.16.8"
-```
-
-本次验证使用的 `TestClient` 能运行，但 Starlette 对使用 `httpx` 给出了弃用提示；这不影响页面启动。上述清单未锁定全部间接依赖，不是完整环境锁文件。
-
-### 2.3 检查环境
-
-```powershell
-python --version
-python -c "import sys; print(sys.executable)"
-python -c "import fastapi, starlette, uvicorn, jinja2; print('依赖导入成功')"
-python -m pip check
-```
-
-本机对应解释器：
-
-```text
-D:\APP\Anaconda\envs\hkc-data-platform\python.exe
-```
-
-PyCharm 中应将项目解释器选为以上 Conda 环境。安装到其他目录的电脑，需要选择其实际解释器路径。
-
-## 3. 日常启动与停止
-
-```powershell
-cd D:\APP\PyCharm\Project\HKC_Data_Platform
-conda activate hkc-data-platform
-python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000
-```
-
-出现 `Application startup complete.` 表示服务启动成功。
-
-- 平台首页：[http://127.0.0.1:8000](http://127.0.0.1:8000)
-- 工作台：[http://127.0.0.1:8000/dashboard/](http://127.0.0.1:8000/dashboard/)
-- 自动生成的接口文档：[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-
-访问首页会跳转到工作台。运行时保持终端打开，停止服务按 `Ctrl+C`。`--reload` 用于开发，Python 文件修改后会自动重载；模板修改后刷新浏览器查看。
-
-应在项目根目录启动，因为代码使用相对路径 `templates` 和 `static`。绑定 `127.0.0.1` 时仅本机可访问。
-
-如果服务已经运行，只需刷新网页。若 8000 端口被占用，可停止原服务，或改用 `--port 8001` 并访问对应端口。
-
-## 4. 已完成的修改
-
-### 4.1 移除认证模块依赖
-
-原入口导入了 `routers.auth`，但文件夹里没有 `routers/auth.py`，导致应用无法正常加载。当前按开发模式去掉认证入口。
-
-`main.py` 的调整：
-
-- 从导入列表中移除 `auth`。
-- 删除 `app.include_router(auth.router, prefix="/auth", tags=["认证"])`。
-- 删除入口中不再需要的 `Request`、`Jinja2Templates` 和模板实例。
-- 首页改为直接跳转到工作台：
-
-```python
-from fastapi.responses import RedirectResponse
-
-
-@app.get("/")
-async def root():
-    return RedirectResponse("/dashboard/")
-```
-
-`templates/base.html` 的调整：
-
-将原来的 `admin`、设置和注销入口替换为：
-
-```html
-<div class="user">
-    <span>🛠️ 开发模式</span>
-</div>
-```
-
-上述内容是旧版历史说明。当前版本已经提供 MySQL 用户、登录、退出、个人中心、
-首次改密和全站访问保护；不存在公开注册入口，也尚未划分管理员与普通用户角色。
-
-### 4.2 修复模板响应参数不兼容
-
-原始报错：
-
-```text
-GET /dashboard/ → 500 Internal Server Error
-TypeError: unhashable type: 'dict'
-```
-
-原因是当前 Starlette 的 `TemplateResponse` 参数顺序为 `request, name, context`，原项目使用旧版位置参数写法，导致上下文字典被当作模板名称。
-
-修改前：
-
-```python
-return templates.TemplateResponse("dashboard.html", {
-    "request": request,
-    "stats": stats,
-    "recent": recent,
-})
-```
-
-修改后使用明确的关键字参数：
-
-```python
-return templates.TemplateResponse(
-    request=request,
-    name="dashboard.html",
-    context={"stats": stats, "recent": recent},
-)
-```
-
-Starlette 会把 `request` 放入模板上下文，因此不必再在 `context` 中重复传入。
-
-已更新以下全部 12 个现存路由文件：
-
-```text
-routers/annotation.py
-routers/dashboard.py
-routers/data.py
-routers/export.py
-routers/log.py
-routers/models.py
-routers/preprocess.py
-routers/qc.py
-routers/robots.py
-routers/semantics.py
-routers/system.py
-routers/training.py
-```
-
-## 5. 验证结果
-
-模板调用修改完成后，使用当前 Conda 环境和 FastAPI `TestClient` 对主应用逐页请求。验证结果如下：
-
-| 地址 | 页面 | 结果 |
-| --- | --- | --- |
-| `/` | 首页 | 307，跳转 `/dashboard/` |
-| `/dashboard/` | 工作台 | 200 |
-| `/semantics/` | 数据定义 | 200 |
-| `/robots/` | 机器人管理 | 200 |
-| `/data/` | 数据管理 | 200 |
-| `/preprocess/` | 数据处理 | 200 |
-| `/qc/` | 数据质检 | 200 |
-| `/annotation/` | 数据标注 | 200 |
-| `/export/` | 格式转换与导出 | 200 |
-| `/training/` | 模型训练 | 200 |
-| `/system/` | 系统管理 | 200 |
-
-独立情景管理已在来源分支 `integration/hs-v2.1` 删除，`/scenes/` 应返回 404；未来的场景
-分类归入数据定义。
-
-该验证确认已注册页面能返回并渲染 HTML，不代表页面按钮对应的业务功能已经实现。
-
-系统管理页当前会展示真实登录访问记录，日志位于
-`storage/system/logs/platform.jsonl`。日志只记录用户、模块、HTTP 方法、纯路径、
-状态码和耗时，不记录查询参数、正文、Cookie、密码或 Token。
-
-## 6. 当前限制与待补充内容
-
-- 数据集、机器人、任务和质检结果主要是静态演示数据；尚未接入真实采集、处理、标注、导出或训练流程。
-- 大多数操作按钮尚未绑定后端功能。
-- `routers/models.py` 和 `routers/log.py` 的模板调用已更新，但路由尚未在 `main.py` 中注册，不包含在上述页面验证范围内。
-- `routers/log.py` 引用的 `templates/log.html` 当前缺失；仅注册路由仍不能使该日志页面正常渲染。
-- `templates/models.html` 中的图片推理通过前端随机检测框模拟，没有调用真实模型。
-- `templates/api.html` 是保留的接口管理模板，其中的接口示例不代表真实接口已经实现。
-- 暂无项目级依赖清单、完整依赖锁文件、数据库配置或自动化测试套件；建议后续补齐。
-
-## 7. 常见问题
-
-### `No module named 'fastapi'`
-
-通常是未激活正确环境，或没有在该环境安装依赖。先执行 `conda activate hkc-data-platform`，再用 `python -c "import sys; print(sys.executable)"` 检查解释器。
-
-### 找不到 `routers.auth`
-
-这条只适用于当时的 v1 原型：确认 `main.py` 中已经去掉 `auth` 导入和认证路由注册。
-当前 v3.1-cq 已有完整 `app/modules/auth/`，不能照此删除认证模块。
-
-### `TypeError: unhashable type: 'dict'`
-
-确认相应路由使用 `TemplateResponse(request=request, name="页面.html", context={...})`。本次已统一修复。
-
-### `GET /` 返回 307
-
-这是首页跳转到工作台的正常响应，不是报错。
-
-### `/favicon.ico` 返回 404
-
-表示浏览器请求的网站图标尚未配置，不影响业务页面使用。
+测试必须连接隔离 MySQL 并使用临时 storage，不能指向正式数据。协作和代码修改规则
+见 [`AGENTS.md`](AGENTS.md)。
+
+## 安全边界
+
+- 不提交 `.env`、密码、Token、真实 IP、公司 VLM 地址或数据集；
+- 默认只监听本机；局域网模式也只用于可信网络；
+- 上传包和所有用户路径都按不可信输入处理；
+- 平台没有 HTTPS、公开注册、角色权限或公网防护；
+- 备份必须同时覆盖 MySQL 和 `storage/`，只备份其中之一不能完整恢复平台。

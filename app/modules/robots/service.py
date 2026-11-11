@@ -123,13 +123,15 @@ def dataset_bindings(root: Path, robot_id: str) -> dict | None:
         return None
     links = {row["dataset_id"]: row for row in DatasetRobotRepository(root).list()}
     rows = []
-    for dataset in DatasetRepository(root).list():
+    for dataset in DatasetRepository(root).list(deleted=None):
         link = links.get(dataset["id"])
+        in_trash = dataset["deleted_at"] is not None
         rows.append({
             "id": dataset["id"],
             "name": dataset["name"],
             "storage_area": dataset["storage_area"],
             "availability": dataset["availability"],
+            "in_trash": in_trash,
             "robot_type": dataset["robot_type"],
             "collector_robot_id": link["robot_id"] if link else None,
             "collector_robot_name": link["robot_name"] if link else None,

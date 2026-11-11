@@ -1,85 +1,131 @@
-# X-VLA 训练执行器
+# X-VLA 宿主训练执行器
 
-执行器仍是与平台容器分离的宿主机进程。重庆部署通过
-`HKC_TRAINING_DOCKER_IMAGE` 指定独立 X-VLA 镜像；旧部署未指定该变量时仍使用
-`HKC_TRAINING_PYTHON` 所指的 LeRobot Python。启动脚本不会安装或升级训练依赖。
-它只接受 X-VLA 基座微调和内置预设，不接受
-网页传入任意路径、命令或 shell 参数。平台容器只通过单独挂载的 Unix socket
-调用执行器。无论业务数据盘是什么文件系统，通信目录都必须位于支持 Unix 权限和
-socket 的 ext4/XFS 文件系统；不得把 socket 或 0600 令牌放到 exFAT/NTFS 数据盘。
+平台容器不包含 CUDA、LeRobot 或 X-VLA。宿主执行器通过私有 Unix socket 接收受限
+任务，并调用独立训练 Docker；也保留旧 Conda 运行方式。
 
-> 下方 `/home/z123`、`/externalDisk`、RTX 4090 D 和 `qwen3vl.service` 是原深圳
-> 服务器的历史验收记录，不是重庆服务器默认配置；不得照抄这些路径或服务名。
+## 1. 安全边界
 
-原深圳服务器曾只读核对：LeRobot 环境 `/home/z123/miniconda3/envs/lerobot` 可识别
-RTX 4090 D；完整基座位于 `/externalDisk/data/model/xvla-base`；tokenizer 副本位于
-`/externalDisk/data/hkc_storage/pretrain/bart-large`。这些是**部署机的配置值**，
-不是平台通用代码中的固定路径。其他服务器须重新提供各自的三个路径。
+- 平台只能提交预定义训练参数，不能传任意命令或路径；
+- 数据集、基座、tokenizer 和执行器脚本只读挂载；
+- 任务输出和模型包目录可写；
+- Docker 训练容器默认禁网并以执行器 UID/GID 运行；
+- socket 目录权限为 0700，token 文件为 0600；
+- socket 和 work 位于 ext4/XFS 等 Linux 文件系统；
+- GPU、镜像、权重和训练缓存不进入平台应用镜像。
 
-在部署机设置以下环境变量，再以存储目录所有者运行宿主机 Python
-`deploy/training_agent.py`：
+## 2. 环境文件
 
-```text
-HKC_TRAINING_STORAGE=<宿主机平台持久化目录>
-HKC_TRAINING_MODEL=<X-VLA 官方基座目录>
-HKC_TRAINING_TOKENIZER=<可离线加载的 BART tokenizer 目录>
-HKC_TRAINING_PYTHON=<已验证的 LeRobot Python 路径>
-HKC_TRAINING_MIN_FREE_MB=18000
-HKC_TRAINING_SCRIPT=<本项目 deploy/training_agent.py 绝对路径>
-HKC_TRAINING_SOCKET_DIR=<宿主机 ext4/XFS 上的私有通信目录>
-HKC_TRAINING_WORK_DIR=<宿主机 ext4/XFS 上的临时训练工作目录>
-HKC_TRAINING_MIN_WORK_GB=12
-HKC_TRAINING_VLM_SERVICE=<管理员允许受控启停的系统级 VLM 服务名>
-HKC_TRAINING_DOCKER_IMAGE=<已在本机存在的 X-VLA 训练镜像，可留空沿用宿主 Python>
+用户服务读取 `~/.config/hkc-training-agent.env`：
+
+```dotenv
+HKC_TRAINING_PYTHON=/usr/bin/python3
+HKC_TRAINING_SCRIPT=/path/to/project/deploy/training_agent.py
+HKC_TRAINING_STORAGE=/path/to/platform-storage
+HKC_TRAINING_MODEL=/path/to/xvla-base
+HKC_TRAINING_TOKENIZER=/path/to/tokenizer
+HKC_TRAINING_SOCKET_DIR=/path/to/private/control
+HKC_TRAINING_WORK_DIR=/path/to/private/work
+HKC_TRAINING_DOCKER_IMAGE=hkc-xvla-train:VERSION_TAG
 HKC_TRAINING_DOCKER_GPU_ID=0
+HKC_TRAINING_MIN_FREE_MB=18000
+HKC_TRAINING_MIN_WORK_GB=12
+HKC_TRAINING_VLM_SERVICE=
 ```
 
-重庆服务器的模型环境在 `/srv/hkc-ai/models/XVLA`，镜像为
-`hkc-xvla-train:lerobot-0.6.2-cu128`。将基座、tokenizer 和工作目录分别指向该目录的
-`weights/xvla-base`、`tokenizer/bart-large`、`work`；工作目录须为执行器用户私有的
-`0700` ext4 目录。宿主进程仅负责已登记任务、数据视图、日志、打包和 VLM systemd
-开关；LeRobot 训练、任务表规范化与离线评估在镜像中执行。容器使用固定镜像与 GPU
-编号、禁用网络，并以执行器 UID/GID 运行；数据集只读挂载，单任务结果目录及
-ext4 工作目录可写。平台仍只连接原 Unix socket，网页不接收 Docker 参数。
+`HKC_TRAINING_PYTHON` 用于 systemd 启动执行器；旧 Conda 模式还用它执行训练。
+Docker 模式仍需提供可运行 `training_agent.py` 的宿主 Python。
 
-首次启动会在 `<通信目录>/token` 自动生成随机令牌（0600），
-**不得放入 Git、通用 Compose 或命令历史**。socket 由执行器创建（0660）。
-平台服务发现 socket 和令牌后才显示在线。更换权重
-后须重启执行器；启动时对权重计算 SHA-256，基座版本展示为
-`xvla-base@<摘要前16位>`。
+`HKC_TRAINING_DOCKER_IMAGE` 为空时使用 Conda/宿主 Python；当前服务器推荐 Docker。
 
-执行器接收任务后再次确认 DS 目录在授权的 data/raw/derived 下、`info.json` 摘要未变、
-训练/验证 Episode 不重叠。只有 GPU 空闲显存达到阈值时才启动训练，否则保持排队
-并说明原因。训练、离线验证、打包分别由执行器跟踪；失败和重启中断记录会保留。
-验证指标是留出 Episode 的平均前向损失，不是机器人任务成功率。打包包含 checkpoint
-完整模型目录、BART tokenizer、可用的数据集统计、评估报告、来源/参数清单和单文件
-SHA-256；平台还验证整个包的哈希。
-LeRobot 在保存 checkpoint 后会创建 `last` 符号链接，因此训练工作目录不能位于
-exFAT。任务成功且模型包校验完成后，执行器会删除该任务的 ext4 临时工作副本，
-保留持久化盘中的模型包、评估、任务状态与日志；失败或中断的工作副本暂时保留供排障。
+## 3. 目录与依赖检查
 
-执行器在每个任务的 ext4 临时目录中建立只读数据视图和基座配置副本：数据/视频
-仍引用已登记的原始 DS，旧格式 `tasks.parquet` 的任务文本索引只在视图中修正；
-基座权重通过符号链接读取，预处理器配置改用管理员提供的本地 BART tokenizer。
-这不会修改原始 DS、基座模型目录或 Conda 环境。相机名称按模型视觉槽位映射，
-`head` 优先作为主视角，多余于基座槽位的相机会被明确拒绝。训练 checkpoint 的
-预处理器保存该映射，离线评估会使用相同映射。
+```bash
+install -d -m 700 /path/to/socket-dir /path/to/work-dir
+test -r /path/to/model-dir/config.json
+test -r /path/to/model-dir/model.safetensors
+test -r /path/to/tokenizer-dir/tokenizer_config.json
+docker image inspect TRAINING_IMAGE_TAG
+nvidia-smi
+```
 
-原深圳服务器的 VLM 是系统级 `qwen3vl.service`。管理员可仅授权运行执行器的账户
-执行 `/usr/bin/systemctl start qwen3vl.service` 和
-`/usr/bin/systemctl stop qwen3vl.service`；执行器会先以 `sudo -n -l` 核对这两条
-权限，未授权时页面按钮仍禁用。不得把 `sudo` 密码写入应用或执行器。
-平台在关闭 VLM 前设置持久化的质检队列闸门；若已有 VLM 质检正在运行，就拒绝
-关闭并恢复闸门。关闭期间新 VLM 质检保留排队；恢复服务后自动重新提交这些任务。
-普通无 VLM 的质检不受此闸门影响。执行器不接受网页提交的服务名或任意命令。
+执行器用户必须能读取 storage、基座和 tokenizer，能写 training-runs、models 和
+work，并有权使用 Docker 与指定 GPU。
 
-原深圳服务器曾使用 `deploy/hkc-training-agent.service` 用户级 systemd 服务，变量在
-仅属于该用户的 `~/.config/hkc-training-agent.env`。要保证用户注销后和服务器开机、
-用户尚未登录时仍运行，管理员还须为该用户启用 linger。
+## 4. 安装用户服务
 
-2026-10-27 已用已登记的 DS000004 完成 `TR000008` 的 100-step 真实 GPU 训练、
-固定留出 Episode 全帧前向损失与逐维动作 MAE、曲线 API 和模型包校验。
-X-VLA 的内部 20 维输出比该数据集的 14 维动作多出补齐尾部；评估按 checkpoint
-声明的 14 维截取后再执行后处理，不把补齐维度计入 MAE。该短任务只验证链路，
-不代表模型质量；登录后下载端点的单字节 Range 请求已返回 206，浏览器视觉交互
-和完整 3 GB 文件下载仍待人工确认。
+```bash
+mkdir -p ~/.config/systemd/user
+cp deploy/hkc-training-agent.service ~/.config/systemd/user/hkc-training-agent.service
+chmod 600 ~/.config/hkc-training-agent.env
+systemctl --user daemon-reload
+systemctl --user enable --now hkc-training-agent.service
+```
+
+查看状态：
+
+```bash
+systemctl --user status hkc-training-agent.service
+journalctl --user -u hkc-training-agent.service -f
+```
+
+如需用户退出后仍运行，由服务器管理员按公司规范启用 linger。
+
+第一次启动会在 socket 目录创建 `agent.sock` 和 `token`。不要人工修改或提交
+token。
+
+## 5. 平台连接
+
+服务器环境文件设置：
+
+```dotenv
+HKC_TRAINING_AGENT_SOCKET_DIR=/path/to/socket-dir
+```
+
+平台启动时叠加 `deploy/compose.training-agent.yaml`。该文件把目录只读挂载到容器
+`/run/hkc-training-agent`。
+
+验证：
+
+```bash
+systemctl --user is-active hkc-training-agent.service
+docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml -f deploy/compose.training-agent.yaml exec platform ls -l /run/hkc-training-agent
+```
+
+随后在训练页确认执行器、GPU、基座和运行时状态。
+
+## 6. VLM 启停
+
+可选的 `HKC_TRAINING_VLM_SERVICE` 只能填写合法 systemd service 名称。若需要网页
+启停 VLM，管理员应仅授予执行器用户对该单一服务 `start`、`stop` 的免密权限，
+不能授予通配符或完整 root 权限。
+
+训练占用 GPU 时不能恢复 VLM。平台当前没有管理员角色，因此所有有效登录用户都能
+操作该开关。
+
+## 7. 任务与重启
+
+- 任务输出：`storage/training-runs/TR.../`；
+- 模型包：`storage/models/TR...-xvla.tar.gz`；
+- 执行器重启时运行中任务标记为 `INTERRUPTED`；
+- 平台重启不删除执行器任务文件；
+- 取消运行任务时停止对应容器或进程；
+- 永久清理只允许已结束且无活动进程的任务。
+
+## 8. 故障排查
+
+执行器离线：
+
+1. 检查用户服务；
+2. 检查 socket/token 权限；
+3. 检查平台是否叠加训练覆盖；
+4. 检查两侧是否指向同一宿主目录。
+
+训练不可用：
+
+1. 检查镜像、GPU 和 Docker 权限；
+2. 检查模型与 tokenizer 必需文件；
+3. 检查显存和工作盘剩余空间；
+4. 检查 storage、work 和模型目录权限；
+5. 查看执行器 journal 与任务 `train.log`。
+
+模型环境变化后先验收小任务，再开放正式训练。

@@ -22,10 +22,23 @@ class QualityRepository(DatasetRepository):
     def initialize(self) -> None:
         ensure_schema()
 
+    @staticmethod
+    def _ensure_plan_name_available(db, name: str, exclude_id: str | None = None) -> None:
+        key = name.strip().casefold()
+        rows = db.execute(
+            "SELECT id,name FROM qc_plans WHERE archived_at IS NULL"
+        ).fetchall()
+        if any(
+            row["id"] != exclude_id and str(row["name"]).strip().casefold() == key
+            for row in rows
+        ):
+            raise ValueError("质检方案名称已存在，请使用其他名称")
+
     def create_plan(self, name: str, robot_type: str, config: dict) -> dict:
         self.initialize()
         timestamp = _now()
         with self.connection() as db:
+            self._ensure_plan_name_available(db, name)
             cursor = db.execute(
                 "INSERT INTO qc_plans(name,robot_type,created_at,updated_at) VALUES (?,?,?,?)",
                 (name, robot_type, timestamp, timestamp),
@@ -51,6 +64,7 @@ class QualityRepository(DatasetRepository):
                 raise ValueError("已删除的方案不能修改")
             if row["current_version"] != expected_version:
                 raise ValueError("方案已被其他操作更新，请刷新后重试")
+            self._ensure_plan_name_available(db, name, plan_id)
             version = row["current_version"] + 1
             timestamp = _now()
             db.execute(

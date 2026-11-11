@@ -1,405 +1,180 @@
-# 二阶段项目现状（供同事 Codex 接手）
+# HKC 数采平台当前状态
 
-更新日期：2026-11-10
+更新日期：2026-11-11
 
-二阶段基础分支 `integration/hs-lxp-v3.1` 从一期已合并的 `main` 提交 `674cf92`
-创建；当前训练与分布式采集集成开发位于 `integration/hs-lxp-v3.2.0-cq`，其直接
-基线是 `integration/hs-lxp-v3.1-cq` 的重庆 X-VLA Docker 提交 `fc41a02`。
-本分支平台管理元数据使用 MySQL 8.4 库，不导入、读写或删除旧
-`storage/system/platform.sqlite`。`registry.sqlite3` 由 HS 独立负责。
-以下一期功能说明仍适用，但涉及 SQLite 的历史描述以本段及 `app/db/README.md`
-为准。本机/服务器 MySQL 验收状态应看最新 `docs/COLLABORATION.md` 交接记录。
+本文是当前代码事实的唯一状态说明，不记录旧版本开发流水账。开发规则见
+`AGENTS.md`，实际操作见 `how_use.md`。
 
-这份文档只描述当前集成代码，不描述旧分支设想。每次新会话先读取根目录
-`AGENTS.md`，再读本文件。若本文件与源码或测试不一致，先停止修改并把差异告诉
-开发者，确认后同步文档。
+## 1. 当前基线
 
-## 1. 从哪个版本开始工作
+- 共同开发分支：`integration/hs-lxp-v3.2.0-cq`；
+- Web 入口：`app.main:app`；
+- 平台形态：FastAPI 应用容器 + MySQL 8.4 容器；
+- 文件格式：当前真实业务以 LeRobot v3 为主；
+- 文件存储：数据集、报告、导出和模型位于 `storage/`；
+- 管理元数据：MySQL；旧 SQLite 不再读取或迁移；
+- 训练：平台通过宿主执行器调用独立 X-VLA Docker；
+- 网络：仅可信内网 HTTP，没有 HTTPS。
 
-当前二阶段开发分支：
-
-```text
-分支：integration/hs-lxp-v3.2.0-cq
-来源：integration/hs-lxp-v3.1-cq / fc41a02
-目录：当前 Git 工作区
-```
-
-开始任务时先确认：
+开始工作前：
 
 ```bash
 git status --short --branch
 git log -1 --oneline --decorate
 ```
 
-`hs_docker`、`lxp_docker_v2` 和 `feat/platform-v2` 是合并前历史。可以用于理解旧
-需求，但不能将旧文件整批复制回当前目录。一期功能已合入 `main`；二阶段改动
-在 v3.2.0-cq 分支进行。
+## 2. 页面与模块
 
-如果工作区已有未提交文件，它们属于当前开发者，必须保留。不要执行
-`git reset --hard`、`git clean` 或 `git checkout -- <文件>`。
-
-## 2. 当前请求链路
-
-```text
-浏览器 HTML/JavaScript
-        ↓ Cookie 会话访问保护
-        ↓ HTTP
-app/modules/<业务>/router.py
-        ↓
-app/modules/<业务>/service.py
-        ↓
-app/db/*.py（管理元数据） + storage/（真实文件）
-```
-
-`app/main.py` 只创建 FastAPI 应用、挂载 `/static` 并注册模块路由。Uvicorn 启动
-入口是 `app.main:app`。
-
-主要网址与代码位置：
-
-| 网址 | 模块 | 当前状态 |
+| 地址 | 模块 | 当前真实能力 |
 | --- | --- | --- |
-| `/login`、`/logout` | `auth` | MySQL 用户、密码哈希、登录会话、首次改密和退出 |
-| `/account/` | `auth` | 修改显示名称和密码；改密后注销该用户全部会话 |
-| `/healthz` | 应用入口 | 无需登录的 Docker 存活检查，不返回业务数据 |
-| `/dashboard/` | `dashboard` | 真实 DS、机器人、质检、训练、待办和磁盘容量总览 |
-| `/data/` | `datasets` | 真实 DS 数据集总览和质检状态 |
-| `/data/manage/` | `datasets` | 已登记 DS 列表、信息修改、重新扫描和移入回收站 |
-| `/data/raw/` | `datasets` | 全部已登记 DS 列表、详情及 Episode 关节曲线（历史 URL 保留） |
-| `/data/reports/` | `datasets` | 当前质检报告、下载和移入回收站 |
-| `/data/trash/` | `datasets` | 数据集与报告统一回收站、恢复和永久清除 |
-| `/ingestion/` | `ingestion` | 真实 LeRobot v3 ZIP 单个/批量上传 |
-| `/annotation/` | `annotation` | 真实 Episode/task/Subtask 标注 |
-| `/preprocess/` | `processing` | 真实数据处理、视频画面裁剪和派生版本生成 |
-| `/qc/` | `quality` | 真实质检方案、任务、报告和人工审核 |
-| `/export/` | `conversion`、`export` | 可用 LeRobot v3 DS 转换 HDF5、CV 任务及完整打包下载 |
-| `/training/` | `training` | 已接入真实 DS、MySQL 任务、宿主执行器、离线评估与模型包；执行器离线时不可提交训练 |
-| `/robots/` | `robots` | MySQL 机器人档案、停用/恢复，以及 DS 关联、改绑和解除 |
-| `/api/v1/collector/*` | `collector` | 机器人 Bearer Token、单 ZIP 预检上传、去重与自动关联 |
-| `/semantics/` | `semantics` | 真实 LeRobot v3 Schema 扫描、字段增删、空值占位与索引导入 |
-| `/system/` | `system` | 真实、脱敏、持久化的访问日志与筛选 |
+| `/login`、`/account/` | auth | 登录、首次改密、个人中心、退出和会话保护 |
+| `/dashboard/` | dashboard | DS、机器人、质检、训练、待办和磁盘只读总览 |
+| `/robots/` | robots | RB 档案、停用/恢复、Token 状态和 DS 关联 |
+| `/semantics/` | semantics | LeRobot v3 Schema 扫描与派生字段扩展 |
+| `/data/` | datasets | DS 总览、详情、关节曲线、报告和回收站 |
+| `/ingestion/` | ingestion | 单个/批量 LeRobot v3 ZIP 网页上传 |
+| `/api/v1/collector/*` | collector | 机器人 Token 预检、上传、防重复和改绑确认 |
+| `/qc/` | quality | Doctor、规则、VLM、人工审核和报告 |
+| `/annotation/` | annotation | Episode/task/Subtask 标注和完整派生发布 |
+| `/preprocess/` | processing | 筛除、拆分、合并、重排、去重和视频裁剪 |
+| `/export/` | conversion/export | HDF5 转换和 DS/CV 导出 |
+| `/training/` | training | X-VLA 任务、离线评估、模型包和任务回收站 |
+| `/system/` | system | 脱敏、持久化访问日志 |
+| `/healthz` | app | 无需登录的存活检查 |
 
-独立情景管理页面已经按产品决定删除；`/scenes/` 当前应返回 HTTP 404。未来如果
-需要维护场景分类，统一纳入数据定义，不恢复独立情景管理模块。
+`/scenes/` 已删除。旧 `app/modules/logs/` 和 `app/modules/models/` 是未注册的
+历史演示模块；当前系统日志由 `system` 提供，模型训练由 `training` 提供。
 
 ## 3. 数据集生命周期
 
-### 上传
-
 ```text
 LeRobot v3 ZIP
-  → storage/staging/uploads/
-  → ZIP 安全检查和最低结构检查
-  → 解析 robot_type（表单值优先；两处均为空则拒绝）
-  → 分配 DS000001 形式的编号
-  → storage/data/<DS 编号>/
+  → staging 安全解压与结构检查
+  → data/<DS 编号>
   → MySQL 登记为不可用、待质检
+  → Doctor / 规则 / 可选 VLM
+  → 人工审核
+  → 可用
+  → 标注、处理或数据定义产生新的不可用 DS
 ```
 
-上传支持单文件接口和最多 20 个文件的批量包装接口。单文件页提供可选
-`robot_type` 文本框：填写后在 Staging 中覆盖 `meta/info.json` 再进入 data/；留空则
-沿用包内值。如果包内缺少或为空且表单也为空，上传被拒绝，不再以“未声明”入库。
-上传检查不是完整质检。
+规则：
 
-分布式采集端使用 `/api/v1/collector/`，不使用网页 Cookie。新机器人自动拥有一个
-上传 Token；创建或网页重新生成成功时弹窗显示完整新值，关闭后只显示状态和前缀，
-旧值在重新生成后立即失效。部署机终端仍可查看完整值。
+- 新 DS 使用 `DS000001` 形式的稳定编号；
+- 新发布目录为 `storage/data/<DS 编号>/`；
+- 旧 `raw/` 和 `derived/` 目录映射继续可用，但不自动迁移；
+- 数据集显示名称唯一，忽略首尾空格和英文大小写；
+- 回收站中的 DS 仍占用名称，永久清除后才可复用；
+- 活跃质检方案名称唯一；
+- 源 DS 永远不原地修改；
+- 普通删除进入回收站，永久清除前检查派生、转换和训练引用；
+- 机器人页保留回收站 DS 的历史关联并显示回收状态，永久清除后关系才消失。
 
-旧版 `tools/collector_v1/` 由人工指定一个 ZIP；第二版 `tools/auto_update/` 在采集结束
-后运行一次，扫描父目录第一层的多个 LeRobot v3 文件夹或 ZIP，顺序处理后退出。
-文件夹在本地临时打包，成功或同 RB 精确重复后写 `.hkc-uploaded.json` 标记；同一平台
-和 RB 再运行时会在打包、SHA-256 前跳过。网络/5xx 最多尝试三次，失败不写标记；
-Token 无效或 RB 停用会中止队列。跨机器人重复不会自动改绑，需人工处理。工具没有
-本地 SQLite、后台守护、systemd、并发或断点续传。成功入库后自动关联 Token 所属 RB，
-仍保持不可用、待质检，不自动启动质检。
+## 4. 分布式采集
 
-相同机器人重复提交完全相同 ZIP 时返回原 DS；另一台同类型机器人提交时，服务器
-接口保留人工确认改绑能力，但第二版一次性工具只报告冲突，不自动确认；机器人类型
-不同则拒绝。当前仍只适用于可信内网 HTTP。
+每台机器人最多有一个有效上传 Token。机器人停用后 Token 立即不能上传。
 
-### 统一登记
+服务端：
+
+- Bearer Token 认证，不使用网页 Cookie；
+- 一次接收一个完整 LeRobot v3 ZIP；
+- 检查机器人类型和 SHA-256；
+- 同 RB 精确重复返回已有 DS；
+- 跨 RB 重复按类型和人工确认规则处理；
+- 成功后自动分配 DS、关联 RB，并保持不可用、待质检。
+
+客户端：
+
+- `tools/collector_v1/`：人工上传单个 ZIP，支持 `--name`；
+- `tools/auto_update/`：一次扫描多个文件夹/ZIP，顺序上传后退出；
+- 自动上传显示名称取来源文件夹名或 ZIP 去扩展名；
+- 成功后写本地 `.hkc-uploaded.json`，重跑前可跳过打包和摘要计算；
+- `clear_upload_markers.sh` 只清理本地标记，不删除数据或服务器记录。
+
+当前没有常驻监听、断点续传、并发、本地 SQLite 队列或 HTTPS。
+
+## 5. MySQL 与文件存储
+
+MySQL 保存：
+
+- 用户、密码摘要和会话；
+- DS/RB/CV/TR 编号及关系；
+- 可用性、状态标签、质检任务和人工审核；
+- 转换、训练和回收站管理元数据。
+
+MySQL 不保存数据集视频、Parquet、报告正文、导出包或模型包。这些内容在 storage。
 
 ```text
-DS000001
-  → MySQL datasets 表
-  → storage_area + storage_relpath
-  → 新数据集 storage/data/<DS 编号>/；旧数据集仍在 raw/ 或 derived/
-  → datasets.availability（可用/不可用）和 dataset_status_labels（仅展示）
+HKC_STORAGE_PATH     → 容器 /data
+HKC_MYSQL_DATA_PATH  → MySQL /var/lib/mysql
 ```
 
-旧数据集目录和编号相互独立，不自动移动或删除。新发布数据集直接以 DS 编号命名。
-`storage_area` 只表示物理目录，不作为业务类型或资格。功能选择仅按可用性筛选，再做
-必要的格式、目录和质检快照检查；“待质检/待处理”标签只在数据管理页展示。
+两个路径必须分开。容器内业务代码只通过 `settings.data_root` 访问 `/data`。
 
-数据管理首页和工作台不再展示“待登记 Raw”入口。新上传与新发布的 DS 自动登记；
-已登记的旧 `raw/`、`derived/` 映射继续可用。旧 Raw 手动登记 API 暂保留作兼容，
-不再作为日常页面流程。旧目录只有在用户主动移入回收站时才会搬移。
+主要 storage 目录：
 
-### 格式转换与导出
+- `data/`：新 DS；
+- `raw/`、`derived/`：历史目录映射；
+- `staging/`：临时构建；
+- `reports/qc/`：质检报告；
+- `converted/`：CV 转换结果；
+- `exports/`：导出包；
+- `training-runs/`、`models/`：训练输出与模型；
+- `trash/`：数据集和报告回收站；
+- `system/`：日志、上传记录和 collector claim。
 
-```text
-已质检可用的 LeRobot v3 DS
-  → storage/staging/conversion/<CV 编号>/
-  → LeRobot v3 内容校验与 HDF5 转换
-  → storage/converted/<CV 编号>/
-  → MySQL conversion_jobs 保存任务状态
-```
+## 6. 数据定义边界
 
-转换结果使用 `CV-...` 任务编号，不分配 DS 编号，也不进入 DS 登记表。
-数据管理页单独展示转换结果。导出接受可用的 DS 编号或已完成的 CV 编号，
-先在 `storage/staging/export/` 构建 `tar.gz`，再原子发布到 `storage/exports/`；
-转换和导出均不修改来源数据集。
+数据定义页是 Schema 编辑器，不是旧受控词表：
 
-### 标注与处理
+- 扫描 `info.json`、Episode Parquet 和 frame Parquet；
+- Episode 扩展字段定义写入 `hkc_extensions.episode_features`；
+- 支持 string、int64、float64、bool 的 Episode 统一值或空值；
+- 支持数值标量/定长向量逐帧 Feature；
+- 可从 CSV/Parquet 按 `episode_index + frame_index` 导入；
+- 空值字段会明确标记“不满足训练要求”，不会静默填 0；
+- 图片、视频和深度媒体字段目前只读，不能新建媒体内容；
+- 所有变更发布新 DS。
 
-标注和处理永远不修改源数据集：
+## 7. 训练边界
 
-```text
-按功能可用性选择的源 DS
-  → storage/staging/annotation/ 或 processing/
-  → 构建完整 LeRobot v3 副本
-  → 校验
-  → storage/data/<新 DS 编号>/
-  → 登记新的 DS 编号、来源关系，并标记不可用、待质检
-```
+平台容器只负责任务管理、数据预检、状态展示和执行器通信。宿主执行器负责：
 
-标注可修改 Episode 总体 task、执行结果、失败原因和 Subtask 时间段/描述/动作/
-对象/结果。额外标注保存在派生数据集 `meta/annotations/`，不会破坏 LeRobot v3
-核心字段。
+- 固定数据快照；
+- 调用独立 X-VLA 训练容器；
+- 保存日志、checkpoint、离线损失和动作 MAE；
+- 校验并登记模型包。
 
-处理已支持筛除、拆分、合并、重排、精确去重和指定相机视频画面裁剪。合并/重排
-必须同步所有 Episode、frame、task、index、旁路标注和视频映射；画面裁剪页面
-提供真实 Episode 视频预览、八向拖拽裁剪框和精确像素坐标，对该相机的全部
-Episode 重新编码 H.264，并同步更新 LeRobot v3 feature 宽高。
+当前离线指标不等于真实机器人任务成功率。执行器离线或训练环境未部署时，平台不能
+提交真实训练任务。部署说明见 `deploy/TRAINING_EXECUTOR.md`。
 
-### 质检与报告
+## 8. 当前未完成或受限
 
-```text
-当前不可用的已登记 DS
-  → 选择版本化质检方案
-  → Doctor / 机器人规则 / 可选 VLM
-  → MySQL 保存任务和人工审核
-  → storage/reports/qc/<DS>/<task>.json
-```
+- 没有 HTTPS、角色权限、公开注册和公网防护；
+- 没有真实机器人在线控制；
+- 没有真实机器人任务成功率评估；
+- 质检、转换和部分处理仍受单应用进程能力限制；
+- 不支持 LeRobot v2、ROS bag、MCAP、RLDS 等完整导入流程；
+- 数据定义不能创建新的图像、视频或深度媒体内容；
+- 分布式采集没有断点续传和常驻自动监听。
 
-完成自动检查后进入待人工审核，再决定通过、待复核或打回重采。审核 PASS 将该 DS
-标记可用，RECAPTURE 标记不可用并显示“待处理”；它不强制下一步进入某个功能。
-重新质检或重新扫描会撤销可用性。页面“移除报告”
-只会将 JSON 移到 `storage/trash/reports/`；不会删除质检任务、审核历史或数据集。
-统一回收站在 `/data/trash/`：移入 DS 时，其目录与当前报告进入
-`storage/trash/datasets/<DS>/`，原先单独移入回收站的报告仍留在
-`storage/trash/reports/<DS>/`。恢复 DS 时恢复随它移入的当前报告；单独删除的报告
-仍须单独恢复。永久清除单份报告保留质检任务和审核历史；永久清除 DS 时清理其
-文件、专属报告与质检记录，但有派生 DS、CV 转换或 TR 训练引用时拒绝清除。
-所有删除、恢复和清除按钮单击立即执行，没有确认弹窗。
+## 9. 本地尚未提交的当前改动
 
-## 4. 存储与数据库
+截至 2026-11-11，本工作区已实现但尚未提交、推送或部署：
 
-宿主机默认 `./storage`，容器内固定 `/data`：
+- 回收站 DS 在机器人管理页保留并标记，永久清除后关联才消失；
+- 自动上传标记一键清理工具；
+- 数据集显示名称和活跃质检方案名称唯一校验；
+- 对应集成与工具测试；
+- 全部 Markdown 文档精简重写。
 
-```text
-HKC_STORAGE_PATH（宿主机） → /data（容器）
-```
+已有重复名称不会被自动改名或删除；测试数据可按需要重置。
 
-程序只能使用：
+## 10. 最近验证
 
-```python
-from app.core.config import settings
+- 名称唯一性和相关共享逻辑完整测试：`161 passed`；
+- 本次涉及文件 Ruff：通过；
+- 全仓 Ruff 仍有 `app/modules/logs/router.py` 中 5 个既有 E741 命名问题；
+- 既有 Starlette/AnyIO 上游弃用警告不影响测试通过。
 
-root = settings.data_root
-```
-
-禁止在业务代码写死个人路径。
-
-MySQL 访问代码：
-
-- `app/db/datasets.py`：DS 编号、真实目录映射、可用性、展示标签、机器人类型和来源；
-- `app/db/conversions.py`：CV 转换任务、进度、状态和结果文件清单；
-- `app/db/quality.py`：质检方案版本、任务、状态和人工审核；
-- `app/db/training.py`：TR 任务编号、固定快照、状态、评估和模型包引用；
-- `app/db/users.py`：用户、显示名称、首次改密、scrypt 密码哈希和服务端登录会话；
-- `app/db/robots.py`：稳定 RB 编号、机器人档案和使用状态；
-- `app/db/dataset_robots.py`：DS 与采集机器人的可选关系及派生继承；
-- `app/db/robot_tokens.py`：每台机器人唯一的机器上传 Token 与认证摘要；
-- `app/db/semantics.py`：旧受控词表兼容保留；当前数据定义页不再读写；
-- 真实数据库：独立 MySQL 服务，宿主数据目录由 `HKC_MYSQL_DATA_PATH` 指定；重庆服务器使用 `/srv/hkc-ai/mysql/data`，旧 `platform.sqlite` 原样保留。
-
-平台不提供默认账号。每台全新部署设备启动后，由管理员在容器中交互执行
-`python -m app.cli.create_user` 创建用户，并使用 `list_users`、
-`reset_user_password`、`disable_user`、`enable_user` 管理账号；这些操作不在网页
-开放。新建或重置密码的用户必须首次登录改密，迁移前已有用户保持原密码且不强制
-改密。用户可在 `/account/` 修改显示名称与密码；改密会注销该用户全部会话。
-密码不得写入 Git、命令历史或文档。
-除 `/login`、`/healthz` 和静态资源外，页面与 API 都需要有效会话。当前仍没有
-HTTPS，因此只能在可信内网使用。
-
-`migrations/` 未来用于数据库表结构升级，不存放旧数据库、旧数据集或模型。
-
-### 机器人档案边界
-
-`RB000001` 是平台自动分配的机器人实例编号。注册/编辑页面只维护 SN、名称、类型、
-IP 地址和备注；新记录默认在用，状态只通过停用/恢复操作改变，没有永久删除接口。
-IP 地址只是管理字段，当前不会探测在线状态、控制机器人或调用机器人 API。旧数据
-库中的型号和传感器列为兼容保留，不再出现在页面或写入 API 中。
-
-已有 LeRobot 数据集继续保存自身 `robot_type`。平台通过独立
-`dataset_robot_links` 表把一个 DS 可选关联到一台机器人；一台机器人可关联多个
-DS，已有 DS 不自动迁移。关联、改绑和解除只在机器人管理页执行，数据管理页只读
-显示 `RB 编号 · 名称`。类型不一致允许保存但必须告警；停用机器人不能接收新关联，
-仍可查看并解除历史关系。派生 DS 仅在所有来源都关联同一机器人时继承。该关系不会
-回写任何已登记 DS 文件或 `meta/info.json`。
-
-### 数据定义边界
-
-数据定义页是已登记 LeRobot v3 数据集的 Schema 编辑器，不再是 MySQL 受控词表。
-它读取 `info.json`、全部 Episode Parquet 与 frame Parquet，展示 dtype、shape、
-物理类型、来源、空值完整率和训练可用状态。
-
-Episode 自定义字段定义写入 `hkc_extensions.episode_features`，实际列写入所有
-Episode 元数据；第一版支持 string/int64/float64/bool 统一值或统一空值。逐帧
-Feature 同时写入 `info.json.features` 和所有 frame Parquet，支持数值标量/定长
-向量全空占位，或从 CSV/Parquet 按 `episode_index + frame_index` 导入实际数据。
-全空或部分为空的 Feature 会标记为不满足训练要求，不会静默填 0。
-
-所有增删均复制完整数据集并发布新的 DS，初始不可用。核心索引与 Episode 定位字段禁止
-删除；其他官方 Feature 允许删除，但必须经过醒目警告和二次确认。第一版不新增
-图片、视频或深度媒体内容；它们需要未来单独实现媒体文件和索引处理。
-
-旧受控词表接口保留，但新 MySQL 只创建空表；当前页面不再读写。
-
-### 数据集 Episode 关节曲线
-
-数据集详情页从真实 frame Parquet 按 Episode 读取 `observation.state` 和 `action`，
-通过折线图展示各维度随时间的变化。时间优先使用 `timestamp` 并归零到 Episode
-起点；缺少时间戳时使用 `frame_index / fps`。曲线名称优先使用
-`info.json.features.<字段>.names`，缺少名称时显示“维度 0、维度 1……”；长 Episode
-最多均匀返回 2000 个显示点，但不修改或重写原始数据。该功能为只读展示，不新增
-MySQL 表，也不改变源数据集。
-
-### 系统日志边界
-
-系统管理页展示真实的已登录访问记录，而非演示数据。认证中间件记录时间、用户、
-业务模块、HTTP 方法、路径、状态码和耗时，写入
-`storage/system/logs/platform.jsonl`。为避免泄露认证或业务数据，日志不记录查询
-参数、请求正文、Cookie、Header、密码和 Token。页面支持级别、模块、关键词及数量
-筛选，但没有删除或修改日志的接口。健康检查和静态资源不进入该业务日志。
-
-### 工作台边界
-
-工作台不再使用写死的演示任务。页面从统一 DS 登记、机器人档案、质检任务和训练
-任务中读取真实统计，展示可用/不可用数量、Episode/Frame 总量、机器人使用状态、
-最近数据集、最近任务以及待审核、未关联和异常等待办入口。磁盘区域通过
-`storage` 所在文件系统的容量计算可用空间，不递归统计所有数据集字节，因此页面
-加载不会读取大型视频内容。工作台为只读聚合，不会修改业务记录，也不会主动连接
-训练执行器或触发质检。
-
-## 5. 配置与部署
-
-- `compose.yaml`：生产式基础配置，默认只允许本机 `127.0.0.1:8000`；
-- `compose.dev.yaml`：只读挂载 `app/` 和 `migrations/`，先执行 MySQL 迁移，再启用
-  Uvicorn `--reload`；
-- `deploy/compose.lan.yaml`：把 8000 端口绑定到
-  `HKC_LAN_BIND_ADDRESS`，供可信内网访问；
-- `deploy/compose.local-mysql.yaml`：本机并行验收覆盖，发布
-  `127.0.0.1:18001`，不占用旧 SQLite 版 8000 端口；
-- `compose.server.yaml`：重庆服务器覆盖，默认发布 `0.0.0.0:18000`，不写死训练
-  执行器路径；
-- `deploy/compose.training-agent.yaml`：可选宿主训练执行器覆盖，只有执行器部署完成后
-  才叠加，并从 `.env` 读取 socket 目录；
-- `.env.example`：可提交的公开模板；
-- `.env`：每台设备单独创建，包含本地目录、IP 和 VLM 配置，不提交 Git；
-- `how_use.md`：换设备、构建、离线镜像、局域网和 VLM 使用说明。
-
-真实数据、MySQL 数据目录与 `.env` 不会随 Git 克隆。换设备时必须分别迁移完整
-`HKC_STORAGE_PATH` 和 `HKC_MYSQL_DATA_PATH`（或使用一致的数据库备份），
-或接受一个全新空平台。
-
-## 6. 当前依赖边界
-
-Python 直接依赖只在 `pyproject.toml` 声明。主要包括 FastAPI/Jinja2/Uvicorn、
-Pandas/PyArrow/NumPy、PyAV、HDF5/Pillow、HTTPX 和 `lerobot-doctor`。FFmpeg 由
-Dockerfile 安装。
-
-平台镜像不包含：
-
-- CUDA/cuDNN；
-- ROS/ROS 2；
-- SmolVLA、X-VLA 等训练依赖；重庆 X-VLA 使用独立宿主执行器调用模型专属 Docker 镜像；
-- PostgreSQL、Redis 或任务队列。
-
-训练执行器使用 `deploy/training_agent.py`，部署细节见
-`deploy/TRAINING_EXECUTOR.md`。平台镜像仍不安装训练依赖。最终 checkpoint 的
-离线评估包含加载/推理冒烟测试、全部固定留出 Episode 的平均前向损失和逐维动作
-MAE；任务详情可切换留出 Episode 查看示教动作实线与预测虚线。旧任务没有动作
-曲线时明确显示缺失，不补造数据。这些指标不是真实机器人任务成功率。
-2026-10-27 在服务器用 DS000004 的固定留出 Episode 完成 100-step 闭环验收：
-`TR000008` 经训练、全帧离线评估和模型包校验后为 `COMPLETED`；短任务指标只验证
-功能连通性，不代表模型质量或机器人任务成功率。网页视觉交互仍待使用者确认。
-
-## 7. 同事 Codex 的默认工作范围
-
-LXP 侧默认继续负责：
-
-- `app/modules/datasets/` 的数据管理页面、统一回收站与详情；
-- 数据集搜索、展示、状态和报告交互；
-- 继续维护 `app/modules/conversion/`、`app/modules/export/` 的转换、任务和导出功能；
-- 对应模板、JavaScript、CSS 和集成测试。
-
-以下接口已被其他功能共同依赖，修改前必须先沟通：
-
-- `DatasetRepository` 的表结构、DS 编号和目录解析；
-- `datasets/lerobot_v3.py`；
-- 上传成功后的自动登记；
-- 标注/处理发布后的 Derived 登记；
-- 质检状态、报告路径与人工审核；
-- `base.html` 的全局导航和共享静态资源。
-
-当前数据导出使用可用 DS 或 CV 编号解析真实目录，在 `storage/staging/export/`
-构建，最终产物进入 `storage/exports/`；不得修改任何来源文件，
-数据管理的永久清除只在统一回收站提供，并须检查依赖及真实路径。
-
-## 8. 开始和结束任务的固定动作
-
-开始：
-
-```bash
-git status --short --branch
-git log -1 --oneline --decorate
-```
-
-先读相关 router、service、模板、JavaScript 和测试，再提出实现方案。不要只凭页面
-截图改 HTML。
-
-最低验证：
-
-```bash
-python -m ruff check app tests
-python -m pytest -q -p no:cacheprovider
-docker compose --env-file .env.example -f compose.yaml config --quiet
-docker compose --env-file .env.example -f compose.yaml -f compose.dev.yaml config --quiet
-HKC_LAN_BIND_ADDRESS=192.168.123.45 \
-  docker compose --env-file .env.example \
-  -f compose.yaml -f deploy/compose.lan.yaml config --quiet
-```
-
-如果只改一个业务模块，可先运行其相关测试；修改 DB、共享 LeRobot 读取、配置或
-Compose 时必须运行完整测试。测试使用临时目录，绝不能指向真实 `storage/`。
-
-2026-10-22 的 `integration/hs-v2.1` 功能冻结基线已完成上述验证：Ruff 0.16.8
-全部通过，pytest 9.1.1 为 `70 passed`（另有 1 条 Starlette/AnyIO 上游弃用
-警告）；8 个 JavaScript 文件与默认、开发、局域网三种 Compose 配置均通过检查。
-当时的开发容器健康，受控重启后 SQLite 和用户记录保持不变。详细结果见
-`docs/LOCAL_ACCEPTANCE_2026-10-22.md`。正式生产镜像仍需在下一次代码合并完成后
-重新构建，并执行不挂载源码的验收。
-
-结束时报告：
-
-```text
-完成内容：
-主要修改文件：
-执行的验证及结果：
-未完成或已知问题：
-是否修改共享接口：
-需要另一位开发者注意什么：
-```
-
-除非开发者明确要求，不要自行 commit、push、合并或部署到正式服务器。
+这些结果表示本机自动化测试通过，不等同于浏览器人工验收或重庆服务器验收。

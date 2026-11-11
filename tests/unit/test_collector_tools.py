@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 from zipfile import ZipFile
 
-from tools.auto_update.hkc_client.marker import matches, read_marker, write_marker
+from tools.auto_update.hkc_client.marker import (
+    clear_markers,
+    matches,
+    read_marker,
+    write_marker,
+)
 from tools.auto_update.hkc_client.packer import package_folder
 from tools.auto_update.hkc_client.scanner import scan_directory
 from tools.auto_update.upload_once import Counts, run_one
@@ -40,6 +45,28 @@ def test_marker_matches_only_same_server_and_robot(tmp_path: Path) -> None:
     assert matches(value, "http://localhost:18001", "RB000001") is True
     assert matches(value, "http://localhost:18002", "RB000001") is False
     assert matches(value, "http://localhost:18001", "RB000002") is False
+
+
+def test_clear_markers_removes_only_upload_markers(tmp_path: Path) -> None:
+    folder = make_dataset(tmp_path / "folder")
+    folder_marker = write_marker(
+        folder, "DS000001", "RB000001", "http://localhost:18001"
+    )
+    zip_file = tmp_path / "dataset.ZIP"
+    zip_file.write_bytes(b"zip")
+    zip_marker = write_marker(
+        zip_file, "DS000002", "RB000001", "http://localhost:18001"
+    )
+    unrelated = tmp_path / "keep.hkc-uploaded.json"
+    unrelated.write_text("keep", encoding="utf-8")
+
+    removed = clear_markers(tmp_path)
+
+    assert removed == sorted([folder_marker, zip_marker])
+    assert not folder_marker.exists()
+    assert not zip_marker.exists()
+    assert folder.is_dir() and zip_file.is_file()
+    assert unrelated.read_text(encoding="utf-8") == "keep"
 
 
 def test_folder_packaging_excludes_upload_marker(tmp_path: Path) -> None:

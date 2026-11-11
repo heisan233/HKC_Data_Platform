@@ -12,6 +12,7 @@ from app.db.datasets import DatasetRepository
 from app.db.robot_tokens import RobotTokenRepository
 from app.main import app
 from app.modules.datasets import service as dataset_service
+from app.modules.datasets import trash as dataset_trash
 from app.modules.robots import router as robot_router
 
 
@@ -240,6 +241,35 @@ def test_inactive_robot_keeps_history_but_cannot_receive_new_links(
     assert robot_platform.delete(
         f"/robots/api/robots/{robot_id}/datasets/{ds1}"
     ).status_code == 200
+
+
+def test_trashed_dataset_stays_visible_until_permanent_purge(
+    robot_platform: TestClient,
+    tmp_path: Path,
+) -> None:
+    robot_id = robot_platform.post("/robots/api/robots", json=robot_payload()).json()["id"]
+    dataset_id = registered_dataset(tmp_path, "trash-source")
+    (tmp_path / "raw" / "trash-source").mkdir(parents=True)
+    DatasetRobotRepository(tmp_path).bind(robot_id, [dataset_id], "test_user")
+
+    trashed = dataset_trash.trash_dataset(tmp_path, dataset_id, "test_user")
+    assert trashed["deleted_at"] is not None
+    bindings = robot_platform.get(f"/robots/api/robots/{robot_id}/datasets").json()
+    row = next(item for item in bindings["datasets"] if item["id"] == dataset_id)
+    assert row["linked_to_selected"] is True
+    assert row["in_trash"] is True
+    assert bindings["linked_count"] == 1
+    assert robot_platform.get("/robots/api/robots").json()[0][
+        "matching_dataset_count"
+    ] == 1
+
+    dataset_trash.purge_dataset(tmp_path, dataset_id)
+    bindings = robot_platform.get(f"/robots/api/robots/{robot_id}/datasets").json()
+    assert all(item["id"] != dataset_id for item in bindings["datasets"])
+    assert bindings["linked_count"] == 0
+    assert robot_platform.get("/robots/api/robots").json()[0][
+        "matching_dataset_count"
+    ] == 0
 
 
 def test_derived_dataset_inherits_only_one_shared_robot(
