@@ -309,7 +309,14 @@
         const runtime = env.runtimes?.find((item) => item.id === state.runtimeId);
         if (!env.online || !runtime?.available || !(runtime.model_ids || []).includes(state.selectedModel)) throw new Error('请选择可用且支持当前模型的训练环境');
       }
-      if (state.step === 3) {if (!state.name.trim()) throw new Error('请填写任务名称'); const task = await request('/tasks', {method:'POST', body:JSON.stringify({name:state.name.trim(),dataset_id:state.selectedDS,model_id:'xvla',preset:state.preset,executor_id:state.executor,runtime_id:state.runtimeId,parameters:state.custom?effectiveParams():null})}); await openTask(task.id); return;}
+      if (state.step === 3) {
+        if (!state.name.trim()) throw new Error('请填写任务名称');
+        const params = state.custom ? effectiveParams() : null;
+        const parameters = params ? {steps: params.steps, batch_size: params.batch_size, log_freq: params.log_freq} : null;
+        const task = await request('/tasks', {method:'POST', body:JSON.stringify({name:state.name.trim(),dataset_id:state.selectedDS,model_id:'xvla',preset:state.preset,executor_id:state.executor,runtime_id:state.runtimeId,parameters})});
+        await openTask(task.id);
+        return;
+      }
       state.step += 1; renderWizard();
     } catch (err) {message(err.message);}
   }

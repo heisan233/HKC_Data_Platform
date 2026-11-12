@@ -3,7 +3,7 @@
 {% block content %}
 <link rel="stylesheet" href="/static/css/data.css?v=20261028-joint-chart-1">
 <div class="dm-wrap" id="dm-detail-page" data-id="{{ item.id }}">
-  <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span><a href="/data/{{ area }}/">{{ area|title }}</a><span>/</span>{{ item.id }}</nav>
+  <nav class="dm-crumb"><a href="/data/">数据管理</a><span>/</span>{{ item.id }}</nav>
   <section class="dm-hero"><div><span class="dm-eyebrow">{{ area|upper }} · {{ item.id }}</span><h2>{{ item.name }}</h2><p>/data/{{ area }}/{{ detail.folder or record.storage_relpath }}</p></div><span class="dm-hero-pill">{{ item.robot_type }}</span></section>
   <p class="dm-help">采集机器人：{% if item.collector_robot_id %}<strong>{{ item.collector_robot_id }} · {{ item.collector_robot_name }}</strong>{% else %}未关联{% endif %}。关联关系只能在机器人管理页面修改。</p>
   {% if area == 'raw' and item.state != 'ready' %}<div class="dm-feedback dm-feedback-error">{{ {'missing':'原始目录缺失','invalid':'元数据无效','changed':'meta/info.json 自登记后已变化，请核对后重新扫描'}.get(item.state, item.state) }}</div>{% endif %}

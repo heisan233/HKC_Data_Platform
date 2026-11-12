@@ -118,6 +118,22 @@ def test_unregistered_ui_is_replaced_by_unified_trash(platform):
     assert client.get("/data/manage/?view=registered").status_code == 200
 
 
+def test_data_area_detail_breadcrumb_links_to_data_management(platform):
+    client, root = platform
+    source = dataset(root, "sample")
+    data_root = root / "data"
+    data_root.mkdir()
+    source.rename(data_root / "DS000001")
+    dataset_service.register_dataset(root, "data", "DS000001", "sample")
+
+    detail = client.get("/data/raw/DS000001")
+    assert detail.status_code == 200
+    assert (
+        '<nav class="dm-crumb"><a href="/data/">数据管理</a>'
+        '<span>/</span>DS000001</nav>'
+    ) in detail.text
+
+
 def test_dataset_trash_restore_and_purge_keep_id_retired(platform):
     client, root = platform
     source = dataset(root, "source")
