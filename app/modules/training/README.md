@@ -1,6 +1,6 @@
 # 模型训练
 
-训练模块负责平台侧任务管理，不把 CUDA 或 X-VLA 依赖装入平台容器。
+训练模块负责平台侧任务管理，不把 CUDA 或模型训练依赖装入平台容器。
 
 ## 架构
 
@@ -8,7 +8,7 @@
 平台应用
   → Unix socket（推荐）或受控 HTTP runner
   → 宿主训练执行器
-  → 独立 X-VLA Docker
+  → 模型专属 Docker（X-VLA 或 π₀）
   → storage/training-runs 与 storage/models
 ```
 
@@ -21,10 +21,13 @@
 3. 创建固定来源快照的 TR 任务；
 4. 执行器启动模型专属训练容器；
 5. 持久化日志、checkpoint 和状态；
-6. 对留出 Episode 计算前向损失与动作 MAE；
+6. 对留出 Episode 计算前向损失；X-VLA 另计算动作 MAE；
 7. 校验并登记模型包。
 
 离线损失和动作 MAE 仅用于链路与模型对比，不代表真实机器人任务成功率。
+π₀ 使用独立的 LeRobot v3 容器和基座权重，当前固定为 expert-only 微调、
+batch size 1。若抽样发现 `action` 与同帧 `observation.state` 完全相同，
+训前检查提示核对采集时序；这项检查本身不能确定动作语义。
 
 ## 页面能力
 

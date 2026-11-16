@@ -1,7 +1,7 @@
-# X-VLA 宿主训练执行器
+# X-VLA 与 π₀ 宿主训练执行器
 
-平台容器不包含 CUDA、LeRobot 或 X-VLA。宿主执行器通过私有 Unix socket 接收受限
-任务，并调用独立训练 Docker；也保留旧 Conda 运行方式。
+平台容器不包含 CUDA、LeRobot 或模型训练依赖。宿主执行器通过私有 Unix socket
+接收受限任务，并调用模型专属训练 Docker；X-VLA 也保留旧 Conda 运行方式。
 
 ## 1. 安全边界
 
@@ -26,6 +26,11 @@ HKC_TRAINING_TOKENIZER=/path/to/tokenizer
 HKC_TRAINING_SOCKET_DIR=/path/to/private/control
 HKC_TRAINING_WORK_DIR=/path/to/private/work
 HKC_TRAINING_DOCKER_IMAGE=hkc-xvla-train:VERSION_TAG
+HKC_TRAINING_PI0_MODEL=/srv/hkc-ai/models/pi0/weights/lerobot-pi0-base
+HKC_TRAINING_PI0_TOKENIZER=/srv/hkc-ai/models/pi0/weights/paligemma-tokenizer-hf
+HKC_TRAINING_PI0_DOCKER_IMAGE=hkc-pi0-train:lerobot-0.6.2-cu128
+HKC_TRAINING_PI0_WORK_DIR=/srv/hkc-ai/models/pi0/work
+HKC_TRAINING_PI0_MIN_FREE_MB=38000
 HKC_TRAINING_DOCKER_GPU_ID=0
 HKC_TRAINING_MIN_FREE_MB=18000
 HKC_TRAINING_MIN_WORK_GB=12
@@ -35,7 +40,10 @@ HKC_TRAINING_VLM_SERVICE=
 `HKC_TRAINING_PYTHON` 用于 systemd 启动执行器；旧 Conda 模式还用它执行训练。
 Docker 模式仍需提供可运行 `training_agent.py` 的宿主 Python。
 
-`HKC_TRAINING_DOCKER_IMAGE` 为空时使用 Conda/宿主 Python；当前服务器推荐 Docker。
+`HKC_TRAINING_DOCKER_IMAGE` 为空时 X-VLA 使用 Conda/宿主 Python；π₀ 只使用
+单独 Docker 镜像。π₀ 权重、tokenizer 和镜像必须先在宿主机准备，平台只接收执行器
+上报的可用状态。`HKC_TRAINING_PI0_MIN_FREE_MB` 是启动训练的空闲显存门槛，
+显存不足时任务排队。
 
 ## 3. 目录与依赖检查
 
@@ -106,6 +114,7 @@ docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f comp
 
 - 任务输出：`storage/training-runs/TR.../`；
 - 模型包：`storage/models/TR...-xvla.tar.gz`；
+- π₀ 模型包：`storage/models/TR...-pi0.tar.gz`；
 - 执行器重启时运行中任务标记为 `INTERRUPTED`；
 - 平台重启不删除执行器任务文件；
 - 取消运行任务时停止对应容器或进程；

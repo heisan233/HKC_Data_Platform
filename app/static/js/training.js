@@ -224,14 +224,14 @@
         const actions = state.showDeleted
           ? `<button data-restore-task="${esc(task.id)}" ${state.purgingTaskId===task.id?'disabled':''}>恢复任务</button><button class="train-delete-link" data-purge-task="${esc(task.id)}" title="永久删除任务及其专属产物，无法恢复" ${state.purgingTaskId===task.id?'disabled':''}>${state.purgingTaskId===task.id?'删除中…':'永久删除'}</button>`
           : `<button data-open-task="${esc(task.id)}">查看详情</button><button class="train-delete-link" data-delete-task="${esc(task.id)}" ${task.delete_requested_at?'disabled':''}>${task.delete_requested_at?'删除中…':'删除'}</button>`;
-        return `<tr><td><strong>${esc(task.id)}</strong><small>${esc(task.name)}</small></td><td>${esc(task.dataset_id)}</td><td>X-VLA · 基座微调</td><td><span class="train-badge ${task.status==='FAILED'?'failed':task.status==='COMPLETED'?'done':''}">${esc(status)}</span>${task.delete_requested_at ? '<small>正在取消任务，结束后移入回收站</small>' : task.error ? `<small class="train-error">${esc(task.error)}</small>` : ''}</td><td>${esc(task.progress)}%</td><td>${metricSummary(task)}</td><td>${esc(task.started_at || task.created_at || '—')}</td><td><div class="train-row-actions">${actions}</div></td></tr>`;
+        return `<tr><td><strong>${esc(task.id)}</strong><small>${esc(task.name)}</small></td><td>${esc(task.dataset_id)}</td><td>${esc(task.model_id === 'pi0' ? 'π₀' : 'X-VLA')} · 基座微调</td><td><span class="train-badge ${task.status==='FAILED'?'failed':task.status==='COMPLETED'?'done':''}">${esc(status)}</span>${task.delete_requested_at ? '<small>正在取消任务，结束后移入回收站</small>' : task.error ? `<small class="train-error">${esc(task.error)}</small>` : ''}</td><td>${esc(task.progress)}%</td><td>${metricSummary(task)}</td><td>${esc(task.started_at || task.created_at || '—')}</td><td><div class="train-row-actions">${actions}</div></td></tr>`;
       }).join('') : `<tr><td colspan="8" class="train-muted">${state.showDeleted ? '回收站为空。' : '暂无训练任务。只有真实提交的任务会显示在此处。'}</td></tr>`;
       $('train-list-updated').textContent = `自动更新 · ${new Date().toLocaleTimeString('zh-CN')}`;
     } catch (err) { $('train-list-updated').textContent = '自动更新失败'; message(err.message); }
     finally { state.tasksLoading = false; }
   }
   function selectedPreset() {
-    const model = state.catalog?.models?.find((item) => item.id === 'xvla');
+    const model = state.catalog?.models?.find((item) => item.id === state.selectedModel);
     return model?.presets?.find((item) => item.id === state.preset) || null;
   }
   function effectiveParams() {
@@ -243,7 +243,7 @@
       if (value === '' || value === null || value === undefined || !Number.isInteger(Number(value))) throw new Error(`${key} 必须为整数`);
       params[key] = Number(value);
     }
-    const schema = state.catalog.models.find((item) => item.id === 'xvla')?.parameter_schema || {};
+    const schema = state.catalog.models.find((item) => item.id === state.selectedModel)?.parameter_schema || {};
     for (const key of ['steps', 'batch_size', 'log_freq']) {
       const rule = schema[key]; const value = params[key];
       if (!rule || (rule.choices && !rule.choices.includes(value)) || (rule.min !== undefined && value < rule.min) || (rule.max !== undefined && value > rule.max)) throw new Error(`${key} 超出执行器允许范围`);
@@ -260,19 +260,20 @@
       body.querySelectorAll('input[name=dataset]').forEach((radio) => radio.addEventListener('change', () => {state.selectedDS = radio.value; state.checked = null; $('train-preflight').textContent='点击下一步运行轻量校验。';}));
       if (state.checked) renderPreflight();
     } else if (state.step === 1) {
-      const model = catalog.models.find((m) => m.id === 'xvla');
+      const model = catalog.models.find((m) => m.id === state.selectedModel);
       const presets = model?.presets || []; const available = !!model?.available;
       const base = selectedPreset()?.parameters || {};
       const rules = model?.parameter_schema || {};
       if (!Object.keys(state.customParams).length) state.customParams = {...base};
       const params = state.custom ? state.customParams : base;
       const editable = !!(rules.steps && rules.batch_size && rules.log_freq);
-      body.innerHTML = `<h3>选择模型与训练参数</h3><div class="train-list-option"><strong>X-VLA · 基座微调</strong> <span class="train-badge ${available?'done':'failed'}">${available?'可用':'不可用'}</span><p class="train-note">基座版本：${esc(model?.version || '未登记')}。从零训练和 checkpoint 续训不在本期开放。</p>${available?'':`<p class="train-error">${esc(model?.reason || '执行器未配置')}</p>`}</div>
+      body.innerHTML = `<h3>选择模型与训练参数</h3>${catalog.models.filter((item) => ['xvla', 'pi0'].includes(item.id)).map((item) => `<label class="train-list-option"><input type="radio" name="training-model" value="${esc(item.id)}" ${state.selectedModel===item.id?'checked':''}> <strong>${esc(item.name)} · 基座微调</strong> <span class="train-badge ${item.available?'done':'failed'}">${item.available?'可用':'不可用'}</span>${item.available?'':`<small class="train-error">${esc(item.reason || '执行器未配置')}</small>`}</label>`).join('')}<p class="train-note">基座版本：${esc(model?.version || '未登记')}。从零训练和 checkpoint 续训不在本期开放。</p>
         <div class="train-param-toolbar"><label><span>训练预设</span><select id="train-preset">${presets.map((p) => `<option value="${esc(p.id)}" ${state.preset===p.id?'selected':''}>${esc(p.name || p.id)}</option>`).join('')}</select></label><label class="train-custom-toggle"><input id="train-custom-toggle" type="checkbox" ${state.custom?'checked':''} ${editable?'':'disabled'}><span>自定义基础参数</span></label></div>
         <div class="train-param-grid"><label><span>训练步数 steps</span><input id="train-param-steps" type="number" min="${esc(rules.steps?.min ?? 1)}" max="${esc(rules.steps?.max ?? 10000)}" step="1" value="${esc(params.steps ?? '')}" ${state.custom?'':'disabled'}><small>本执行器允许 ${esc(rules.steps?.min ?? '—')}–${esc(rules.steps?.max ?? '—')} 步；增加步数会延长训练时间。</small></label>
-        <label><span>批大小 batch_size</span><select id="train-param-batch" ${state.custom?'':'disabled'}>${(rules.batch_size?.choices || [base.batch_size]).map((value) => `<option value="${esc(value)}" ${Number(params.batch_size)===value?'selected':''}>${esc(value)}</option>`).join('')}</select><small>当前已验证的任务使用 1；选择 2 可能显存不足，执行器会在资源不足时排队。</small></label>
+        <label><span>批大小 batch_size</span><select id="train-param-batch" ${state.custom?'':'disabled'}>${(rules.batch_size?.choices || [base.batch_size]).map((value) => `<option value="${esc(value)}" ${Number(params.batch_size)===value?'selected':''}>${esc(value)}</option>`).join('')}</select><small>可选范围由当前模型环境决定；显存不足时执行器会等待资源。</small></label>
         <label><span>指标记录间隔</span><select id="train-param-log" ${state.custom?'':'disabled'}>${(rules.log_freq?.choices || [base.log_freq]).map((value) => `<option value="${esc(value)}" ${Number(params.log_freq)===value?'selected':''}>每 ${esc(value)} 步</option>`).join('')}</select><small>间隔越小，图表点越密集；不会改变训练目标。</small></label></div>
         <p class="train-note">其余参数由已验证的执行器配置固定，不接受任意命令或路径。最终生效值将在提交前再次确认。</p>`;
+      body.querySelectorAll('input[name=training-model]').forEach((radio) => radio.addEventListener('change', () => {state.selectedModel = radio.value; state.preset = catalog.models.find((item) => item.id === state.selectedModel)?.presets?.[0]?.id || 'small'; state.custom = false; state.customParams = {}; state.checked = null; state.runtimeId = ''; renderWizard();}));
       $('train-preset')?.addEventListener('change', (event) => {state.preset = event.target.value; state.customParams = {...selectedPreset()?.parameters}; renderWizard();});
       $('train-custom-toggle')?.addEventListener('change', (event) => {state.custom = event.target.checked; state.customParams = {...selectedPreset()?.parameters}; renderWizard();});
       for (const [id, key] of [['train-param-steps','steps'],['train-param-batch','batch_size'],['train-param-log','log_freq']]) $(id)?.addEventListener('change', (event) => {state.customParams[key] = event.target.value;});
@@ -281,7 +282,7 @@
       const runtimes = Array.isArray(env.runtimes) ? env.runtimes : [];
       const compatible = runtimes.filter((runtime) => runtime.available && (runtime.model_ids || []).includes(state.selectedModel));
       if (!runtimes.some((runtime) => runtime.id === state.runtimeId && compatible.includes(runtime))) state.runtimeId = compatible.length === 1 ? compatible[0].id : '';
-      body.innerHTML = `<h3>选择训练环境</h3><p class="train-note">只显示已登记的训练环境。当前只有一个；今后登记新环境后，可在这里选择，不需要填写路径或激活命令。</p><div class="train-runtime-options" role="radiogroup" aria-label="训练环境">${runtimes.length ? runtimes.map((runtime) => {
+      body.innerHTML = `<h3>选择训练环境</h3><p class="train-note">只显示已登记的训练环境；在这里选择当前模型可用的环境，无需填写路径或激活命令。</p><div class="train-runtime-options" role="radiogroup" aria-label="训练环境">${runtimes.length ? runtimes.map((runtime) => {
         const supported = (runtime.model_ids || []).includes(state.selectedModel);
         const selectable = env.online && runtime.available && supported;
         const reason = !env.online ? env.reason : !supported ? '不支持当前模型' : runtime.reason || '可用于当前模型';
@@ -289,21 +290,21 @@
       }).join('') : '<p class="train-error">尚未登记训练环境。</p>'}</div><div class="train-runtime-resource"><strong>共享执行资源</strong><span>${esc(env.name)} · ${esc(env.gpu?.name || 'GPU 未提供')} · 空闲 ${esc(env.gpu?.free_gb ?? '—')} GB · 排队 ${esc(env.queue_count)} 个任务</span></div><p class="train-note">同一服务器上的训练环境共用 GPU。执行器会在提交时重新检查资源；若 VLM 正在占用 GPU，请由授权操作员在“执行环境”页确认关闭。</p>`;
       body.querySelectorAll('input[name="training-runtime"]').forEach((radio) => radio.addEventListener('change', () => {state.runtimeId = radio.value;}));
     } else {
-      const model = catalog.models.find((m) => m.id === 'xvla');
+      const model = catalog.models.find((m) => m.id === state.selectedModel);
       const params = effectiveParams();
       const runtime = catalog.environment.runtimes?.find((item) => item.id === state.runtimeId);
-      body.innerHTML = `<h3>确认提交</h3><label><span>任务名称</span><input id="train-name" maxlength="100" value="${esc(state.name)}" placeholder="例如：抓取任务微调"></label><div class="train-grid"><div>最终 DS<br><strong>${esc(state.selectedDS)}</strong><small>信息摘要 ${esc(state.checked?.snapshot?.info_sha256?.slice(0,16) || '—')}…</small></div><div>模型与方式<br><strong>X-VLA · 基座微调</strong><small>${esc(model?.version || '')}</small></div><div>数据划分<br><strong>${esc(state.checked?.split?.train_episode_ids?.length || 0)} 训练 / ${esc(state.checked?.split?.validation_episode_ids?.length || 0)} 验证 Episode</strong></div><div>训练环境 / 预设<br><strong>${esc(runtime?.name || state.runtimeId)} / ${esc(state.preset)}${state.custom?'（已调整）':''}</strong><small>执行器 ${esc(state.executor)}</small></div></div><div class="train-confirm-params"><strong>最终生效参数</strong><span>steps ${esc(params.steps)}</span><span>batch_size ${esc(params.batch_size)}</span><span>每 ${esc(params.log_freq)} 步记录指标</span><span>num_workers ${esc(params.num_workers)}</span></div><p class="train-note">提交后生成稳定 TR 编号；数据、基座、训练环境和参数随任务固定。训练完成并通过冒烟测试和离线评估后，才可下载模型包。</p>`;
+      body.innerHTML = `<h3>确认提交</h3><label><span>任务名称</span><input id="train-name" maxlength="100" value="${esc(state.name)}" placeholder="例如：抓取任务微调"></label><div class="train-grid"><div>最终 DS<br><strong>${esc(state.selectedDS)}</strong><small>信息摘要 ${esc(state.checked?.snapshot?.info_sha256?.slice(0,16) || '—')}…</small></div><div>模型与方式<br><strong>${esc(model?.name || state.selectedModel)} · 基座微调</strong><small>${esc(model?.version || '')}</small></div><div>数据划分<br><strong>${esc(state.checked?.split?.train_episode_ids?.length || 0)} 训练 / ${esc(state.checked?.split?.validation_episode_ids?.length || 0)} 验证 Episode</strong></div><div>训练环境 / 预设<br><strong>${esc(runtime?.name || state.runtimeId)} / ${esc(state.preset)}${state.custom?'（已调整）':''}</strong><small>执行器 ${esc(state.executor)}</small></div></div><div class="train-confirm-params"><strong>最终生效参数</strong><span>steps ${esc(params.steps)}</span><span>batch_size ${esc(params.batch_size)}</span><span>每 ${esc(params.log_freq)} 步记录指标</span><span>num_workers ${esc(params.num_workers)}</span></div>${state.checked?.warnings?.length ? `<p class="train-note">${state.checked.warnings.map(esc).join('；')}</p>` : ''}<p class="train-note">提交后生成稳定 TR 编号；数据、基座、训练环境和参数随任务固定。训练完成并通过冒烟测试和离线评估后，才可下载模型包。</p>`;
       $('train-name').addEventListener('input', (event) => {state.name = event.target.value;});
     }
   }
   function renderPreflight() {
     const checked = state.checked; if (!checked) return;
-    $('train-preflight').innerHTML = checked.passed ? `<p class="train-ok">训前校验通过：${esc(checked.dataset.episodes)} 个 Episode，${esc(checked.dataset.frames)} 帧；训练/验证按 Episode 划分。</p>` : `<p class="train-error">训前校验未通过：</p><ul class="train-error">${checked.issues.map((issue) => `<li>${esc(issue)}</li>`).join('')}</ul>`;
+    $('train-preflight').innerHTML = checked.passed ? `<p class="train-ok">训前校验通过：${esc(checked.dataset.episodes)} 个 Episode，${esc(checked.dataset.frames)} 帧；训练/验证按 Episode 划分。</p>${checked.warnings?.length ? `<ul class="train-note">${checked.warnings.map((warning) => `<li>${esc(warning)}</li>`).join('')}</ul>` : ''}` : `<p class="train-error">训前校验未通过：</p><ul class="train-error">${checked.issues.map((issue) => `<li>${esc(issue)}</li>`).join('')}</ul>`;
   }
   async function nextWizard() {
     try {
-      if (state.step === 0) {if (!state.selectedDS) throw new Error('请先选择数据集'); state.checked = await request('/preflight', {method:'POST', body:JSON.stringify({dataset_id:state.selectedDS, model_id:'xvla'})}); renderPreflight(); if (!state.checked.passed) return;}
-      if (state.step === 1) {const model = state.catalog.models.find((m) => m.id === 'xvla'); if (!model?.available || !state.preset) throw new Error(model?.reason || '基座模型未就绪'); effectiveParams();}
+      if (state.step === 0) {if (!state.selectedDS) throw new Error('请先选择数据集'); state.checked = await request('/preflight', {method:'POST', body:JSON.stringify({dataset_id:state.selectedDS, model_id:state.selectedModel})}); renderPreflight(); if (!state.checked.passed) return;}
+      if (state.step === 1) {const model = state.catalog.models.find((m) => m.id === state.selectedModel); if (!model?.available || !state.preset) throw new Error(model?.reason || '基座模型未就绪'); if (!state.checked || state.checked.model_id !== state.selectedModel) {state.checked = await request('/preflight', {method:'POST', body:JSON.stringify({dataset_id:state.selectedDS, model_id:state.selectedModel})}); if (!state.checked.passed) throw new Error(state.checked.issues.join('；'));} effectiveParams();}
       if (state.step === 2) {
         const env = state.catalog.environment;
         const runtime = env.runtimes?.find((item) => item.id === state.runtimeId);
@@ -313,7 +314,7 @@
         if (!state.name.trim()) throw new Error('请填写任务名称');
         const params = state.custom ? effectiveParams() : null;
         const parameters = params ? {steps: params.steps, batch_size: params.batch_size, log_freq: params.log_freq} : null;
-        const task = await request('/tasks', {method:'POST', body:JSON.stringify({name:state.name.trim(),dataset_id:state.selectedDS,model_id:'xvla',preset:state.preset,executor_id:state.executor,runtime_id:state.runtimeId,parameters})});
+        const task = await request('/tasks', {method:'POST', body:JSON.stringify({name:state.name.trim(),dataset_id:state.selectedDS,model_id:state.selectedModel,preset:state.preset,executor_id:state.executor,runtime_id:state.runtimeId,parameters})});
         await openTask(task.id);
         return;
       }
@@ -352,7 +353,7 @@
     $('train-detail-summary').innerHTML = `<div class="train-stage">${stages.map((stage) => `<span class="${task.status===stage?'active':''}">${esc(label[stage])}</span>`).join('')}</div><div class="train-detail-status"><span class="train-badge ${task.status==='FAILED'?'failed':task.status==='COMPLETED'?'done':''}">${esc(label[task.status] || task.status)}</span><span>阶段 ${esc(task.phase)} · ${esc(task.progress)}%</span></div><div class="train-progress"><i style="width:${Math.max(0,Math.min(100,Number(task.progress)||0))}%"></i></div>${task.error?`<p class="train-error train-detail-error">${esc(task.error)}</p>`:''}<div class="train-kpi-grid">${cards.map(([title,value,note])=>`<div class="train-kpi"><span>${esc(title)}</span><strong>${esc(value)}</strong><small>${esc(note)}</small></div>`).join('')}</div><div class="train-task-actions"><button id="train-cancel" class="btn" ${active?'':'hidden'}>取消任务</button><button id="train-retry" class="btn" ${['FAILED','CANCELED','INTERRUPTED'].includes(task.status)?'':'hidden'}>按原参数重试为新任务</button></div>`;
     $('train-cancel')?.addEventListener('click', async () => {if (!confirm('确定取消此训练任务？')) return; try {await request('/tasks/'+encodeURIComponent(task.id)+'/cancel',{method:'POST',body:'{}'}); await refreshTaskDetail();} catch(err){message(err.message);}});
     $('train-retry')?.addEventListener('click', async () => {try {const created=await request('/tasks/'+encodeURIComponent(task.id)+'/retry',{method:'POST',body:'{}'}); await openTask(created.id);} catch(err){message(err.message);}});
-    $('train-detail-overview').innerHTML = `<div class="train-card"><h3>任务概览</h3><div class="train-grid"><div>来源 DS<br><strong>${esc(task.dataset_id)}</strong><small>快照 ${esc(task.snapshot?.info_sha256?.slice(0,16) || '—')}…</small></div><div>模型 / 方式<br><strong>X-VLA · 基座微调</strong><small>${esc(task.model_version)}</small></div><div>训练环境<br><strong>${esc(task.runtime_id || 'lerobot')}</strong><small>执行器 ${esc(task.executor_id)}</small></div><div>数据划分<br><strong>${esc(task.split?.train_episode_ids?.length ?? '—')} / ${esc(task.split?.validation_episode_ids?.length ?? '—')} Episode</strong><small>训练 / 验证，按 Episode 分开</small></div><div>任务时间<br><strong>${esc(task.started_at || task.created_at || '—')}</strong><small>${task.completed_at ? `结束 ${esc(task.completed_at)}` : '等待结束'}</small></div></div><p class="train-note">这里展示任务的固定数据快照与当前执行状态。详细曲线来自实际训练日志；页面每 5 秒自动请求一次状态。</p></div>`;
+    $('train-detail-overview').innerHTML = `<div class="train-card"><h3>任务概览</h3><div class="train-grid"><div>来源 DS<br><strong>${esc(task.dataset_id)}</strong><small>快照 ${esc(task.snapshot?.info_sha256?.slice(0,16) || '—')}…</small></div><div>模型 / 方式<br><strong>${esc(task.model_id === 'pi0' ? 'π₀' : 'X-VLA')} · 基座微调</strong><small>${esc(task.model_version)}</small></div><div>训练环境<br><strong>${esc(task.runtime_id || 'lerobot')}</strong><small>执行器 ${esc(task.executor_id)}</small></div><div>数据划分<br><strong>${esc(task.split?.train_episode_ids?.length ?? '—')} / ${esc(task.split?.validation_episode_ids?.length ?? '—')} Episode</strong><small>训练 / 验证，按 Episode 分开</small></div><div>任务时间<br><strong>${esc(task.started_at || task.created_at || '—')}</strong><small>${task.completed_at ? `结束 ${esc(task.completed_at)}` : '等待结束'}</small></div></div><p class="train-note">这里展示任务的固定数据快照与当前执行状态。详细曲线来自实际训练日志；页面每 5 秒自动请求一次状态。</p></div>`;
     const history = task.metric_history || [];
     const gpuHistory = task.gpu_history || [];
     $('train-detail-metrics').innerHTML = `<div class="train-metric-toolbar"><p>横轴为训练 Step；曲线只绘制执行器实际采集的指标。GPU 趋势代表整张显卡。</p><button id="train-loss-scale" class="btn">${state.lossLog ? '切换为线性纵轴' : '切换为对数纵轴'}</button></div><div class="train-chart-grid"><div class="train-chart-main">${chartCard('训练损失 Loss', history, 'loss', '#e16b68', {log:state.lossLog,smooth:true,empty:'尚无训练损失记录；开始训练后自动显示'})}</div>${chartCard('学习率 Learning Rate', history, 'learning_rate', '#2a9db6', {empty:'此任务未采集学习率'})}${chartCard('梯度范数 Gradient Norm', history, 'gradient_norm', '#d69638', {empty:'此任务未采集梯度范数'})}${chartCard('GPU 使用率', gpuHistory, 'utilization_percent', '#6b83bf', {time:true,unit:'%',empty:'此任务未采集 GPU 历史趋势'})}</div><p class="train-note">悬停曲线圆点可查看原始数值。早期任务若没有某项记录，将明确显示“未采集”，不会补造数据。</p>`;
@@ -402,7 +403,7 @@
     await refreshTaskDetail();
   }
   async function loadVersions() {
-    try {const versions = await request('/models'); $('train-model-rows').innerHTML = versions.length ? versions.map((row) => `<div class="train-card"><h3>${esc(row.version_id)} · X-VLA</h3><div class="train-grid"><div>任务<br>${esc(row.id)}</div><div>来源 DS<br>${esc(row.dataset_id)}</div><div>基座版本<br>${esc(row.model_version)}</div><div>包大小<br>${esc((row.artifact.size_bytes/1073741824).toFixed(2))} GB</div></div><div class="train-version-result"><span>离线验证前向损失</span><strong>${validationLoss(row.evaluation) ?? '—'}</strong><small>非机器人任务成功率</small></div><p class="train-note">仅显示通过文件校验、加载和推理冒烟测试的模型包。</p><a class="btn btn-primary" href="${api}/models/${encodeURIComponent(row.id)}/download">下载完整模型包</a></div>`).join('') : '<div class="train-card train-muted">暂无通过验证的模型版本。</div>';} catch(err){message(err.message);}
+    try {const versions = await request('/models'); $('train-model-rows').innerHTML = versions.length ? versions.map((row) => `<div class="train-card"><h3>${esc(row.version_id)} · ${esc(row.model_id === 'pi0' ? 'π₀' : 'X-VLA')}</h3><div class="train-grid"><div>任务<br>${esc(row.id)}</div><div>来源 DS<br>${esc(row.dataset_id)}</div><div>基座版本<br>${esc(row.model_version)}</div><div>包大小<br>${esc((row.artifact.size_bytes/1073741824).toFixed(2))} GB</div></div><div class="train-version-result"><span>离线验证前向损失</span><strong>${validationLoss(row.evaluation) ?? '—'}</strong><small>非机器人任务成功率</small></div><p class="train-note">仅显示通过文件校验、加载和推理冒烟测试的模型包。</p><a class="btn btn-primary" href="${api}/models/${encodeURIComponent(row.id)}/download">下载完整模型包</a></div>`).join('') : '<div class="train-card train-muted">暂无通过验证的模型版本。</div>';} catch(err){message(err.message);}
   }
   async function loadEnvironment() {
     try {const data = await request('/catalog'); state.catalog = data; const env=data.environment; const vlm=env.vlm || {};
@@ -411,7 +412,7 @@
     } catch(err){message(err.message);}
   }
   document.querySelectorAll('.train-tabs button').forEach((button) => button.addEventListener('click', () => show(button.dataset.tab)));
-  $('train-new').addEventListener('click', async () => {try {await loadCatalog(); state.step=0; state.checked=null; state.selectedDS=''; state.name=''; state.custom=false; state.customParams={}; state.runtimeId=''; state.preset=state.catalog.models.find((m)=>m.id==='xvla')?.presets?.[0]?.id || 'standard'; show('wizard'); renderWizard();} catch(err){message(err.message);}});
+  $('train-new').addEventListener('click', async () => {try {await loadCatalog(); state.step=0; state.checked=null; state.selectedDS=''; state.selectedModel='xvla'; state.name=''; state.custom=false; state.customParams={}; state.runtimeId=''; state.preset=state.catalog.models.find((m)=>m.id==='xvla')?.presets?.[0]?.id || 'standard'; show('wizard'); renderWizard();} catch(err){message(err.message);}});
   $('train-back-list').addEventListener('click',()=>show('tasks')); $('train-detail-back').addEventListener('click',()=>show('tasks')); $('train-detail-refresh').addEventListener('click',refreshTaskDetail);
   $('train-prev').addEventListener('click',()=>{if(state.step>0){state.step--;renderWizard();}}); $('train-next').addEventListener('click',nextWizard);
   for(const id of ['train-status','train-model-filter','train-dataset-filter']) $(id).addEventListener('change',loadTasks);

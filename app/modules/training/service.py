@@ -220,8 +220,40 @@ def _sample_action(folder: Path) -> None:
         raise ValueError("无法抽样读取 action 帧数据") from exc
 
 
+def _pi0_action_warning(folder: Path) -> str | None:
+    """Flag a recording whose actions may be copied observed states."""
+    paths = parquet_files(folder / "data")
+    checked = 0
+    different = False
+    for path in paths:
+        safe = datasets.safe_file(folder, str(path.relative_to(folder)))
+        if safe is None:
+            raise ValueError("帧数据路径不安全")
+        try:
+            reader = pq.ParquetFile(safe)
+            if not {"action", "observation.state"}.issubset(reader.schema_arrow.names):
+                raise ValueError("π₀ 需要 action 和 observation.state 字段")
+            for batch in reader.iter_batches(batch_size=256,
+                                             columns=["action", "observation.state"]):
+                actions = batch.column("action").to_pylist()
+                states = batch.column("observation.state").to_pylist()
+                checked += len(actions)
+                if any(action != state for action, state in zip(actions, states, strict=True)):
+                    different = True
+                    break
+                if checked >= 2048:
+                    break
+        except (OSError, pa.ArrowException) as exc:
+            raise ValueError("无法抽样读取 π₀ 动作与状态") from exc
+        if different or checked >= 2048:
+            break
+    if checked and not different:
+        return "抽样帧的 action 与同帧 observation.state 完全相同；训练前请核对采集时序和执行器期望的目标关节位置"
+    return None
+
+
 def preflight(root: Path, dataset_id: str, model_id: str = "xvla") -> dict:
-    if model_id != "xvla":
+    if model_id not in {"xvla", "pi0"}:
         raise TrainingError("该模型尚未接入训前校验", 422)
     try:
         record, folder = datasets.resolve_registered_dataset(root, dataset_id)
@@ -231,6 +263,7 @@ def preflight(root: Path, dataset_id: str, model_id: str = "xvla") -> dict:
                             record["storage_area"])
     attach_status(root, [item])
     issues: list[str] = []
+    warnings: list[str] = []
     if record["availability"] != "available":
         issues.append("选中的最终 DS 当前不可用，请先完成质检审核")
     if item["state"] != "ready":
@@ -261,6 +294,13 @@ def preflight(root: Path, dataset_id: str, model_id: str = "xvla") -> dict:
             _sample_action(folder)
         except ValueError as exc:
             issues.append(str(exc))
+        if model_id == "pi0":
+            try:
+                warning = _pi0_action_warning(folder)
+                if warning:
+                    warnings.append(warning)
+            except ValueError as exc:
+                issues.append(str(exc))
     digest = record["info_sha256"]
     seed = int(hashlib.sha256(f"{dataset_id}:{digest}".encode()).hexdigest()[:8], 16)
     shuffled = episodes.copy()
@@ -276,6 +316,7 @@ def preflight(root: Path, dataset_id: str, model_id: str = "xvla") -> dict:
         "model_id": model_id,
         "passed": not issues,
         "issues": issues,
+        "warnings": warnings,
         "dataset": {
             "id": dataset_id, "name": record["name"],
             "storage_area": record["storage_area"],

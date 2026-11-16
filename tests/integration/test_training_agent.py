@@ -84,6 +84,42 @@ def test_agent_accepts_only_registered_snapshot_and_safe_parameters(tmp_path, mo
             agent.validate_payload(payload)
 
 
+def test_pi0_uses_its_registered_runtime_and_fixed_training_command(tmp_path, monkeypatch):
+    agent, root = _agent(tmp_path, monkeypatch)
+    model = tmp_path / "pi0-model"
+    model.mkdir()
+    (model / "config.json").write_text(json.dumps({"input_features": {
+        "observation.images.base_0_rgb": {"type": "VISUAL"},
+        "observation.images.right_wrist_0_rgb": {"type": "VISUAL"},
+    }}))
+    agent.PI0_MODEL = model
+    agent.PI0_IMAGE = "hkc-pi0-train:pinned"
+    agent.PI0_VERSION = "pi0-base@test"
+    agent.PI0_WORK_DIR = tmp_path / "pi0-work"
+    payload = _payload(agent, root)
+    payload.update(model_id="pi0", model_version=agent.PI0_VERSION,
+                   runtime_id=agent.PI0_RUNTIME_ID, preset="small",
+                   parameters=agent.PI0_PRESETS["small"])
+    assert agent.validate_payload(payload)[0] == payload["id"]
+    payload["runtime_id"] = agent.RUNTIME_ID
+    with pytest.raises(ValueError, match="训练环境"):
+        agent.validate_payload(payload)
+    payload["runtime_id"] = agent.PI0_RUNTIME_ID
+    pi0_script = Path(__file__).resolve().parents[2] / "deploy" / "training_pi0.py"
+    spec = importlib.util.spec_from_file_location("hkc_training_pi0_test", pi0_script)
+    pi0 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(pi0)
+    command = pi0.build_train_command(
+        agent, payload, root / "derived" / "ready", tmp_path / "output", model,
+    )
+    assert "hkc-pi0-train:pinned" in command
+    assert "--policy.train_expert_only=true" in command
+    assert "--policy.gradient_checkpointing=true" in command
+    assert "--network" in command and "none" in command
+    assert "--dataset.episodes" in command
+    assert "type=bind,src=" + str(agent.PI0_WORK_DIR) + ",dst=" + str(agent.PI0_WORK_DIR) in command
+
+
 def test_agent_purge_removes_only_terminal_job_output(tmp_path, monkeypatch):
     agent, root = _agent(tmp_path, monkeypatch)
     _payload(agent, root)

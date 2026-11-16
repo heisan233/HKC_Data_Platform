@@ -36,6 +36,7 @@ DOCKER_GPU_ID = os.environ.get("HKC_TRAINING_DOCKER_GPU_ID", "0").strip()
 DOCKER = shutil.which("docker") or "/usr/bin/docker"
 SOCKET_DIR = Path(os.environ["HKC_TRAINING_SOCKET_DIR"]).resolve()
 WORK_DIR = Path(os.environ.get("HKC_TRAINING_WORK_DIR", str(SOCKET_DIR / "work"))).resolve()
+PI0_WORK_DIR = Path(os.environ.get("HKC_TRAINING_PI0_WORK_DIR", str(WORK_DIR))).resolve()
 SOCKET = SOCKET_DIR / "agent.sock"
 TOKEN_FILE = SOCKET_DIR / "token"
 JOBS = ROOT / "training-runs"
@@ -57,10 +58,26 @@ PARAMETER_SCHEMA = {
     "log_freq": {"choices": [10, 20, 50, 100]},
 }
 MIN_FREE_MB = int(os.environ.get("HKC_TRAINING_MIN_FREE_MB", "18000"))
+PI0_MIN_FREE_MB = int(os.environ.get("HKC_TRAINING_PI0_MIN_FREE_MB", "38000"))
 MIN_FREE_WORK_GB = int(os.environ.get("HKC_TRAINING_MIN_WORK_GB", "12"))
 VLM_SERVICE = os.environ.get("HKC_TRAINING_VLM_SERVICE", "").strip()
 MODEL_VERSION = "xvla-base"
 MODEL_STAT: tuple[int, int] | None = None
+PI0_MODEL = Path(os.environ.get("HKC_TRAINING_PI0_MODEL", "/nonexistent/pi0")).resolve()
+PI0_TOKENIZER = Path(os.environ.get("HKC_TRAINING_PI0_TOKENIZER", "/nonexistent/pi0-tokenizer")).resolve()
+PI0_IMAGE = os.environ.get("HKC_TRAINING_PI0_DOCKER_IMAGE", "").strip()
+PI0_VERSION = "pi0-base"
+PI0_STAT: tuple[int, int] | None = None
+PI0_RUNTIME_ID = "pi0-lerobot"
+PI0_PRESETS = {
+    "small": {"steps": 100, "batch_size": 1, "num_workers": 0, "log_freq": 10},
+    "standard": {"steps": 1000, "batch_size": 1, "num_workers": 0, "log_freq": 20},
+}
+PI0_PARAMETER_SCHEMA = {
+    "steps": {"min": 10, "max": 3000},
+    "batch_size": {"choices": [1]},
+    "log_freq": {"choices": [1, 10, 20, 50, 100]},
+}
 
 
 def now() -> str:
@@ -95,9 +112,13 @@ def purge_job(job_id: str) -> dict:
             raise ValueError("只能清理已结束的训练任务")
         if job_id in PROCESS:
             raise ValueError("训练进程仍在运行，不能清理")
-        folders = (WORK_DIR / job_id, JOBS / job_id)
-        packages = (MODELS / f"{job_id}-xvla.tar.gz",
-                    MODELS / f".{job_id}-xvla.tar.gz.tmp")
+        model_id = job.get("model_id", "xvla") if job else "xvla"
+        if model_id not in {"xvla", "pi0"}:
+            raise ValueError("任务模型无效")
+        work_root = PI0_WORK_DIR if model_id == "pi0" else WORK_DIR
+        folders = (work_root / job_id, JOBS / job_id)
+        packages = (MODELS / f"{job_id}-{model_id}.tar.gz",
+                    MODELS / f".{job_id}-{model_id}.tar.gz.tmp")
         for folder in folders:
             if folder.is_symlink():
                 raise ValueError("任务目录不允许是符号链接")
@@ -167,34 +188,70 @@ def ready() -> tuple[bool, str]:
     return True, ""
 
 
+def ready_pi0() -> tuple[bool, str]:
+    if not PI0_IMAGE or not re.fullmatch(r"[A-Za-z0-9_./:-]+", PI0_IMAGE):
+        return False, "π₀ Docker 镜像未配置"
+    required = [PI0_MODEL / name for name in (
+        "config.json", "model.safetensors", "policy_preprocessor.json",
+        "policy_postprocessor.json",
+    )]
+    required.append(PI0_TOKENIZER / "tokenizer_config.json")
+    for path in required:
+        if not path.is_file():
+            return False, f"π₀ 训练依赖缺失：{path.name}"
+    if not ((PI0_TOKENIZER / "tokenizer.json").is_file() or
+            (PI0_TOKENIZER / "tokenizer.model").is_file()):
+        return False, "π₀ tokenizer 缺少词表文件"
+    current = (PI0_MODEL / "model.safetensors").stat()
+    if PI0_STAT is not None and (current.st_size, current.st_mtime_ns) != PI0_STAT:
+        return False, "π₀ 基座权重在执行器启动后变化，请重启执行器"
+    try:
+        result = subprocess.run([DOCKER, "image", "inspect", PI0_IMAGE],
+                                capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "Docker 守护进程不可用"
+    if result.returncode != 0:
+        return False, "π₀ 训练镜像不可用或 Docker 无权限"
+    return True, ""
+
+
 def runtime_python() -> str:
     return "python" if DOCKER_IMAGE else str(PYTHON)
 
 
-def container_name(job_id: str, phase: str) -> str:
+def container_name(job_id: str, phase: str, model_id: str = "xvla") -> str:
     if not JOB_ID.fullmatch(job_id) or phase not in {"prepare", "train", "evaluate"}:
         raise ValueError("训练容器名称无效")
-    return f"hkc-xvla-{job_id.lower()}-{phase}"
+    if model_id not in {"xvla", "pi0"}:
+        raise ValueError("训练模型无效")
+    return f"hkc-{model_id}-{job_id.lower()}-{phase}"
 
 
-def runtime_command(job_id: str, phase: str, command: list[str], *, use_gpu: bool) -> list[str]:
-    if not DOCKER_IMAGE:
+def runtime_command(job_id: str, phase: str, command: list[str], *, use_gpu: bool,
+                    model_id: str = "xvla") -> list[str]:
+    image = PI0_IMAGE if model_id == "pi0" else DOCKER_IMAGE
+    if not image:
         return command
-    name = container_name(job_id, phase)
-    mounts = [(ROOT, True), (JOBS / job_id, False), (WORK_DIR, False),
-              (MODEL, True), (TOKENIZER, True), (Path(__file__).parent, True)]
+    name = container_name(job_id, phase, model_id)
+    work_root = PI0_WORK_DIR if model_id == "pi0" else WORK_DIR
+    mounts = [(ROOT, True), (JOBS / job_id, False), (work_root, False),
+              (Path(__file__).parent, True)]
+    if model_id == "pi0":
+        mounts += [(PI0_MODEL, True), (PI0_TOKENIZER, True)]
+    else:
+        mounts += [(MODEL, True), (TOKENIZER, True)]
     wrapped = [DOCKER, "run", "--rm", "--name", name, "--network", "none",
                "--user", f"{os.getuid()}:{os.getgid()}", "--shm-size", "8g",
                "--tmpfs", "/tmp:rw,exec,nosuid,size=2g", "--env", "HOME=/tmp",
                "--env", "USER=hkc-trainer", "--env", "LOGNAME=hkc-trainer",
                "--env", "HF_HUB_OFFLINE=1", "--env", "WANDB_MODE=disabled",
-               "--label", f"hkc.xvla.task={job_id}"]
+               "--label", f"hkc.{model_id}.task={job_id}"]
     if use_gpu:
         wrapped += ["--gpus", f"device={DOCKER_GPU_ID}"]
     for path, readonly in mounts:
         wrapped += ["--mount", f"type=bind,src={path},dst={path}"
                     + (",readonly" if readonly else "")]
-    return [*wrapped, DOCKER_IMAGE, *command]
+    return [*wrapped, image, *command]
 
 
 def vlm_state() -> dict:
@@ -268,20 +325,23 @@ def dataset_folder(snapshot: dict) -> Path:
     return folder
 
 
-def validate_parameters(preset: str, parameters: object) -> dict:
-    if preset not in PRESETS or not isinstance(parameters, dict):
+def validate_parameters(preset: str, parameters: object,
+                        model_id: str = "xvla") -> dict:
+    presets = PI0_PRESETS if model_id == "pi0" else PRESETS
+    schema = PI0_PARAMETER_SCHEMA if model_id == "pi0" else PARAMETER_SCHEMA
+    if preset not in presets or not isinstance(parameters, dict):
         raise ValueError("训练预设或参数无效")
-    expected = set(PRESETS[preset])
+    expected = set(presets[preset])
     if set(parameters) != expected or any(type(value) is not int for value in parameters.values()):
         raise ValueError("训练参数只能包含执行器允许的整数项")
     steps = parameters["steps"]
-    if not PARAMETER_SCHEMA["steps"]["min"] <= steps <= PARAMETER_SCHEMA["steps"]["max"]:
+    if not schema["steps"]["min"] <= steps <= schema["steps"]["max"]:
         raise ValueError("steps 超出允许范围")
-    if parameters["batch_size"] not in PARAMETER_SCHEMA["batch_size"]["choices"]:
+    if parameters["batch_size"] not in schema["batch_size"]["choices"]:
         raise ValueError("batch_size 未经执行器允许")
-    if parameters["log_freq"] not in PARAMETER_SCHEMA["log_freq"]["choices"]:
+    if parameters["log_freq"] not in schema["log_freq"]["choices"]:
         raise ValueError("指标记录间隔未经执行器允许")
-    if parameters["log_freq"] > steps or parameters["num_workers"] != PRESETS[preset]["num_workers"]:
+    if parameters["log_freq"] > steps or parameters["num_workers"] != presets[preset]["num_workers"]:
         raise ValueError("训练参数组合无效")
     return parameters
 
@@ -357,14 +417,17 @@ def validate_payload(payload: dict) -> tuple[str, Path]:
     job_id = payload.get("id")
     if not isinstance(job_id, str) or not JOB_ID.fullmatch(job_id):
         raise ValueError("任务编号无效")
-    if payload.get("model_id") != "xvla":
-        raise ValueError("执行器只支持 X-VLA 基座微调")
-    if payload.get("model_version") != MODEL_VERSION:
+    model_id = payload.get("model_id")
+    if model_id not in {"xvla", "pi0"}:
+        raise ValueError("执行器不支持此基座模型")
+    version = PI0_VERSION if model_id == "pi0" else MODEL_VERSION
+    runtime_id = PI0_RUNTIME_ID if model_id == "pi0" else RUNTIME_ID
+    if payload.get("model_version") != version:
         raise ValueError("基座模型版本已变化，请重新确认任务")
-    if payload.get("runtime_id", RUNTIME_ID) != RUNTIME_ID:
+    if payload.get("runtime_id", runtime_id) != runtime_id:
         raise ValueError("所选训练环境未在执行器登记")
     preset = payload.get("preset")
-    validate_parameters(preset, payload.get("parameters"))
+    validate_parameters(preset, payload.get("parameters"), model_id)
     split = payload.get("split")
     if not isinstance(split, dict):
         raise TypeError("数据划分缺失")
@@ -377,18 +440,18 @@ def validate_payload(payload: dict) -> tuple[str, Path]:
     if set(train) & set(validation):
         raise ValueError("训练与验证 Episode 重叠")
     folder = dataset_folder(payload.get("dataset") or {})
-    camera_rename_map(folder)
+    camera_rename_map(folder, PI0_MODEL if model_id == "pi0" else MODEL)
     return job_id, folder
 
 
-def camera_rename_map(folder: Path) -> dict[str, str]:
+def camera_rename_map(folder: Path, model: Path = MODEL) -> dict[str, str]:
     """Map real camera names to this base model's visual slots without editing the DS.
 
     X-VLA masks unused views, so a two-camera dataset can use a three-view base.
     The head camera is the primary view when generic model names are required.
     """
     info = json.loads((folder / "meta" / "info.json").read_text(encoding="utf-8"))
-    model_config = json.loads((MODEL / "config.json").read_text(encoding="utf-8"))
+    model_config = json.loads((model / "config.json").read_text(encoding="utf-8"))
     dataset_features = info.get("features")
     model_features = model_config.get("input_features")
     if not isinstance(dataset_features, dict) or not isinstance(model_features, dict):
@@ -432,7 +495,8 @@ def prepare_local_model(work_root: Path) -> Path:
     return staged
 
 
-def prepare_training_dataset(folder: Path, work_root: Path) -> Path:
+def prepare_training_dataset(folder: Path, work_root: Path,
+                             model_id: str = "xvla") -> Path:
     """Make a read-only view of DS files, correcting only legacy task metadata.
 
     LeRobot expects the task text to be the tasks.parquet index. Older uploaded
@@ -458,12 +522,13 @@ def prepare_training_dataset(folder: Path, work_root: Path) -> Path:
         if entry.name != "tasks.parquet":
             (staged_meta / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
     target = staged_meta / "tasks.parquet"
-    if DOCKER_IMAGE:
+    if model_id == "pi0" or DOCKER_IMAGE:
         job_id = work_root.name
         command = runtime_command(job_id, "prepare", [
-            runtime_python(), str(Path(__file__).with_name("training_prepare.py")),
+            "python" if model_id == "pi0" else runtime_python(),
+            str(Path(__file__).with_name("training_prepare.py")),
             str(tasks_file), str(target),
-        ], use_gpu=False)
+        ], use_gpu=False, model_id=model_id)
         result = subprocess.run(command, capture_output=True, text=True,
                                 timeout=180, check=False)
         if result.returncode != 0:
@@ -676,14 +741,21 @@ def scheduler() -> None:
                        for job in STATE.values())
         if queued and not busy:
             card = gpu()
-            work_free_gb = shutil.disk_usage(WORK_DIR).free / (1024 ** 3)
-            if card and card["free_mb"] >= MIN_FREE_MB and work_free_gb >= MIN_FREE_WORK_GB:
-                run(queued)
+            work_root = PI0_WORK_DIR if queued["model_id"] == "pi0" else WORK_DIR
+            work_free_gb = shutil.disk_usage(work_root).free / (1024 ** 3)
+            minimum_mb = (PI0_MIN_FREE_MB if queued["model_id"] == "pi0"
+                          else MIN_FREE_MB)
+            if card and card["free_mb"] >= minimum_mb and work_free_gb >= MIN_FREE_WORK_GB:
+                if queued["model_id"] == "pi0":
+                    import training_pi0
+                    training_pi0.run(queued, sys.modules[__name__])
+                else:
+                    run(queued)
             else:
                 update(queued, phase="waiting_gpu",
                        error=(f"工作盘空间不足，需至少 {MIN_FREE_WORK_GB} GB" if
                               work_free_gb < MIN_FREE_WORK_GB else
-                              f"GPU 空闲显存不足，需至少 {MIN_FREE_MB / 1024:.1f} GB"))
+                              f"GPU 空闲显存不足，需至少 {minimum_mb / 1024:.1f} GB"))
         time.sleep(10)
 
 
@@ -723,29 +795,44 @@ class Handler(BaseHTTPRequestHandler):
             parts = parsed.path.strip("/").split("/")
             if method == "GET" and parts == ["status"]:
                 model_ok, reason = ready()
+                pi0_ok, pi0_reason = ready_pi0()
                 card = gpu()
                 if card is None:
                     model_ok, reason = False, "执行器未检测到可用 GPU"
+                    pi0_ok, pi0_reason = False, reason
+                runtimes = [{"id": RUNTIME_ID, "name": RUNTIME_NAME,
+                             "kind": RUNTIME_KIND, "available": model_ok,
+                             "reason": reason, "model_ids": ["xvla"]}]
+                model_rows = [{"id": "xvla", "name": "X-VLA", "version": MODEL_VERSION,
+                               "available": model_ok, "reason": reason,
+                               "presets": [{"id": key, "name": key,
+                                            "parameters": value}
+                                           for key, value in PRESETS.items()],
+                               "parameter_schema": PARAMETER_SCHEMA}]
+                if PI0_IMAGE:
+                    runtimes.append({"id": PI0_RUNTIME_ID, "name": "π₀（Docker）",
+                                     "kind": "docker", "available": pi0_ok,
+                                     "reason": pi0_reason, "model_ids": ["pi0"]})
+                    model_rows.append({"id": "pi0", "name": "π₀", "version": PI0_VERSION,
+                                       "available": pi0_ok, "reason": pi0_reason,
+                                       "presets": [{"id": key, "name": key,
+                                                    "parameters": value}
+                                                   for key, value in PI0_PRESETS.items()],
+                                       "parameter_schema": PI0_PARAMETER_SCHEMA})
                 self.reply(200, {"id": "primary", "name": "本机 LeRobot 执行器", "online": True,
                                  "last_heartbeat": now(), "gpu": card,
                                  "queue_count": sum(job["status"] == "QUEUED" for job in STATE.values()),
-                                 "runtimes": [{"id": RUNTIME_ID, "name": RUNTIME_NAME,
-                                               "kind": RUNTIME_KIND, "available": model_ok,
-                                               "reason": reason, "model_ids": ["xvla"]}],
-                                 "models": [{"id": "xvla", "name": "X-VLA", "version": MODEL_VERSION,
-                                             "available": model_ok, "reason": reason,
-                                             "presets": [{"id": key, "name": key,
-                                                          "parameters": value}
-                                                         for key, value in PRESETS.items()],
-                                             "parameter_schema": PARAMETER_SCHEMA}],
+                                 "runtimes": runtimes, "models": model_rows,
                                  "vlm": vlm_state()})
             elif method == "POST" and len(parts) == 2 and parts[0] == "vlm":
                 self.reply(200, control_vlm(parts[1]))
             elif method == "POST" and parts == ["jobs"]:
                 payload = self.body()
                 job_id, _ = validate_payload(payload)
-                payload["runtime_id"] = RUNTIME_ID
-                model_ok, reason = ready()
+                model_id = payload["model_id"]
+                payload["runtime_id"] = (PI0_RUNTIME_ID if model_id == "pi0"
+                                         else RUNTIME_ID)
+                model_ok, reason = ready_pi0() if model_id == "pi0" else ready()
                 if not model_ok:
                     raise ValueError(reason)
                 with GUARD:
@@ -785,10 +872,11 @@ class Handler(BaseHTTPRequestHandler):
                     update(job, cancel_requested=True)
                     process = PROCESS.get(job_id)
                     if process is not None:
-                        if DOCKER_IMAGE:
+                        if DOCKER_IMAGE or job.get("model_id") == "pi0":
                             phase = "evaluate" if job["status"] == "EVALUATING" else "train"
                             subprocess.run([DOCKER, "stop", "--time", "5",
-                                            container_name(job_id, phase)],
+                                            container_name(job_id, phase,
+                                                           job.get("model_id", "xvla"))],
                                            capture_output=True, timeout=15, check=False)
                         try:
                             os.killpg(process.pid, signal.SIGTERM)
@@ -819,7 +907,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    global MODEL_STAT, MODEL_VERSION
+    global MODEL_STAT, MODEL_VERSION, PI0_STAT, PI0_VERSION
     SOCKET_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     if SOCKET_DIR.stat().st_mode & 0o077:
         raise RuntimeError("执行器通信目录权限过宽，应为 0700")
@@ -827,10 +915,17 @@ def main() -> None:
     WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     if WORK_DIR.stat().st_mode & 0o077:
         raise RuntimeError("训练工作目录权限过宽，应为 0700")
+    PI0_WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if PI0_WORK_DIR.stat().st_mode & 0o077:
+        raise RuntimeError("π₀ 工作目录权限过宽，应为 0700")
     if (MODEL / "model.safetensors").is_file():
         MODEL_VERSION = "xvla-base@" + sha256_file(MODEL / "model.safetensors")[:16]
         stat = (MODEL / "model.safetensors").stat()
         MODEL_STAT = (stat.st_size, stat.st_mtime_ns)
+    if (PI0_MODEL / "model.safetensors").is_file():
+        PI0_VERSION = "pi0-base@" + sha256_file(PI0_MODEL / "model.safetensors")[:16]
+        stat = (PI0_MODEL / "model.safetensors").stat()
+        PI0_STAT = (stat.st_size, stat.st_mtime_ns)
     if not TOKEN_FILE.exists():
         descriptor = os.open(TOKEN_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:

@@ -1,6 +1,6 @@
 # HKC 数采平台当前状态
 
-更新日期：2026-11-11
+更新日期：2026-11-13
 
 本文是当前代码事实的唯一状态说明，不记录旧版本开发流水账。开发规则见
 `AGENTS.md`，实际操作见 `how_use.md`。
@@ -13,7 +13,7 @@
 - 文件格式：当前真实业务以 LeRobot v3 为主；
 - 文件存储：数据集、报告、导出和模型位于 `storage/`；
 - 管理元数据：MySQL；旧 SQLite 不再读取或迁移；
-- 训练：平台通过宿主执行器调用独立 X-VLA Docker；
+- 训练：平台通过宿主执行器调用模型专属 Docker；X-VLA 与 π₀ 已接入；
 - 网络：仅可信内网 HTTP，没有 HTTPS。
 
 开始工作前：
@@ -38,7 +38,7 @@ git log -1 --oneline --decorate
 | `/annotation/` | annotation | Episode/task/Subtask 标注和完整派生发布 |
 | `/preprocess/` | processing | 筛除、拆分、合并、重排、去重和视频裁剪 |
 | `/export/` | conversion/export | HDF5 转换和 DS/CV 导出 |
-| `/training/` | training | X-VLA 任务、离线评估、模型包和任务回收站 |
+| `/training/` | training | X-VLA 与 π₀ 任务、离线评估、模型包和任务回收站 |
 | `/system/` | system | 脱敏、持久化访问日志 |
 | `/healthz` | app | 无需登录的存活检查 |
 
