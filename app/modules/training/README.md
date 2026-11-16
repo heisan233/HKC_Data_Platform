@@ -8,7 +8,7 @@
 平台应用
   → Unix socket（推荐）或受控 HTTP runner
   → 宿主训练执行器
-  → 模型专属 Docker（X-VLA 或 π₀）
+  → 模型专属 Docker（X-VLA、π₀ 或 SmolVLA）
   → storage/training-runs 与 storage/models
 ```
 
@@ -28,6 +28,10 @@
 π₀ 使用独立的 LeRobot v3 容器和基座权重，当前固定为 expert-only 微调、
 batch size 1。若抽样发现 `action` 与同帧 `observation.state` 完全相同，
 训前检查提示核对采集时序；这项检查本身不能确定动作语义。
+
+SmolVLA 使用独立 Docker、只读基座和本地 SmolVLM2 配置与 tokenizer。执行器为每个
+任务生成私有配置副本，将公开仓库引用改为本地路径，并保持基座文件不变。当前采用
+expert-only 微调；训练、评估和打包期间容器均禁网。
 
 ## 页面能力
 

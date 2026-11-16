@@ -1,4 +1,4 @@
-# X-VLA 与 π₀ 宿主训练执行器
+# X-VLA、π₀ 与 SmolVLA 宿主训练执行器
 
 平台容器不包含 CUDA、LeRobot 或模型训练依赖。宿主执行器通过私有 Unix socket
 接收受限任务，并调用模型专属训练 Docker；X-VLA 也保留旧 Conda 运行方式。
@@ -31,6 +31,11 @@ HKC_TRAINING_PI0_TOKENIZER=/srv/hkc-ai/models/pi0/weights/paligemma-tokenizer-hf
 HKC_TRAINING_PI0_DOCKER_IMAGE=hkc-pi0-train:lerobot-0.6.2-cu128
 HKC_TRAINING_PI0_WORK_DIR=/srv/hkc-ai/models/pi0/work
 HKC_TRAINING_PI0_MIN_FREE_MB=38000
+HKC_TRAINING_SMOLVLA_MODEL=/srv/hkc-ai/models/SmolVLA/weights/lerobot-smolvla-base
+HKC_TRAINING_SMOLVLA_VLM=/srv/hkc-ai/models/SmolVLA/weights/smolvlm2-500m-video-instruct
+HKC_TRAINING_SMOLVLA_DOCKER_IMAGE=hkc-smolvla-train:lerobot-0.6.2-cu128
+HKC_TRAINING_SMOLVLA_WORK_DIR=/srv/hkc-ai/models/SmolVLA/work
+HKC_TRAINING_SMOLVLA_MIN_FREE_MB=18000
 HKC_TRAINING_DOCKER_GPU_ID=0
 HKC_TRAINING_MIN_FREE_MB=18000
 HKC_TRAINING_MIN_WORK_GB=12
@@ -45,6 +50,10 @@ Docker 模式仍需提供可运行 `training_agent.py` 的宿主 Python。
 上报的可用状态。`HKC_TRAINING_PI0_MIN_FREE_MB` 是启动训练的空闲显存门槛，
 显存不足时任务排队。
 
+SmolVLA 同样只使用独立 Docker。`HKC_TRAINING_SMOLVLA_MODEL` 指向只读 SmolVLA
+基座，`HKC_TRAINING_SMOLVLA_VLM` 指向本地 SmolVLM2 配置、processor 与 tokenizer；
+执行器不会联网补齐文件。`HKC_TRAINING_SMOLVLA_MIN_FREE_MB` 是其排队显存门槛。
+
 ## 3. 目录与依赖检查
 
 ```bash
@@ -52,6 +61,8 @@ install -d -m 700 /path/to/socket-dir /path/to/work-dir
 test -r /path/to/model-dir/config.json
 test -r /path/to/model-dir/model.safetensors
 test -r /path/to/tokenizer-dir/tokenizer_config.json
+test -r /srv/hkc-ai/models/SmolVLA/weights/lerobot-smolvla-base/model.safetensors
+test -r /srv/hkc-ai/models/SmolVLA/weights/smolvlm2-500m-video-instruct/tokenizer_config.json
 docker image inspect TRAINING_IMAGE_TAG
 nvidia-smi
 ```

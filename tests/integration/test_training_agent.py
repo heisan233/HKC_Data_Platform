@@ -120,6 +120,64 @@ def test_pi0_uses_its_registered_runtime_and_fixed_training_command(tmp_path, mo
     assert "type=bind,src=" + str(agent.PI0_WORK_DIR) + ",dst=" + str(agent.PI0_WORK_DIR) in command
 
 
+def test_smolvla_uses_offline_vlm_resources_and_registered_runtime(tmp_path, monkeypatch):
+    agent, root = _agent(tmp_path, monkeypatch)
+    model = tmp_path / "smolvla-model"
+    vlm = tmp_path / "smolvlm-resources"
+    model.mkdir()
+    vlm.mkdir()
+    (model / "config.json").write_text(json.dumps({
+        "input_features": {
+            "observation.images.camera1": {"type": "VISUAL"},
+            "observation.images.camera2": {"type": "VISUAL"},
+            "observation.images.camera3": {"type": "VISUAL"},
+        },
+        "vlm_model_name": "remote/smolvlm",
+        "load_vlm_weights": True,
+    }))
+    (model / "model.safetensors").write_bytes(b"smolvla weights")
+    (model / "policy_preprocessor.json").write_text(json.dumps({"steps": [
+        {"registry_name": "tokenizer_processor",
+         "config": {"tokenizer_name": "remote/smolvlm"}},
+    ]}))
+    (model / "policy_postprocessor.json").write_text("{}")
+    for name in ("policy_preprocessor_step_5_normalizer_processor.safetensors",
+                 "policy_postprocessor_step_0_unnormalizer_processor.safetensors"):
+        (model / name).write_bytes(b"processor state")
+    for name in ("config.json", "tokenizer_config.json", "preprocessor_config.json",
+                 "tokenizer.json"):
+        (vlm / name).write_text("{}")
+    agent.SMOLVLA_MODEL = model
+    agent.SMOLVLA_VLM = vlm
+    agent.SMOLVLA_IMAGE = "hkc-smolvla-train:pinned"
+    agent.SMOLVLA_VERSION = "smolvla-base@test"
+    agent.SMOLVLA_WORK_DIR = tmp_path / "smolvla-work"
+    payload = _payload(agent, root)
+    payload.update(model_id="smolvla", model_version=agent.SMOLVLA_VERSION,
+                   runtime_id=agent.SMOLVLA_RUNTIME_ID, preset="small",
+                   parameters=agent.SMOLVLA_PRESETS["small"])
+    assert agent.validate_payload(payload)[0] == payload["id"]
+
+    script = Path(__file__).resolve().parents[2] / "deploy" / "training_smolvla.py"
+    spec = importlib.util.spec_from_file_location("hkc_training_smolvla_test", script)
+    smolvla = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(smolvla)
+    work = tmp_path / "smolvla-stage"
+    work.mkdir()
+    staged = smolvla.stage_model(agent, work)
+    assert json.loads((staged / "config.json").read_text())["vlm_model_name"] == str(vlm)
+    assert json.loads((staged / "config.json").read_text())["load_vlm_weights"] is False
+    assert json.loads((model / "config.json").read_text())["vlm_model_name"] == "remote/smolvlm"
+    command = smolvla.build_train_command(
+        agent, payload, root / "derived" / "ready", tmp_path / "output", staged,
+    )
+    assert "hkc-smolvla-train:pinned" in command
+    assert "--policy.load_vlm_weights=false" in command
+    assert f"--policy.vlm_model_name={vlm}" in command
+    assert "--network" in command and "none" in command
+    assert "type=bind,src=" + str(vlm) + ",dst=" + str(vlm) + ",readonly" in command
+
+
 def test_agent_purge_removes_only_terminal_job_output(tmp_path, monkeypatch):
     agent, root = _agent(tmp_path, monkeypatch)
     _payload(agent, root)

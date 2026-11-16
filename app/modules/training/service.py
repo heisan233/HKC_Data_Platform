@@ -220,7 +220,7 @@ def _sample_action(folder: Path) -> None:
         raise ValueError("无法抽样读取 action 帧数据") from exc
 
 
-def _pi0_action_warning(folder: Path) -> str | None:
+def _vla_action_warning(folder: Path) -> str | None:
     """Flag a recording whose actions may be copied observed states."""
     paths = parquet_files(folder / "data")
     checked = 0
@@ -232,7 +232,7 @@ def _pi0_action_warning(folder: Path) -> str | None:
         try:
             reader = pq.ParquetFile(safe)
             if not {"action", "observation.state"}.issubset(reader.schema_arrow.names):
-                raise ValueError("π₀ 需要 action 和 observation.state 字段")
+                raise ValueError("所选 VLA 模型需要 action 和 observation.state 字段")
             for batch in reader.iter_batches(batch_size=256,
                                              columns=["action", "observation.state"]):
                 actions = batch.column("action").to_pylist()
@@ -244,7 +244,7 @@ def _pi0_action_warning(folder: Path) -> str | None:
                 if checked >= 2048:
                     break
         except (OSError, pa.ArrowException) as exc:
-            raise ValueError("无法抽样读取 π₀ 动作与状态") from exc
+            raise ValueError("无法抽样读取 VLA 动作与状态") from exc
         if different or checked >= 2048:
             break
     if checked and not different:
@@ -253,7 +253,7 @@ def _pi0_action_warning(folder: Path) -> str | None:
 
 
 def preflight(root: Path, dataset_id: str, model_id: str = "xvla") -> dict:
-    if model_id not in {"xvla", "pi0"}:
+    if model_id not in {"xvla", "pi0", "smolvla"}:
         raise TrainingError("该模型尚未接入训前校验", 422)
     try:
         record, folder = datasets.resolve_registered_dataset(root, dataset_id)
@@ -294,9 +294,9 @@ def preflight(root: Path, dataset_id: str, model_id: str = "xvla") -> dict:
             _sample_action(folder)
         except ValueError as exc:
             issues.append(str(exc))
-        if model_id == "pi0":
+        if model_id in {"pi0", "smolvla"}:
             try:
-                warning = _pi0_action_warning(folder)
+                warning = _vla_action_warning(folder)
                 if warning:
                     warnings.append(warning)
             except ValueError as exc:

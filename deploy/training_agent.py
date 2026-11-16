@@ -1,4 +1,4 @@
-"""Host-side X-VLA executor with an isolated LeRobot training runtime.
+"""Host-side VLA executor with isolated model-specific training runtimes.
 
 The platform talks to this process over an authenticated Unix socket in an
 administrator-configured private directory. No arbitrary command or path is
@@ -37,6 +37,7 @@ DOCKER = shutil.which("docker") or "/usr/bin/docker"
 SOCKET_DIR = Path(os.environ["HKC_TRAINING_SOCKET_DIR"]).resolve()
 WORK_DIR = Path(os.environ.get("HKC_TRAINING_WORK_DIR", str(SOCKET_DIR / "work"))).resolve()
 PI0_WORK_DIR = Path(os.environ.get("HKC_TRAINING_PI0_WORK_DIR", str(WORK_DIR))).resolve()
+SMOLVLA_WORK_DIR = Path(os.environ.get("HKC_TRAINING_SMOLVLA_WORK_DIR", str(WORK_DIR))).resolve()
 SOCKET = SOCKET_DIR / "agent.sock"
 TOKEN_FILE = SOCKET_DIR / "token"
 JOBS = ROOT / "training-runs"
@@ -59,6 +60,7 @@ PARAMETER_SCHEMA = {
 }
 MIN_FREE_MB = int(os.environ.get("HKC_TRAINING_MIN_FREE_MB", "18000"))
 PI0_MIN_FREE_MB = int(os.environ.get("HKC_TRAINING_PI0_MIN_FREE_MB", "38000"))
+SMOLVLA_MIN_FREE_MB = int(os.environ.get("HKC_TRAINING_SMOLVLA_MIN_FREE_MB", "18000"))
 MIN_FREE_WORK_GB = int(os.environ.get("HKC_TRAINING_MIN_WORK_GB", "12"))
 VLM_SERVICE = os.environ.get("HKC_TRAINING_VLM_SERVICE", "").strip()
 MODEL_VERSION = "xvla-base"
@@ -76,6 +78,25 @@ PI0_PRESETS = {
 PI0_PARAMETER_SCHEMA = {
     "steps": {"min": 10, "max": 3000},
     "batch_size": {"choices": [1]},
+    "log_freq": {"choices": [1, 10, 20, 50, 100]},
+}
+SMOLVLA_MODEL = Path(os.environ.get(
+    "HKC_TRAINING_SMOLVLA_MODEL", "/nonexistent/smolvla"
+)).resolve()
+SMOLVLA_VLM = Path(os.environ.get(
+    "HKC_TRAINING_SMOLVLA_VLM", "/nonexistent/smolvlm"
+)).resolve()
+SMOLVLA_IMAGE = os.environ.get("HKC_TRAINING_SMOLVLA_DOCKER_IMAGE", "").strip()
+SMOLVLA_VERSION = "smolvla-base"
+SMOLVLA_STAT: tuple[int, int] | None = None
+SMOLVLA_RUNTIME_ID = "smolvla-lerobot"
+SMOLVLA_PRESETS = {
+    "small": {"steps": 100, "batch_size": 1, "num_workers": 0, "log_freq": 10},
+    "standard": {"steps": 1000, "batch_size": 1, "num_workers": 0, "log_freq": 20},
+}
+SMOLVLA_PARAMETER_SCHEMA = {
+    "steps": {"min": 10, "max": 10000},
+    "batch_size": {"choices": [1, 2, 4]},
     "log_freq": {"choices": [1, 10, 20, 50, 100]},
 }
 
@@ -113,9 +134,10 @@ def purge_job(job_id: str) -> dict:
         if job_id in PROCESS:
             raise ValueError("训练进程仍在运行，不能清理")
         model_id = job.get("model_id", "xvla") if job else "xvla"
-        if model_id not in {"xvla", "pi0"}:
+        if model_id not in {"xvla", "pi0", "smolvla"}:
             raise ValueError("任务模型无效")
-        work_root = PI0_WORK_DIR if model_id == "pi0" else WORK_DIR
+        work_root = (PI0_WORK_DIR if model_id == "pi0" else
+                     SMOLVLA_WORK_DIR if model_id == "smolvla" else WORK_DIR)
         folders = (work_root / job_id, JOBS / job_id)
         packages = (MODELS / f"{job_id}-{model_id}.tar.gz",
                     MODELS / f".{job_id}-{model_id}.tar.gz.tmp")
@@ -215,6 +237,37 @@ def ready_pi0() -> tuple[bool, str]:
     return True, ""
 
 
+def ready_smolvla() -> tuple[bool, str]:
+    if not SMOLVLA_IMAGE or not re.fullmatch(r"[A-Za-z0-9_./:-]+", SMOLVLA_IMAGE):
+        return False, "SmolVLA Docker 镜像未配置"
+    required = [SMOLVLA_MODEL / name for name in (
+        "config.json", "model.safetensors", "policy_preprocessor.json",
+        "policy_postprocessor.json",
+        "policy_preprocessor_step_5_normalizer_processor.safetensors",
+        "policy_postprocessor_step_0_unnormalizer_processor.safetensors",
+    )]
+    required += [SMOLVLA_VLM / name for name in (
+        "config.json", "tokenizer_config.json", "preprocessor_config.json",
+    )]
+    for path in required:
+        if not path.is_file():
+            return False, f"SmolVLA 训练依赖缺失：{path.name}"
+    if not ((SMOLVLA_VLM / "tokenizer.json").is_file() or all(
+            (SMOLVLA_VLM / name).is_file() for name in ("vocab.json", "merges.txt"))):
+        return False, "SmolVLA tokenizer 缺少词表文件"
+    current = (SMOLVLA_MODEL / "model.safetensors").stat()
+    if SMOLVLA_STAT is not None and (current.st_size, current.st_mtime_ns) != SMOLVLA_STAT:
+        return False, "SmolVLA 基座权重在执行器启动后变化，请重启执行器"
+    try:
+        result = subprocess.run([DOCKER, "image", "inspect", SMOLVLA_IMAGE],
+                                capture_output=True, timeout=10, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "Docker 守护进程不可用"
+    if result.returncode != 0:
+        return False, "SmolVLA 训练镜像不可用或 Docker 无权限"
+    return True, ""
+
+
 def runtime_python() -> str:
     return "python" if DOCKER_IMAGE else str(PYTHON)
 
@@ -222,22 +275,26 @@ def runtime_python() -> str:
 def container_name(job_id: str, phase: str, model_id: str = "xvla") -> str:
     if not JOB_ID.fullmatch(job_id) or phase not in {"prepare", "train", "evaluate"}:
         raise ValueError("训练容器名称无效")
-    if model_id not in {"xvla", "pi0"}:
+    if model_id not in {"xvla", "pi0", "smolvla"}:
         raise ValueError("训练模型无效")
     return f"hkc-{model_id}-{job_id.lower()}-{phase}"
 
 
 def runtime_command(job_id: str, phase: str, command: list[str], *, use_gpu: bool,
                     model_id: str = "xvla") -> list[str]:
-    image = PI0_IMAGE if model_id == "pi0" else DOCKER_IMAGE
+    image = (PI0_IMAGE if model_id == "pi0" else
+             SMOLVLA_IMAGE if model_id == "smolvla" else DOCKER_IMAGE)
     if not image:
         return command
     name = container_name(job_id, phase, model_id)
-    work_root = PI0_WORK_DIR if model_id == "pi0" else WORK_DIR
+    work_root = (PI0_WORK_DIR if model_id == "pi0" else
+                 SMOLVLA_WORK_DIR if model_id == "smolvla" else WORK_DIR)
     mounts = [(ROOT, True), (JOBS / job_id, False), (work_root, False),
               (Path(__file__).parent, True)]
     if model_id == "pi0":
         mounts += [(PI0_MODEL, True), (PI0_TOKENIZER, True)]
+    elif model_id == "smolvla":
+        mounts += [(SMOLVLA_MODEL, True), (SMOLVLA_VLM, True)]
     else:
         mounts += [(MODEL, True), (TOKENIZER, True)]
     wrapped = [DOCKER, "run", "--rm", "--name", name, "--network", "none",
@@ -327,8 +384,10 @@ def dataset_folder(snapshot: dict) -> Path:
 
 def validate_parameters(preset: str, parameters: object,
                         model_id: str = "xvla") -> dict:
-    presets = PI0_PRESETS if model_id == "pi0" else PRESETS
-    schema = PI0_PARAMETER_SCHEMA if model_id == "pi0" else PARAMETER_SCHEMA
+    presets = (PI0_PRESETS if model_id == "pi0" else
+               SMOLVLA_PRESETS if model_id == "smolvla" else PRESETS)
+    schema = (PI0_PARAMETER_SCHEMA if model_id == "pi0" else
+              SMOLVLA_PARAMETER_SCHEMA if model_id == "smolvla" else PARAMETER_SCHEMA)
     if preset not in presets or not isinstance(parameters, dict):
         raise ValueError("训练预设或参数无效")
     expected = set(presets[preset])
@@ -418,10 +477,12 @@ def validate_payload(payload: dict) -> tuple[str, Path]:
     if not isinstance(job_id, str) or not JOB_ID.fullmatch(job_id):
         raise ValueError("任务编号无效")
     model_id = payload.get("model_id")
-    if model_id not in {"xvla", "pi0"}:
+    if model_id not in {"xvla", "pi0", "smolvla"}:
         raise ValueError("执行器不支持此基座模型")
-    version = PI0_VERSION if model_id == "pi0" else MODEL_VERSION
-    runtime_id = PI0_RUNTIME_ID if model_id == "pi0" else RUNTIME_ID
+    version = (PI0_VERSION if model_id == "pi0" else
+               SMOLVLA_VERSION if model_id == "smolvla" else MODEL_VERSION)
+    runtime_id = (PI0_RUNTIME_ID if model_id == "pi0" else
+                  SMOLVLA_RUNTIME_ID if model_id == "smolvla" else RUNTIME_ID)
     if payload.get("model_version") != version:
         raise ValueError("基座模型版本已变化，请重新确认任务")
     if payload.get("runtime_id", runtime_id) != runtime_id:
@@ -440,7 +501,9 @@ def validate_payload(payload: dict) -> tuple[str, Path]:
     if set(train) & set(validation):
         raise ValueError("训练与验证 Episode 重叠")
     folder = dataset_folder(payload.get("dataset") or {})
-    camera_rename_map(folder, PI0_MODEL if model_id == "pi0" else MODEL)
+    base_model = (PI0_MODEL if model_id == "pi0" else
+                  SMOLVLA_MODEL if model_id == "smolvla" else MODEL)
+    camera_rename_map(folder, base_model)
     return job_id, folder
 
 
@@ -462,7 +525,7 @@ def camera_rename_map(folder: Path, model: Path = MODEL) -> dict[str, str]:
     slots = [key for key, feature in model_features.items()
              if isinstance(feature, dict) and feature.get("type") == "VISUAL"]
     if not cameras or len(cameras) > len(slots):
-        raise ValueError(f"数据集有 {len(cameras)} 路相机，X-VLA 基座支持 1 至 {len(slots)} 路")
+        raise ValueError(f"数据集有 {len(cameras)} 路相机，所选基座支持 1 至 {len(slots)} 路")
     reserved = set(cameras) & set(slots)
     available = [key for key in slots if key not in reserved]
     unmapped = sorted((key for key in cameras if key not in reserved),
@@ -522,10 +585,10 @@ def prepare_training_dataset(folder: Path, work_root: Path,
         if entry.name != "tasks.parquet":
             (staged_meta / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
     target = staged_meta / "tasks.parquet"
-    if model_id == "pi0" or DOCKER_IMAGE:
+    if model_id in {"pi0", "smolvla"} or DOCKER_IMAGE:
         job_id = work_root.name
         command = runtime_command(job_id, "prepare", [
-            "python" if model_id == "pi0" else runtime_python(),
+            "python" if model_id in {"pi0", "smolvla"} else runtime_python(),
             str(Path(__file__).with_name("training_prepare.py")),
             str(tasks_file), str(target),
         ], use_gpu=False, model_id=model_id)
@@ -741,14 +804,19 @@ def scheduler() -> None:
                        for job in STATE.values())
         if queued and not busy:
             card = gpu()
-            work_root = PI0_WORK_DIR if queued["model_id"] == "pi0" else WORK_DIR
+            work_root = (PI0_WORK_DIR if queued["model_id"] == "pi0" else
+                         SMOLVLA_WORK_DIR if queued["model_id"] == "smolvla" else WORK_DIR)
             work_free_gb = shutil.disk_usage(work_root).free / (1024 ** 3)
-            minimum_mb = (PI0_MIN_FREE_MB if queued["model_id"] == "pi0"
+            minimum_mb = (PI0_MIN_FREE_MB if queued["model_id"] == "pi0" else
+                          SMOLVLA_MIN_FREE_MB if queued["model_id"] == "smolvla"
                           else MIN_FREE_MB)
             if card and card["free_mb"] >= minimum_mb and work_free_gb >= MIN_FREE_WORK_GB:
                 if queued["model_id"] == "pi0":
                     import training_pi0
                     training_pi0.run(queued, sys.modules[__name__])
+                elif queued["model_id"] == "smolvla":
+                    import training_smolvla
+                    training_smolvla.run(queued, sys.modules[__name__])
                 else:
                     run(queued)
             else:
@@ -796,10 +864,12 @@ class Handler(BaseHTTPRequestHandler):
             if method == "GET" and parts == ["status"]:
                 model_ok, reason = ready()
                 pi0_ok, pi0_reason = ready_pi0()
+                smolvla_ok, smolvla_reason = ready_smolvla()
                 card = gpu()
                 if card is None:
                     model_ok, reason = False, "执行器未检测到可用 GPU"
                     pi0_ok, pi0_reason = False, reason
+                    smolvla_ok, smolvla_reason = False, reason
                 runtimes = [{"id": RUNTIME_ID, "name": RUNTIME_NAME,
                              "kind": RUNTIME_KIND, "available": model_ok,
                              "reason": reason, "model_ids": ["xvla"]}]
@@ -819,6 +889,17 @@ class Handler(BaseHTTPRequestHandler):
                                                     "parameters": value}
                                                    for key, value in PI0_PRESETS.items()],
                                        "parameter_schema": PI0_PARAMETER_SCHEMA})
+                if SMOLVLA_IMAGE:
+                    runtimes.append({"id": SMOLVLA_RUNTIME_ID, "name": "SmolVLA（Docker）",
+                                     "kind": "docker", "available": smolvla_ok,
+                                     "reason": smolvla_reason, "model_ids": ["smolvla"]})
+                    model_rows.append({"id": "smolvla", "name": "SmolVLA",
+                                       "version": SMOLVLA_VERSION,
+                                       "available": smolvla_ok, "reason": smolvla_reason,
+                                       "presets": [{"id": key, "name": key,
+                                                    "parameters": value}
+                                                   for key, value in SMOLVLA_PRESETS.items()],
+                                       "parameter_schema": SMOLVLA_PARAMETER_SCHEMA})
                 self.reply(200, {"id": "primary", "name": "本机 LeRobot 执行器", "online": True,
                                  "last_heartbeat": now(), "gpu": card,
                                  "queue_count": sum(job["status"] == "QUEUED" for job in STATE.values()),
@@ -830,9 +911,11 @@ class Handler(BaseHTTPRequestHandler):
                 payload = self.body()
                 job_id, _ = validate_payload(payload)
                 model_id = payload["model_id"]
-                payload["runtime_id"] = (PI0_RUNTIME_ID if model_id == "pi0"
+                payload["runtime_id"] = (PI0_RUNTIME_ID if model_id == "pi0" else
+                                         SMOLVLA_RUNTIME_ID if model_id == "smolvla"
                                          else RUNTIME_ID)
-                model_ok, reason = ready_pi0() if model_id == "pi0" else ready()
+                model_ok, reason = (ready_pi0() if model_id == "pi0" else
+                                    ready_smolvla() if model_id == "smolvla" else ready())
                 if not model_ok:
                     raise ValueError(reason)
                 with GUARD:
@@ -872,7 +955,7 @@ class Handler(BaseHTTPRequestHandler):
                     update(job, cancel_requested=True)
                     process = PROCESS.get(job_id)
                     if process is not None:
-                        if DOCKER_IMAGE or job.get("model_id") == "pi0":
+                        if DOCKER_IMAGE or job.get("model_id") in {"pi0", "smolvla"}:
                             phase = "evaluate" if job["status"] == "EVALUATING" else "train"
                             subprocess.run([DOCKER, "stop", "--time", "5",
                                             container_name(job_id, phase,
@@ -908,6 +991,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     global MODEL_STAT, MODEL_VERSION, PI0_STAT, PI0_VERSION
+    global SMOLVLA_STAT, SMOLVLA_VERSION
     SOCKET_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     if SOCKET_DIR.stat().st_mode & 0o077:
         raise RuntimeError("执行器通信目录权限过宽，应为 0700")
@@ -918,6 +1002,9 @@ def main() -> None:
     PI0_WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     if PI0_WORK_DIR.stat().st_mode & 0o077:
         raise RuntimeError("π₀ 工作目录权限过宽，应为 0700")
+    SMOLVLA_WORK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if SMOLVLA_WORK_DIR.stat().st_mode & 0o077:
+        raise RuntimeError("SmolVLA 工作目录权限过宽，应为 0700")
     if (MODEL / "model.safetensors").is_file():
         MODEL_VERSION = "xvla-base@" + sha256_file(MODEL / "model.safetensors")[:16]
         stat = (MODEL / "model.safetensors").stat()
@@ -926,6 +1013,11 @@ def main() -> None:
         PI0_VERSION = "pi0-base@" + sha256_file(PI0_MODEL / "model.safetensors")[:16]
         stat = (PI0_MODEL / "model.safetensors").stat()
         PI0_STAT = (stat.st_size, stat.st_mtime_ns)
+    if (SMOLVLA_MODEL / "model.safetensors").is_file():
+        SMOLVLA_VERSION = "smolvla-base@" + sha256_file(
+            SMOLVLA_MODEL / "model.safetensors")[:16]
+        stat = (SMOLVLA_MODEL / "model.safetensors").stat()
+        SMOLVLA_STAT = (stat.st_size, stat.st_mtime_ns)
     if not TOKEN_FILE.exists():
         descriptor = os.open(TOKEN_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
