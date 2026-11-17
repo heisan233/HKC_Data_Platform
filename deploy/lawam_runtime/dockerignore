@@ -1,0 +1,13 @@
+assets/
+cache/
+config/
+datasets/
+docker/
+runs/
+tools/
+weights/
+work/
+source/.git/
+source/.venv/
+source/**/__pycache__/
+source/**/*.pyc

@@ -1,0 +1,79 @@
+name: hkc-lawam
+
+services:
+  lawam:
+    image: hkc-lawam-train:lerobot-0.6.2-cu130
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    profiles: [manual]
+    shm_size: 16gb
+    environment:
+      MUJOCO_GL: egl
+      PYOPENGL_PLATFORM: egl
+      LIBERO_CONFIG_PATH: /config/libero
+      HF_HOME: /cache/huggingface
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      TOKENIZERS_PARALLELISM: "false"
+      WAM_RUNS_ROOT: /data/training-runs/lawam
+      WAM_LEGACY_RUNS_ROOT: /mnt/data/wam-runs
+    volumes:
+      - type: bind
+        source: ../weights/lawam-pretrain
+        target: /models/lawam-pretrain
+        read_only: true
+      - type: bind
+        source: ../weights/Qwen3-VL-2B-Instruct
+        target: /models/Qwen3-VL-2B-Instruct
+        read_only: true
+      - type: bind
+        source: ../datasets/libero
+        target: /datasets/libero
+        read_only: true
+      - type: bind
+        source: ../assets/libero
+        target: /home/zzjj/wam/env/lib/python3.12/site-packages/libero/libero/assets
+        read_only: true
+      - type: bind
+        source: ../config/libero
+        target: /config/libero
+        read_only: true
+      - type: bind
+        source: ../tools
+        target: /opt/wam-tools
+        read_only: true
+      - type: bind
+        source: ../cache/huggingface
+        target: /cache/huggingface
+      - type: bind
+        source: ../work
+        target: /work
+      - type: bind
+        source: ${LAWAM_OUTPUT_ROOT:-/media/zzjj/A21E6DDF1E6DACCB/vscode_project/HKC_Data_Platform/storage/training-runs/lawam}
+        target: /data/training-runs/lawam
+      - type: bind
+        source: /mnt/data/wam-runs
+        target: /mnt/data/wam-runs
+        read_only: true
+      # Compatibility paths keep existing checkpoints readable.
+      - type: bind
+        source: ../weights/lawam-pretrain
+        target: /home/zzjj/wam/models/lawam-pretrain
+        read_only: true
+      - type: bind
+        source: ../weights/Qwen3-VL-2B-Instruct
+        target: /home/zzjj/wam/models/Qwen3-VL-2B-Instruct
+        read_only: true
+      - type: bind
+        source: ../datasets/libero
+        target: /home/zzjj/wam/datasets/libero
+        read_only: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              device_ids: ["${LAWAM_GPU_ID:-0}"]
+              capabilities: [gpu]
+    restart: "no"
