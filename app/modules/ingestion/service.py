@@ -24,7 +24,7 @@ from fastapi import UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app.db.dataset_robots import DatasetRobotRepository
-from app.db.datasets import DATASET_NAME_CONFLICT, DatasetRepository
+from app.db.datasets import DATASET_FAMILIES, DATASET_NAME_CONFLICT, DatasetRepository
 from app.modules.datasets import service as datasets
 
 MIB = 1024 * 1024
@@ -451,6 +451,7 @@ async def receive_dataset_upload(
     upload: UploadFile,
     dataset_name: str,
     description: str,
+    dataset_family: str = "vla",
     robot_type: str = "",
     collector_robot_id: str | None = None,
     collector_robot_type: str = "",
@@ -470,6 +471,7 @@ async def receive_dataset_upload(
         "dataset_id": None,
         "storage_name": None,
         "dataset_name": dataset_name.strip(),
+        "dataset_family": dataset_family,
         "description": description.strip(),
         "requested_robot_type": robot_type.strip(),
         "collector_robot_id": collector_robot_id,
@@ -485,6 +487,8 @@ async def receive_dataset_upload(
     }
 
     try:
+        if dataset_family not in DATASET_FAMILIES:
+            raise UploadValidationError("数据集类别只能是 VLA 或 WAM。")
         clean_name, clean_description, clean_robot_type = _validate_form_text(
             dataset_name,
             description,
@@ -539,6 +543,7 @@ async def receive_dataset_upload(
                 data_root,
                 unpacked_path,
                 clean_name,
+                dataset_family=dataset_family,
             )
         except ValueError as exc:
             message = str(exc)

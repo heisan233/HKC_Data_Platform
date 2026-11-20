@@ -6,7 +6,8 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from app.core.config import settings
-from app.modules.training import service
+from app.modules.training import lawam_service, service
+from app.modules.training.lawam_schemas import LaWAMCreate, LaWAMEvaluation
 from app.modules.training.schemas import PreflightRequest, RetryRequest, TrainingCreate
 from app.web import templates
 
@@ -20,6 +21,131 @@ def _error(exc: service.TrainingError) -> HTTPException:
 @router.get("/")
 async def training_page(request: Request):
     return templates.TemplateResponse(request=request, name="training.html")
+
+
+@router.get("/lawam")
+async def lawam_page(request: Request):
+    """Render the independent WAM training workspace."""
+    return templates.TemplateResponse(request=request, name="training_lawam.html")
+
+
+def _lawam_request(method: str, path: str, payload: dict | None = None,
+                   headers: dict[str, str] | None = None) -> dict | list:
+    try:
+        return lawam_service.request(method, path, payload, headers=headers)
+    except lawam_service.LaWAMError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+
+
+@router.get("/lawam/api/status")
+def lawam_status() -> dict:
+    return _lawam_request("GET", "/status")
+
+
+@router.get("/lawam/api/bases")
+def lawam_bases() -> list:
+    return _lawam_request("GET", "/bases")
+
+
+@router.get("/lawam/api/datasets")
+def lawam_datasets() -> list[dict]:
+    return lawam_service.available_datasets(settings.data_root)
+
+
+@router.post("/lawam/api/preflight")
+def lawam_preflight(payload: LaWAMCreate) -> dict:
+    try:
+        return lawam_service.preflight(settings.data_root, payload.dataset_id,
+                                       payload.dataset_mode, payload.episodes)
+    except lawam_service.LaWAMError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+
+
+@router.get("/lawam/api/jobs")
+def lawam_jobs() -> list:
+    return _lawam_request("GET", "/jobs")
+
+
+@router.get("/lawam/api/deleted-jobs")
+def lawam_deleted_jobs() -> list:
+    return _lawam_request("GET", "/deleted-jobs")
+
+
+@router.post("/lawam/api/jobs", status_code=201)
+def lawam_create(payload: LaWAMCreate) -> dict:
+    try:
+        checked = lawam_service.preflight(settings.data_root, payload.dataset_id,
+                                          payload.dataset_mode, payload.episodes)
+    except lawam_service.LaWAMError as exc:
+        raise HTTPException(exc.status_code, exc.message) from exc
+    return _lawam_request("POST", "/jobs", {**payload.model_dump(),
+                                               "snapshot": checked["snapshot"]})
+
+
+@router.get("/lawam/api/jobs/{job_id}")
+def lawam_job(job_id: str) -> dict:
+    return _lawam_request("GET", f"/jobs/{job_id}")
+
+
+@router.delete("/lawam/api/jobs/{job_id}")
+def lawam_delete_job(job_id: str) -> dict:
+    return _lawam_request("DELETE", f"/jobs/{job_id}")
+
+
+@router.post("/lawam/api/jobs/{job_id}/restore")
+def lawam_restore_job(job_id: str) -> dict:
+    return _lawam_request("POST", f"/jobs/{job_id}/restore", {})
+
+
+@router.post("/lawam/api/jobs/{job_id}/purge")
+def lawam_purge_job(
+    job_id: str,
+    confirmation: str | None = Header(default=None, alias="X-HKC-LaWAM-Purge"),
+) -> dict:
+    if confirmation != job_id:
+        raise HTTPException(400, "请确认要永久删除的任务编号")
+    return _lawam_request("POST", f"/jobs/{job_id}/purge", {},
+                          {"X-HKC-LaWAM-Purge": job_id})
+
+
+@router.get("/lawam/api/jobs/{job_id}/logs")
+def lawam_logs(job_id: str) -> dict:
+    return _lawam_request("GET", f"/jobs/{job_id}/logs")
+
+
+@router.get("/lawam/api/jobs/{job_id}/metrics")
+def lawam_metrics(job_id: str) -> list[dict]:
+    return _lawam_request("GET", f"/jobs/{job_id}/metrics")
+
+
+@router.get("/lawam/api/jobs/{job_id}/checkpoints")
+def lawam_checkpoints(job_id: str) -> list[dict]:
+    return _lawam_request("GET", f"/jobs/{job_id}/checkpoints")
+
+
+@router.post("/lawam/api/jobs/{job_id}/cancel")
+def lawam_cancel(job_id: str) -> dict:
+    return _lawam_request("POST", f"/jobs/{job_id}/cancel", {})
+
+
+@router.get("/lawam/api/evaluations")
+def lawam_evaluations() -> list:
+    return _lawam_request("GET", "/evaluations")
+
+
+@router.post("/lawam/api/evaluations", status_code=201)
+def lawam_evaluate(payload: LaWAMEvaluation) -> dict:
+    return _lawam_request("POST", "/evaluations", payload.model_dump())
+
+
+@router.get("/lawam/api/evaluations/{evaluation_id}/logs")
+def lawam_evaluation_logs(evaluation_id: str) -> dict:
+    return _lawam_request("GET", f"/evaluations/{evaluation_id}/logs")
+
+
+@router.post("/lawam/api/evaluations/{evaluation_id}/cancel")
+def lawam_evaluation_cancel(evaluation_id: str) -> dict:
+    return _lawam_request("POST", f"/evaluations/{evaluation_id}/cancel", {})
 
 
 @router.get("/api/catalog")

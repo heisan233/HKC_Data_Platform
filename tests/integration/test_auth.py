@@ -111,7 +111,8 @@ def test_login_session_and_logout(auth_platform):
         "数据标注",
         "数据处理",
         "格式转换与导出",
-        "模型训练",
+        "VLA 训练",
+        "WAM 训练",
         "系统管理",
     ]
     positions = [dashboard.text.index(label) for label in navigation]

@@ -18,6 +18,8 @@
 Hugging Face 和 Transformers 离线模式。
 权重、数据集、仿真资产和历史训练产物只读挂载。容器内通过
 `WAM_RUNS_ROOT=/data/training-runs/lawam` 将新训练产物写入平台 storage。
+平台任务由执行器设置 `LAWAM_DATASET_ROOT`，将所选 `storage/data/<DS 编号>/`
+只读挂入 `/datasets/selected`。训练数据需通过平台审核和 LaWAM 训前检查。
 服务器默认宿主机目录为：
 
 ```text
@@ -44,3 +46,6 @@ docker compose --profile manual run --rm lawam python -c \
 
 原 `/home/zzjj/wam` conda 环境保留为回退副本，现有 18001 训练台进程继续运行，
 不会因构建或按次运行容器而切换。
+
+平台 WAM 页的任务提交、日志和评测通过独立宿主执行器完成；配置方式见
+`deploy/LAWAM_EXECUTOR.md`。

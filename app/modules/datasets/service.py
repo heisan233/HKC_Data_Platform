@@ -149,6 +149,7 @@ def register_dataset(
     source_dataset_ids: list[str] | None = None,
     *,
     reserved_id: str | None = None,
+    dataset_family: str | None = None,
 ) -> dict:
     folder = directory(root, storage_area, storage_relpath)
     if folder is None:
@@ -168,6 +169,7 @@ def register_dataset(
         info_digest(folder),
         source_dataset_ids,
         reserved_id=reserved_id,
+        dataset_family=dataset_family,
     )
     try:
         DatasetRobotRepository(root).inherit(record["id"], source_dataset_ids or [])
@@ -182,6 +184,7 @@ def register_dataset(
 def publish_staged_dataset(
     root: Path, staged: Path, display_name: str,
     source_dataset_ids: list[str] | None = None,
+    *, dataset_family: str | None = None,
 ) -> dict:
     """Publish a validated staged LeRobot dataset as data/<stable DS id>."""
     if staged.is_symlink() or not staged.is_dir():
@@ -204,7 +207,8 @@ def publish_staged_dataset(
         staged.replace(final)
         moved = True
         return register_dataset(root, "data", dataset_id, display_name,
-                                source_dataset_ids, reserved_id=dataset_id)
+                                source_dataset_ids, reserved_id=dataset_id,
+                                dataset_family=dataset_family)
     except Exception:
         if moved and final.exists():
             try:
@@ -259,6 +263,7 @@ def summary(root: Path, name: str, registered: dict | None = None, area: str = "
         "description": registered["description"] if registered else "",
         "tags": registered["tags"] if registered else [],
         "availability": registered["availability"] if registered else "unavailable",
+        "dataset_family": registered["dataset_family"] if registered else "vla",
         "status_labels": registered["status_labels"] if registered else [],
         "collector_robot_id": collector["robot_id"] if collector else None,
         "collector_robot_name": collector["robot_name"] if collector else None,

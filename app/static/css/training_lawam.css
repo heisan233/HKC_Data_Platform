@@ -1,0 +1,105 @@
+.lawam-page #lawam-message { margin-bottom: 16px; padding: 11px 14px; border-radius: 7px; background: #eaf6fc; color: #205d7c; }
+.lawam-page #lawam-message.error { background: #fff1ef; color: #ae3e32; }
+.lawam-page .train-filters::before { content: "任务筛选"; }
+.lawam-page .train-filters input {
+  min-height: 36px; min-width: 220px; padding: 7px 10px;
+  border: 1px solid #d9e4ea; border-radius: 7px; background: #fff;
+}
+.lawam-page .train-filters :disabled { opacity: .6; cursor: not-allowed; }
+.lawam-log-panel { margin-top: 18px; padding: 14px; border: 1px solid #dce8ee; border-radius: 8px; }
+.lawam-log-panel pre { max-height: 440px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; background: #102c43; color: #e9f6fc; padding: 14px; border-radius: 6px; }
+.lawam-page .train-table button { margin: 2px; }
+.lawam-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px 20px; }
+.lawam-detail-grid > div { min-width: 0; overflow-wrap: anywhere; }
+.lawam-detail-grid span { display: block; color: #668093; font-size: 12px; }
+.lawam-detail-grid strong { display: block; margin-top: 4px; font-weight: 600; }
+.lawam-detail-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
+.lawam-detail-summary > div { padding: 17px 19px; background: #fff; border: 1px solid #dce8ee; border-radius: 11px; }
+.lawam-detail-summary span { display: block; color: #668093; font-size: 12px; }
+.lawam-detail-summary strong { display: block; margin-top: 6px; color: #183e5a; font-size: 21px; overflow-wrap: anywhere; }
+.lawam-metrics-card { margin-bottom: 17px; }
+.lawam-metrics-card .train-subhead { align-items: end; }
+.lawam-metrics-card .train-subhead p { margin: 3px 0 0; color: #668093; font-size: 12px; }
+.lawam-metrics-card label { color: #45687e; font-size: 12px; font-weight: 700; }
+.lawam-metrics-card select { display: block; min-width: 180px; margin-top: 4px; padding: 7px; border: 1px solid #d9e4ea; border-radius: 7px; background: white; }
+.lawam-metric-latest { color: #176a9f; font-weight: 700; }
+.lawam-metric-chart { display: block; width: 100%; height: auto; max-height: 330px; margin-top: 8px; overflow: visible; }
+.lawam-metric-chart[hidden] { display: none; }
+.lawam-metric-chart line { stroke: #dce8ee; stroke-width: 1; }
+.lawam-metric-chart text { fill: #668093; font-size: 11px; }
+.lawam-metric-chart polyline { fill: none; stroke: #2385bb; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.lawam-metric-chart circle { fill: #2385bb; }
+.lawam-log-panel summary { cursor: pointer; color: #1a5276; font-weight: 700; }
+.lawam-steps { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.lawam-form-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(225px, 1fr));
+  gap: 4px 20px;
+}
+.lawam-form-grid > label { min-width: 0; }
+.lawam-form-grid input, .lawam-form-grid select { width: 100% !important; }
+.lawam-form-grid small { color: #8298a7; font-size: 11px; font-weight: 400; }
+.lawam-advanced {
+  margin-top: 22px; padding: 14px 16px; border: 1px solid #dce8ee;
+  border-radius: 9px; background: #fbfdfe;
+}
+.lawam-advanced summary { color: #176a9f; font-weight: 700; cursor: pointer; }
+.lawam-advanced .lawam-form-grid { margin-top: 8px; }
+.lawam-checks { display: flex; flex-wrap: wrap; gap: 10px 22px; margin-top: 10px; }
+.lawam-page .train-card .lawam-checks label {
+  display: inline-flex; align-items: center; gap: 8px; margin: 6px 0;
+  font-weight: 600; cursor: pointer;
+}
+.lawam-page .lawam-checks input { width: 16px !important; height: 16px; accent-color: #277fbd; }
+.lawam-review {
+  margin-top: 22px; padding: 15px 17px; border: 1px solid #e2ecf1;
+  border-radius: 9px; background: #f8fbfc;
+}
+.lawam-review h3 { margin: 0 0 5px; }
+.lawam-review p { margin: 4px 0; color: #526e82; }
+.lawam-review #lawam-validation { color: #ad4238; }
+.lawam-review #lawam-validation:empty { display: none; }
+.lawam-page .train-card .btn:disabled { margin: 0; }
+.lawam-env-overview {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 24px;
+  padding: 28px 30px; border-radius: 15px; color: #fff;
+  background: linear-gradient(118deg, #17324d, #205878 69%, #277c89);
+  box-shadow: 0 12px 26px #173c571b;
+}
+.lawam-env-overview[data-online="false"] {
+  background: linear-gradient(118deg, #34485b, #53697a);
+}
+.lawam-env-kicker { color: #83e1e7; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
+.lawam-env-overview h3 { margin: 8px 0 5px; font-size: 23px; line-height: 1.25; }
+.lawam-env-overview p { max-width: 650px; margin: 0; color: #d5e6ed; line-height: 1.55; }
+.lawam-env-status {
+  flex: none; display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 13px; border: 1px solid #ffffff63; border-radius: 999px;
+  background: #ffffff1c; color: #fff; font-weight: 750;
+}
+.lawam-env-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #ffd288; }
+.lawam-env-overview[data-online="true"] .lawam-env-status::before {
+  background: #67e4bd; box-shadow: 0 0 0 4px #67e4bd33;
+}
+.lawam-env-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
+.lawam-env-card {
+  min-width: 0; padding: 21px 22px; border: 1px solid #e0eaf0; border-radius: 13px;
+  background: #fff; box-shadow: 0 5px 18px #193b520c;
+}
+.lawam-env-card-top { display: flex; align-items: center; gap: 9px; color: #627e91; font-size: 12px; font-weight: 700; }
+.lawam-env-card-icon {
+  display: inline-grid; place-items: center; width: 29px; height: 29px;
+  border-radius: 8px; background: #e9f5f9; color: #247ca5; font-size: 16px;
+}
+.lawam-env-card strong { display: block; margin: 19px 0 6px; color: #1b4059; font-size: 17px; overflow-wrap: anywhere; }
+.lawam-env-card small { display: block; color: #7a90a0; font-size: 12px; overflow-wrap: anywhere; }
+.lawam-env-meter { height: 7px; overflow: hidden; margin-top: 17px; border-radius: 999px; background: #e8f0f4; }
+.lawam-env-meter span { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #37a7bc, #277fbd); transition: width .25s ease; }
+@media (max-width: 780px) {
+  .lawam-page .train-header { align-items: flex-start; flex-direction: column; }
+  .lawam-steps { grid-template-columns: 1fr; }
+  .lawam-page .train-actions { align-items: flex-start; flex-direction: column; }
+  .lawam-env-overview { flex-direction: column; padding: 24px; }
+  .lawam-env-cards { grid-template-columns: 1fr; }
+  .lawam-detail-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lawam-metrics-card .train-subhead { align-items: stretch; flex-direction: column; }
+}

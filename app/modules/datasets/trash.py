@@ -1,10 +1,30 @@
 """Reversible dataset removal and guarded permanent cleanup."""
 
+import json
 import shutil
 from pathlib import Path
 
 from app.db.datasets import DatasetRepository
 from app.modules.datasets import service
+
+
+def _wam_job_reason(root: Path, dataset_id: str, *, active_only: bool) -> str | None:
+    runs = root / "training-runs" / "lawam"
+    if not runs.is_dir() or runs.is_symlink():
+        return None
+    for state in runs.glob("*/state.json"):
+        if (state.parent.is_symlink() or state.is_symlink() or not state.is_file()
+                or state.stat().st_size > 1024 * 1024):
+            return "WAM 训练记录无法安全核对"
+        try:
+            job = json.loads(state.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return "WAM 训练记录无法读取"
+        if job.get("kind") != "train" or job.get("parameters", {}).get("dataset_id") != dataset_id:
+            continue
+        if not active_only or job.get("status") in {"QUEUED", "RUNNING"}:
+            return f"WAM 训练任务 {job.get('id', '未知')} 仍引用此数据集"
+    return None
 
 
 def _safe_child(parent: Path, name: str, *, create_parent: bool = False) -> Path:
@@ -62,6 +82,10 @@ def purge_blocker(root: Path, record: dict) -> str | None:
     reason = _active_job_reason(repo, dataset_id)
     if reason:
         return reason
+    if record.get("dataset_family") == "wam":
+        reason = _wam_job_reason(root, dataset_id, active_only=False)
+        if reason:
+            return reason
     for other in repo.list(deleted=None):
         if other["id"] != dataset_id and dataset_id in other["source_dataset_ids"]:
             return f"派生数据集 {other['id']} 仍引用此数据集"
@@ -85,6 +109,10 @@ def trash_dataset(root: Path, dataset_id: str, username: str) -> dict:
     reason = _active_job_reason(repo, dataset_id)
     if reason:
         raise ValueError(reason)
+    if record.get("dataset_family") == "wam":
+        reason = _wam_job_reason(root, dataset_id, active_only=True)
+        if reason:
+            raise ValueError(reason)
     source, reports, _folder, content, trash_reports = _paths(root, record, create_trash=True)
     if content.exists() or trash_reports.exists():
         raise ValueError("回收站中已有同编号文件，不能覆盖")

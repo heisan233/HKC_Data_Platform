@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block page_title %}模型训练{% endblock %}
+{% block page_title %}VLA 训练{% endblock %}
 {% block extra_head %}<link rel="stylesheet" href="/static/css/training.css?v=training-model-cards-1">{% endblock %}
 {% block content %}
 <section class="train-page">
-  <header class="train-header"><div><span class="train-eyebrow">MODEL WORKSPACE</span><h1>模型训练</h1><p>从已登记的 LeRobot v3 数据集创建训练任务，追踪评估结果并管理模型版本。</p></div><button id="train-new" class="btn btn-primary">＋ 新建训练任务</button></header>
-  <nav class="train-tabs" aria-label="模型训练功能"><button data-tab="tasks" class="active">训练任务</button><button data-tab="models">模型版本</button><button data-tab="environment">执行环境</button></nav>
+  <header class="train-header"><div><span class="train-eyebrow">VLA WORKSPACE</span><h1>VLA 训练</h1><p>从已登记的 LeRobot v3 数据集创建训练任务，追踪评估结果并管理模型版本。</p></div><button id="train-new" class="btn btn-primary">＋ 新建训练任务</button></header>
+  <nav class="train-tabs" aria-label="VLA 训练功能"><button data-tab="tasks" class="active">训练任务</button><button data-tab="models">模型版本</button><button data-tab="environment">执行环境</button></nav>
   <div id="train-message" role="alert" hidden></div>
   <section id="train-tasks" class="train-panel">
     <div class="train-subhead"><div><h2>训练任务</h2><p id="train-task-subtitle">查看训练进度、失败原因和指标摘要。</p></div><span id="train-list-updated" class="train-live-status" aria-live="polite">正在加载…</span></div>

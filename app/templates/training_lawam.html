@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block page_title %}WAM 训练{% endblock %}
+{% block extra_head %}
+<link rel="stylesheet" href="/static/css/training.css?v=training-lawam-1">
+<link rel="stylesheet" href="/static/css/training_lawam.css?v=5">
+{% endblock %}
+{% block content %}
+<section class="train-page lawam-page">
+  <header class="train-header">
+    <div>
+      <span class="train-eyebrow">WAM WORKSPACE · LAWAM</span>
+      <h1>WAM 训练</h1>
+      <p>选择已审核的 WAM 数据集，配置 LaWAM 训练与评测参数，查看任务状态、日志和结果。</p>
+    </div>
+  </header>
+
+  <nav class="train-tabs" aria-label="WAM 训练功能">
+    <button type="button" class="active" data-lawam-tab="tasks" aria-selected="true">训练任务</button>
+    <button type="button" data-lawam-tab="create" aria-selected="false">新建训练</button>
+    <button type="button" data-lawam-tab="evaluation" aria-selected="false">模型评测</button>
+    <button type="button" data-lawam-tab="environment" aria-selected="false">执行环境</button>
+  </nav>
+
+
+
+  <div id="lawam-message" role="alert" hidden></div>
+
+  <section id="lawam-tasks" class="train-panel">
+    <div class="train-subhead">
+      <div><h2>训练任务</h2><p>查看容器运行状态、进度、损失和日志。</p></div>
+      <button type="button" class="btn btn-primary" data-lawam-show="create">＋ 新建训练任务</button>
+    </div>
+    <div class="train-filters">
+      <select id="lawam-status-filter" aria-label="任务状态"><option value="">全部状态</option><option value="QUEUED">排队</option><option value="RUNNING">运行中</option><option value="COMPLETED">已完成</option><option value="FAILED">失败</option><option value="CANCELED">已取消</option><option value="INTERRUPTED">中断</option></select>
+      <input id="lawam-search" type="search" aria-label="搜索任务" placeholder="搜索任务名称或编号">
+      <button id="lawam-refresh" type="button" class="btn">刷新</button>
+      <button id="lawam-trash-toggle" type="button" class="btn" aria-pressed="false">回收站</button>
+    </div>
+    <div class="train-table-wrap">
+      <table class="table train-table">
+        <thead><tr><th>任务</th><th>起点权重</th><th>数据范围</th><th>阶段 / 状态</th><th>进度</th><th>最新 loss</th><th>开始时间</th><th>操作</th></tr></thead>
+        <tbody id="lawam-task-rows"></tbody>
+      </table>
+    </div>
+    <div id="lawam-task-log-panel" class="lawam-log-panel" hidden><div class="train-subhead"><h3 id="lawam-task-log-title">训练日志</h3><button type="button" class="btn" data-lawam-close-log="task">关闭</button></div><pre id="lawam-task-log"></pre></div>
+  </section>
+
+  <section id="lawam-detail" class="train-panel" hidden>
+    <div class="train-subhead">
+      <div><h2 id="lawam-detail-title">任务详情</h2><span id="lawam-detail-updated" class="train-live-status" aria-live="polite"></span></div>
+      <div><button id="lawam-detail-refresh" type="button" class="btn">刷新详情</button><button type="button" class="btn" data-lawam-show="tasks">返回列表</button></div>
+    </div>
+    <div id="lawam-detail-summary" class="lawam-detail-summary"></div>
+    <div class="train-card lawam-metrics-card">
+      <div class="train-subhead"><div><h3>训练指标</h3><p>从训练日志记录的指标绘制，横轴为训练步数。</p></div><label>指标 <select id="lawam-metric-select" aria-label="选择训练指标"></select></label></div>
+      <div id="lawam-metric-latest" class="lawam-metric-latest"></div>
+      <svg id="lawam-metric-chart" class="lawam-metric-chart" viewBox="0 0 800 260" role="img" aria-label="训练指标曲线"></svg>
+      <p id="lawam-metric-empty" class="train-muted" hidden></p>
+    </div>
+    <div id="lawam-detail-body"></div>
+    <details class="lawam-log-panel"><summary>执行日志</summary><pre id="lawam-detail-log">读取中…</pre></details>
+  </section>
+
+  <section id="lawam-create" class="train-panel" hidden>
+    <div class="train-subhead">
+      <div><h2>新建训练任务</h2><p>任务提交到独立 LaWAM Docker 执行器，产物写入平台 storage。</p></div>
+      <button type="button" class="btn" data-lawam-show="tasks">返回列表</button>
+    </div>
+    <ol class="train-steps lawam-steps">
+      <li class="active"><span class="train-step-number">01</span><span>选择数据与基座</span></li>
+      <li class="active"><span class="train-step-number">02</span><span>配置训练参数</span></li>
+      <li class="active"><span class="train-step-number">03</span><span>核对配置</span></li>
+    </ol>
+    <form id="lawam-create-form" class="train-card" novalidate>
+      <h3>基础设置</h3>
+      <div class="lawam-form-grid">
+        <label>任务名称<input id="lawam-name" name="name" type="text" maxlength="80" placeholder="例如：goal-retest" autocomplete="off"></label>
+        <label>起点权重<select id="lawam-base" name="base"><option value="">正在加载权重…</option></select></label>
+        <label>WAM 数据集<select id="lawam-dataset" name="dataset_id"><option value="">正在加载已审核可用的数据集…</option></select></label>
+        <label>数据范围<select id="lawam-mode" name="dataset_mode"><option value="all">全部 Episode</option><option value="goal">预设 goal Episode</option><option value="custom">自定义 Episode</option></select></label>
+        <label id="lawam-episodes-field" hidden>自定义 Episode（逗号分隔）<input id="lawam-episodes" name="episodes" type="text" placeholder="例如 0,1,2,3；支持中英文逗号" autocomplete="off"></label>
+      </div>
+      <h3>训练参数</h3>
+      <div class="lawam-form-grid">
+        <label>训练步数<input id="lawam-steps" name="steps" type="number" min="1" step="1" value="20000"></label>
+        <label>Batch size<input id="lawam-batch" name="batch" type="number" min="1" step="1" value="16"></label>
+        <label>Action horizon<input id="lawam-horizon" name="action_horizon" type="number" min="1" step="1" value="24"><small>每次预测的动作步数。</small></label>
+      </div>
+      <details class="lawam-advanced">
+        <summary>高级参数与显存策略</summary>
+        <div class="lawam-form-grid">
+          <label>Warmup 步数<input id="lawam-warmup" name="warmup" type="number" min="0" step="1" value="1500"></label>
+          <label>学习率<input id="lawam-lr" name="lr" type="number" min="0" step="0.00001" value="0.0001"></label>
+          <label>解冻 LLM 末 N 层<input id="lawam-unfreeze" name="unfreeze_llm_layers" type="number" min="0" step="1" value="0"></label>
+          <label>保存间隔（步）<input id="lawam-save" name="save_freq" type="number" min="1" step="1" value="5000"></label>
+        </div>
+        <div class="lawam-checks">
+          <label><input id="lawam-freeze-vision" name="freeze_vision" type="checkbox" checked>冻结视觉主干</label>
+          <label><input id="lawam-freeze-llm" name="freeze_llm" type="checkbox" checked>冻结 LLM 主干</label>
+          <label><input id="lawam-stop-vllm" name="stop_vllm" type="checkbox" checked>训练前停止 vLLM 腾出显存</label>
+        </div>
+      </details>
+      <div class="lawam-review">
+        <div><h3>配置核对</h3><p id="lawam-estimate">填写参数后显示样本量与时间估算。</p></div>
+        <p id="lawam-validation" role="status"></p>
+      </div>
+      <div class="train-actions"><span class="train-note">提交后由服务器按 GPU 空闲显存排队运行。</span><button id="lawam-submit" type="submit" class="btn btn-primary" disabled>开始训练</button></div>
+    </form>
+  </section>
+
+  <section id="lawam-evaluation" class="train-panel" hidden>
+    <div class="train-subhead"><div><h2>模型评测</h2><p>对已创建的 LaWAM 任务选择检查点并运行 LIBERO 评测。</p></div></div>
+    <form id="lawam-evaluation-form" class="train-card" novalidate>
+      <div class="lawam-form-grid">
+        <label>关联训练任务<select id="lawam-eval-train"><option value="">选择训练任务</option></select></label>
+        <label>评测检查点<select id="lawam-eval-checkpoint"><option value="">选择检查点</option></select></label>
+        <label>LIBERO 任务<select id="lawam-eval-task"><option value="libero_object">libero_object（抓取）</option><option value="libero_spatial">libero_spatial（空间）</option><option value="libero_goal">libero_goal（目标）</option><option value="libero_10">libero_10（长任务）</option></select></label>
+        <label>Task ID<input id="lawam-eval-task-id" type="number" min="0" step="1" value="0"></label>
+        <label>评测集数<input id="lawam-eval-episodes" type="number" min="1" step="1" value="10"></label>
+        <label>动作块执行（replan）<input id="lawam-eval-replan" type="number" min="1" step="1" value="1"></label>
+        <label>语言指令<select id="lawam-eval-text"><option value="auto">自动取自环境</option><option value="none">不传</option></select></label>
+      </div>
+      <div class="train-actions"><span class="train-note">评测日志与视频写入对应训练任务的 eval 目录。</span><button id="lawam-eval-submit" type="submit" class="btn btn-primary" disabled>运行评测</button></div>
+    </form>
+    <div class="train-table-wrap"><table class="table train-table"><thead><tr><th>评测编号</th><th>训练任务</th><th>LIBERO 任务</th><th>状态</th><th>成功率</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="lawam-evaluation-rows"></tbody></table></div>
+    <div id="lawam-eval-log-panel" class="lawam-log-panel" hidden><div class="train-subhead"><h3 id="lawam-eval-log-title">评测日志</h3><button type="button" class="btn" data-lawam-close-log="eval">关闭</button></div><pre id="lawam-eval-log"></pre></div>
+  </section>
+
+  <section id="lawam-environment" class="train-panel" hidden>
+    <div class="train-subhead"><div><h2>执行环境</h2><p>服务器执行器的实时状态与资源概览。</p></div><button id="lawam-env-refresh" type="button" class="btn">刷新状态</button></div>
+    <div id="lawam-env-overview" class="lawam-env-overview" data-online="false">
+      <div class="lawam-env-overview-copy"><span class="lawam-env-kicker">LAWAM RUNTIME</span><h3>训练执行器</h3><p id="lawam-env-reason">正在读取执行环境…</p></div>
+      <span id="lawam-env-state" class="lawam-env-status" role="status">正在检查…</span>
+    </div>
+    <div class="lawam-env-cards">
+      <article class="lawam-env-card"><div class="lawam-env-card-top"><span class="lawam-env-card-icon" aria-hidden="true">▣</span><span>容器镜像</span></div><strong id="lawam-env-image">正在检查…</strong><small>独立 LaWAM Docker 运行环境</small></article>
+      <article class="lawam-env-card"><div class="lawam-env-card-top"><span class="lawam-env-card-icon" aria-hidden="true">◫</span><span>GPU 显存</span></div><strong id="lawam-env-gpu">正在检查…</strong><small id="lawam-env-memory">等待资源信息</small><div class="lawam-env-meter" role="progressbar" aria-label="GPU 显存使用率" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="lawam-env-meter-fill"></span></div></article>
+      <article class="lawam-env-card"><div class="lawam-env-card-top"><span class="lawam-env-card-icon" aria-hidden="true">↗</span><span>任务与产物</span></div><strong><span id="lawam-env-queue">—</span> 个排队任务</strong><small id="lawam-env-output">storage/training-runs/lawam/</small></article>
+    </div>
+  </section>
+</section>
+{% endblock %}
+{% block scripts %}<script defer src="/static/js/training_lawam.js?v=6"></script>{% endblock %}
++++

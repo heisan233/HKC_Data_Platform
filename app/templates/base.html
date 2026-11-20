@@ -62,7 +62,8 @@
                 <li><a href="/annotation" class="{% if request.url.path.startswith('/annotation') %}active{% endif %}">✏️ 数据标注</a></li>
                 <li><a href="/preprocess" class="{% if request.url.path.startswith('/preprocess') %}active{% endif %}">🔧 数据处理</a></li>
                 <li><a href="/export" class="{% if request.url.path.startswith('/export') %}active{% endif %}">📤 格式转换与导出</a></li>
-                <li><a href="/training" class="{% if request.url.path.startswith('/training') %}active{% endif %}">🧠 模型训练</a></li>
+                <li><a href="/training/" class="{% if request.url.path in ['/training', '/training/'] %}active{% endif %}">🧠 VLA 训练</a></li>
+                <li><a href="/training/lawam" class="{% if request.url.path.rstrip('/') == '/training/lawam' %}active{% endif %}">🐟 WAM 训练</a></li>
                 <li><a href="/system" class="{% if request.url.path.startswith('/system') %}active{% endif %}">⚙️ 系统管理</a></li>
             </ul>
         </aside>

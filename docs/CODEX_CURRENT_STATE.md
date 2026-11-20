@@ -38,7 +38,8 @@ git log -1 --oneline --decorate
 | `/annotation/` | annotation | Episode/task/Subtask 标注和完整派生发布 |
 | `/preprocess/` | processing | 筛除、拆分、合并、重排、去重和视频裁剪 |
 | `/export/` | conversion/export | HDF5 转换和 DS/CV 导出 |
-| `/training/` | training | X-VLA、π₀ 与 SmolVLA 任务、离线评估、模型包和任务回收站 |
+| `/training/` | training | VLA 训练：X-VLA、π₀ 与 SmolVLA 任务、离线评估、模型包和任务回收站 |
+| `/training/lawam` | training | 独立 WAM 训练：通过 LaWAM Docker 执行器提交任务、评测，查看状态、日志和训练指标曲线；新任务当前以 LaWAM 预训练权重为起点 |
 | `/system/` | system | 脱敏、持久化访问日志 |
 | `/healthz` | app | 无需登录的存活检查 |
 
@@ -62,12 +63,14 @@ LeRobot v3 ZIP
 
 - 新 DS 使用 `DS000001` 形式的稳定编号；
 - 新发布目录为 `storage/data/<DS 编号>/`；
+- 上传时选择 VLA/WAM 类别；两类数据集共用编号、存储和质检状态，训练入口分别筛选；
 - 旧 `raw/` 和 `derived/` 目录映射继续可用，但不自动迁移；
 - 数据集显示名称唯一，忽略首尾空格和英文大小写；
 - 回收站中的 DS 仍占用名称，永久清除后才可复用；
 - 活跃质检方案名称唯一；
 - 源 DS 永远不原地修改；
 - 普通删除进入回收站，永久清除前检查派生、转换和训练引用；
+- WAM 数据集的删除还会检查 LaWAM 训练任务引用；
 - 机器人页保留回收站 DS 的历史关联并显示回收状态，永久清除后关系才消失。
 
 ## 4. 分布式采集

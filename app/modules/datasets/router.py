@@ -65,10 +65,14 @@ def data_page(request: Request):
 
 
 @router.get("/manage/")
-def manage_page(request: Request, q: str = ""):
+def manage_page(request: Request, q: str = "", family: str = "all"):
     _, managed = service.catalog(storage_root())
     attach_status(storage_root(), managed)
     rows = managed
+    if family in {"vla", "wam"}:
+        rows = [row for row in rows if row["dataset_family"] == family]
+    else:
+        family = "all"
     term = q.strip().casefold()
     if term:
         rows = [row for row in rows if term in " ".join(
@@ -78,6 +82,7 @@ def manage_page(request: Request, q: str = ""):
             )).casefold()]
     return templates.TemplateResponse(request=request, name="data_manage.html", context={
         "items": rows, "registered_count": len(managed), "query": q.strip(),
+        "family_filter": family,
     })
 
 

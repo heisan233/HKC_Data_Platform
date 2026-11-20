@@ -28,6 +28,7 @@ Token 文件建议：
 install -d -m 700 "$HOME/.config/hkc-collector"
 chmod 600 "$HOME/.config/hkc-collector/RB000001.token"
 ```
+注意在RB000001.token寫入平臺生成的token
 
 不要提交 `config.env` 或 Token。
 

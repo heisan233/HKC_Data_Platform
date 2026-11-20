@@ -83,7 +83,34 @@ def test_valid_v3_zip_is_extracted_to_raw(monkeypatch, tmp_path: Path) -> None:
     assert (dataset_root / "data" / "chunk-000" / "file-000.parquet").is_file()
     assert list((tmp_path / "system" / "upload-records").glob("*.json"))
     assert DatasetRepository(tmp_path).get("DS000001")["storage_relpath"] == result["storage_name"]
+    assert DatasetRepository(tmp_path).get("DS000001")["dataset_family"] == "vla"
     assert not any((tmp_path / "staging" / "uploads").iterdir())
+
+
+def test_wam_upload_uses_shared_storage_and_qc_state(monkeypatch, tmp_path: Path) -> None:
+    use_temporary_storage(monkeypatch, tmp_path)
+    response = client.post(
+        "/ingestion/api/uploads",
+        data={"dataset_name": "WAM 测试数据", "dataset_family": "wam"},
+        files={"archive": ("wam.zip", make_lerobot_v3_zip())},
+    )
+    assert response.status_code == 201
+    row = DatasetRepository(tmp_path).get(response.json()["dataset_id"])
+    assert row["dataset_family"] == "wam"
+    assert row["availability"] == "unavailable"
+    assert row["status_labels"] == ["待质检"]
+    assert (tmp_path / "data" / row["id"] / "meta/info.json").is_file()
+
+
+def test_upload_rejects_unknown_dataset_family(monkeypatch, tmp_path: Path) -> None:
+    use_temporary_storage(monkeypatch, tmp_path)
+    response = client.post(
+        "/ingestion/api/uploads",
+        data={"dataset_name": "错误类别", "dataset_family": "other"},
+        files={"archive": ("sample.zip", make_lerobot_v3_zip())},
+    )
+    assert response.status_code == 400
+    assert DatasetRepository(tmp_path).list() == []
 
 
 def test_upload_rejects_duplicate_dataset_display_name(monkeypatch, tmp_path: Path) -> None:

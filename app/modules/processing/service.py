@@ -1243,6 +1243,10 @@ def _read_job(data_root: Path, job_id: str) -> dict[str, Any]:
 def create_job(data_root: Path, request: ProcessingJobRequest) -> dict[str, Any]:
     for dataset_id in request.source_dataset_ids:
         resolve_dataset(data_root, dataset_id)
+    families = {DatasetRepository(data_root).get(dataset_id)["dataset_family"]
+                for dataset_id in request.source_dataset_ids}
+    if len(families) != 1:
+        raise ProcessingError("不能合并 VLA 与 WAM 数据集。")
     job_id = f"job-{uuid4().hex[:20]}"
     now = _utc_now()
     record = {

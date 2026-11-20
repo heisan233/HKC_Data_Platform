@@ -151,7 +151,7 @@ def models(root: Path) -> list[dict]:
 
 
 def registered_datasets(root: Path) -> list[dict]:
-    rows = DatasetRepository(root).list(availability="available")
+    rows = DatasetRepository(root).list(availability="available", dataset_family="vla")
     by_id = {row["id"]: row for row in rows}
 
     def lineage(row: dict, seen: set[str] | None = None) -> list[str]:
@@ -263,6 +263,8 @@ def preflight(root: Path, dataset_id: str, model_id: str = "xvla") -> dict:
                             record["storage_area"])
     attach_status(root, [item])
     issues: list[str] = []
+    if record["dataset_family"] != "vla":
+        issues.append("VLA 训练只能选择 VLA 数据集")
     warnings: list[str] = []
     if record["availability"] != "available":
         issues.append("选中的最终 DS 当前不可用，请先完成质检审核")

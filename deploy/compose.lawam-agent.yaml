@@ -1,0 +1,13 @@
+# Mount the independent host LaWAM executor socket into the platform app.
+services:
+  platform:
+    volumes:
+      - type: bind
+        source: "${HKC_LAWAM_AGENT_SOCKET_DIR:?Set HKC_LAWAM_AGENT_SOCKET_DIR in .env}"
+        target: /run/hkc-lawam-agent
+        read_only: true
+        bind:
+          create_host_path: false
+    environment:
+      HKC_LAWAM_AGENT_SOCKET: /run/hkc-lawam-agent/agent.sock
+      HKC_LAWAM_AGENT_TOKEN_FILE: /run/hkc-lawam-agent/token

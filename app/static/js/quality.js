@@ -130,6 +130,7 @@
         if (files.length) {
           show(`正在上传并登记 ${files.length} 个 ZIP…`);
           const data = new FormData();
+          data.append('dataset_family', document.getElementById('qc-upload-family').value);
           files.forEach(file => data.append('files', file));
           const uploaded = await request('/ingestion/api/uploads/batch', { method: 'POST', body: data });
           ids = ids.concat(uploaded.uploaded.map(item => item.dataset_id));

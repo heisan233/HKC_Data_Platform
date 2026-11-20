@@ -30,6 +30,11 @@
         </div>
 
         <form id="upload-form" action="/ingestion/api/uploads" method="post" enctype="multipart/form-data">
+            <label class="field-label" for="dataset-family">数据集类别 <span>*</span></label>
+            <select id="dataset-family" name="dataset_family" class="text-input" required>
+                <option value="vla">VLA 数据集</option>
+                <option value="wam">WAM 数据集</option>
+            </select>
             <label class="field-label" for="dataset-name">数据集名称 <span>*</span></label>
             <input
                 id="dataset-name"

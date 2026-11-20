@@ -1,6 +1,7 @@
 """Training metadata, preflight, and executor-bound submission tests."""
 
 import json
+import shutil
 from pathlib import Path
 
 import pyarrow as pa
@@ -40,6 +41,33 @@ def _dataset(tmp_path: Path, monkeypatch) -> str:
 
     monkeypatch.setattr(training, "attach_status", passed)
     return row["id"]
+
+
+def test_vla_training_excludes_wam_dataset(tmp_path, monkeypatch):
+    vla_id = _dataset(tmp_path, monkeypatch)
+    shutil.copytree(tmp_path / "raw/sample", tmp_path / "raw/wam")
+    wam = datasets.register_dataset(tmp_path, "raw", "wam", "WAM 样本",
+                                    dataset_family="wam")
+    approve_dataset(tmp_path, wam["id"])
+    assert [row["id"] for row in training.registered_datasets(tmp_path)] == [vla_id]
+    result = training.preflight(tmp_path, wam["id"])
+    assert not result["passed"]
+    assert "VLA 训练只能选择 VLA 数据集" in result["issues"]
+
+
+def test_dataset_family_is_inherited_and_mixed_sources_are_rejected(tmp_path, monkeypatch):
+    _dataset(tmp_path, monkeypatch)
+    shutil.copytree(tmp_path / "raw/sample", tmp_path / "raw/wam")
+    wam = datasets.register_dataset(tmp_path, "raw", "wam", "WAM 样本",
+                                    dataset_family="wam")
+    shutil.copytree(tmp_path / "raw/sample", tmp_path / "raw/child")
+    child = datasets.register_dataset(tmp_path, "raw", "child", "WAM 派生",
+                                      [wam["id"]])
+    assert child["dataset_family"] == "wam"
+    shutil.copytree(tmp_path / "raw/sample", tmp_path / "raw/mixed")
+    with pytest.raises(ValueError, match="不能合并"):
+        datasets.register_dataset(tmp_path, "raw", "mixed", "混合派生",
+                                  ["DS000001", wam["id"]])
 
 
 def test_preflight_uses_final_dataset_and_episode_split(tmp_path, monkeypatch):
@@ -328,7 +356,7 @@ def test_training_repository_initializes_fresh_mysql_schema(tmp_path):
     assert {"deleted_at", "deleted_by", "delete_requested_at",
             "delete_requested_by", "runtime_id"} <= columns
     assert "training_jobs_deleted_idx" in indexes
-    assert version == 5
+    assert version == 6
 
 
 def test_training_delete_restore_api_uses_recycle_bin(tmp_path, monkeypatch):

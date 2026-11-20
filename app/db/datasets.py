@@ -15,6 +15,7 @@ from app.db.mysql import IntegrityError, Row, connection, ensure_schema
 
 STORAGE_AREAS = frozenset({"raw", "derived", "data"})
 AVAILABILITY = frozenset({"available", "unavailable"})
+DATASET_FAMILIES = frozenset({"vla", "wam"})
 STATUS_LABELS = frozenset({"待质检", "待处理"})
 DATASET_NAME_CONFLICT = "数据集名称已存在，请使用其他名称"
 
@@ -64,10 +65,12 @@ class DatasetRepository:
             self._ensure_name_available(db, name, exclude_id)
 
     def list(self, storage_area: str | None = None, *, availability: str | None = None,
-             deleted: bool | None = False) -> list[dict]:
+             deleted: bool | None = False, dataset_family: str | None = None) -> list[dict]:
         self.initialize()
         if availability is not None and availability not in AVAILABILITY:
             raise ValueError("数据集可用性不合法")
+        if dataset_family is not None and dataset_family not in DATASET_FAMILIES:
+            raise ValueError("数据集类别不合法")
         with self.connection() as db:
             area = _area(storage_area) if storage_area else None
             clauses = []
@@ -78,6 +81,9 @@ class DatasetRepository:
             if availability:
                 clauses.append("availability=?")
                 params.append(availability)
+            if dataset_family:
+                clauses.append("dataset_family=?")
+                params.append(dataset_family)
             if deleted is not None:
                 clauses.append("deleted_at IS NOT NULL" if deleted else "deleted_at IS NULL")
             where = " WHERE " + " AND ".join(clauses) if clauses else ""
@@ -118,15 +124,34 @@ class DatasetRepository:
         source_dataset_ids: list[str] | None = None,
         *,
         reserved_id: str | None = None,
+        dataset_family: str | None = None,
     ) -> dict:
         self.initialize()
         area = _area(storage_area)
         relpath = _child_name(storage_relpath)
         sources = list(dict.fromkeys(source_dataset_ids or []))
+        if dataset_family is not None and dataset_family not in DATASET_FAMILIES:
+            raise ValueError("数据集类别只能是 VLA 或 WAM")
         clean_name = name.strip()
         try:
             with self.connection() as db:
                 self._ensure_name_available(db, clean_name)
+                if sources:
+                    placeholders = ",".join("?" for _ in sources)
+                    parent_rows = db.execute(
+                        f"SELECT id,dataset_family FROM datasets WHERE id IN ({placeholders})"
+                        " AND deleted_at IS NULL", sources,
+                    ).fetchall()
+                    if len(parent_rows) != len(sources):
+                        raise ValueError("源数据集不存在或已删除")
+                    families = {row["dataset_family"] for row in parent_rows}
+                    if len(families) != 1:
+                        raise ValueError("不能合并 VLA 与 WAM 数据集")
+                    inherited = families.pop()
+                    if dataset_family is not None and dataset_family != inherited:
+                        raise ValueError("派生数据集类别必须与源数据集一致")
+                    dataset_family = inherited
+                dataset_family = dataset_family or "vla"
                 if db.execute(
                     "SELECT 1 FROM datasets WHERE storage_area=? AND storage_relpath=?",
                     (area, relpath),
@@ -144,11 +169,11 @@ class DatasetRepository:
                     dataset_id = reserved_id
                 timestamp = utc_now()
                 db.execute("""INSERT INTO datasets
-                    (id, seq, storage_area, storage_relpath, name, robot_type,
+                    (id, seq, storage_area, storage_relpath, name, robot_type, dataset_family,
                      description, tags_json, source_dataset_ids_json, info_sha256,
                      registered_at, updated_at, availability)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unavailable')""",
-                    (dataset_id, seq, area, relpath, clean_name, robot_type, "", "[]",
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unavailable')""",
+                    (dataset_id, seq, area, relpath, clean_name, robot_type, dataset_family, "", "[]",
                      json.dumps(sources, ensure_ascii=False), digest, timestamp, timestamp))
                 db.execute("INSERT INTO dataset_status_labels (dataset_id,label,created_at) VALUES (?,?,?)",
                            (dataset_id, "待质检", timestamp))

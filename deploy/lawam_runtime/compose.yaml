@@ -3,6 +3,7 @@ name: hkc-lawam
 services:
   lawam:
     image: hkc-lawam-train:lerobot-0.6.2-cu130
+    network_mode: none
     build:
       context: ..
       dockerfile: docker/Dockerfile
@@ -30,6 +31,10 @@ services:
       - type: bind
         source: ../datasets/libero
         target: /datasets/libero
+        read_only: true
+      - type: bind
+        source: ${LAWAM_DATASET_ROOT:-../datasets/libero}
+        target: /datasets/selected
         read_only: true
       - type: bind
         source: ../assets/libero

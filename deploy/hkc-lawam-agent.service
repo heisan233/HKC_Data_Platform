@@ -1,0 +1,13 @@
+[Unit]
+Description=HKC LaWAM Docker training executor
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/hkc-lawam-agent.env
+ExecStart=/bin/sh -c 'exec "$HKC_LAWAM_PYTHON" "$HKC_LAWAM_SCRIPT"'
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

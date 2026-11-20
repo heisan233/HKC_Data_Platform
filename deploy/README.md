@@ -12,6 +12,7 @@
 | `deploy/compose.lan.yaml` | 绑定指定可信局域网 IPv4，端口 8000 |
 | `deploy/compose.local-mysql.yaml` | 本机并行验收，`127.0.0.1:18001` |
 | `deploy/compose.training-agent.yaml` | 可选宿主训练执行器 Unix socket |
+| `deploy/compose.lawam-agent.yaml` | 独立 LaWAM Docker 执行器 Unix socket |
 
 文件按从基础到覆盖的顺序叠加。同一部署后续的 `up`、`exec`、`logs` 和 `down`
 应保持同一项目名、环境文件和 Compose 组合。

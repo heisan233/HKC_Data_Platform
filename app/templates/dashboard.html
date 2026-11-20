@@ -87,7 +87,7 @@
       </div>
     </section>
     <section class="dash-panel">
-      <div class="dash-section-head"><div><span>TRAINING TASKS</span><h3>最近训练任务</h3></div><a href="/training/">模型训练 →</a></div>
+      <div class="dash-section-head"><div><span>TRAINING TASKS</span><h3>最近训练任务</h3></div><a href="/training/">VLA 训练 →</a></div>
       <div class="dash-job-list">
         {% for task in recent_training %}<a href="/training/"><span class="dash-job-mark dash-job-tr">TR</span><div><strong>{{ task.name }}</strong><p>{{ task.id }} · {{ task.dataset_id }} · {{ task.created_at|local_datetime }}</p></div><b class="dash-job-status status-{{ task.status|lower }}">{{ task.status_label }}</b></a>
         {% else %}<div class="dash-empty">暂无训练任务。</div>{% endfor %}
