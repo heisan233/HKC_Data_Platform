@@ -34,15 +34,18 @@ class QualityRepository(DatasetRepository):
         ):
             raise ValueError("质检方案名称已存在，请使用其他名称")
 
-    def create_plan(self, name: str, robot_type: str, config: dict) -> dict:
+    def create_plan(self, name: str, robot_type: str, dataset_family: str,
+                    config: dict) -> dict:
         self.initialize()
         timestamp = _now()
         with self.connection() as db:
             self._ensure_plan_name_available(db, name)
-            cursor = db.execute(
-                "INSERT INTO qc_plans(name,robot_type,created_at,updated_at) VALUES (?,?,?,?)",
-                (name, robot_type, timestamp, timestamp),
-            )
+            template = config["template"]
+            cursor = db.execute("""INSERT INTO qc_plans
+                (name,robot_type,dataset_family,template_id,template_version,created_at,updated_at)
+                VALUES (?,?,?,?,?,?,?)""",
+                (name, robot_type, dataset_family, template["id"], template["version"],
+                 timestamp, timestamp))
             plan_id = f"QP{cursor.lastrowid:06d}"
             db.execute("UPDATE qc_plans SET id=? WHERE seq=?", (plan_id, cursor.lastrowid))
             db.execute(
@@ -92,18 +95,22 @@ class QualityRepository(DatasetRepository):
             return None
         return {**dict(row), "version": selected, "config": json.loads(item["config_json"])}
 
-    def list_plans(self, robot_type: str | None = None) -> list[dict]:
+    def list_plans(self, robot_type: str | None = None,
+                   dataset_family: str | None = None) -> list[dict]:
         self.initialize()
         with self.connection() as db:
+            clauses = ["archived_at IS NULL"]
+            values = []
             if robot_type:
-                rows = db.execute(
-                    "SELECT * FROM qc_plans WHERE robot_type=? AND archived_at IS NULL "
-                    "ORDER BY updated_at DESC,seq DESC",
-                    (robot_type,),
-                ).fetchall()
-            else:
-                rows = db.execute("SELECT * FROM qc_plans WHERE archived_at IS NULL "
-                                  "ORDER BY updated_at DESC,seq DESC").fetchall()
+                clauses.append("robot_type=?")
+                values.append(robot_type)
+            if dataset_family:
+                clauses.append("dataset_family=?")
+                values.append(dataset_family)
+            rows = db.execute(
+                "SELECT * FROM qc_plans WHERE " + " AND ".join(clauses)
+                + " ORDER BY updated_at DESC,seq DESC", values,
+            ).fetchall()
         return [self.get_plan(row["id"]) for row in rows]
 
     def archive_plan(self, plan_id: str) -> bool:

@@ -356,7 +356,7 @@ def test_training_repository_initializes_fresh_mysql_schema(tmp_path):
     assert {"deleted_at", "deleted_by", "delete_requested_at",
             "delete_requested_by", "runtime_id"} <= columns
     assert "training_jobs_deleted_idx" in indexes
-    assert version == 8
+    assert version == 9
 
 
 def test_training_delete_restore_api_uses_recycle_bin(tmp_path, monkeypatch):
@@ -428,6 +428,22 @@ def test_training_purge_requires_archived_task_and_removes_model_version(tmp_pat
         snapshot={}, split={}, parameters={},
     )
     assert newer["id"] != task["id"]
+
+
+def test_training_purge_requires_executor_file_confirmation(tmp_path, monkeypatch):
+    dataset_id = _dataset(tmp_path, monkeypatch)
+    repo = TrainingRepository(tmp_path)
+    task = repo.create(
+        name="未确认清理", dataset_id=dataset_id, model_id="xvla",
+        model_version="xvla-base@abc", preset="standard", executor_id="primary",
+        snapshot={}, split={}, parameters={},
+    )
+    repo.update(task["id"], status="FAILED")
+    repo.archive(task["id"], "test_user")
+    monkeypatch.setattr(training, "_runner_request", lambda *_args, **_kwargs: {"purged": False})
+    with pytest.raises(training.TrainingError, match="未确认"):
+        training.purge_task(tmp_path, task["id"])
+    assert repo.get(task["id"])["deleted_at"] is not None
 
 
 def test_training_purge_api_requires_exact_id_confirmation(tmp_path, monkeypatch):

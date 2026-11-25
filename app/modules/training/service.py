@@ -620,9 +620,13 @@ def purge_task(root: Path, task_id: str) -> dict:
             raise TrainingError("任务尚未结束，不能永久删除")
         # Executor owns the private scratch directory and model package. Keep the
         # MySQL record recoverable if cleanup fails or the executor is offline.
-        _runner_request(root, "DELETE", f"/jobs/{task_id}")
+        result = _runner_request(root, "DELETE", f"/jobs/{task_id}")
+        if result.get("purged") is not True:
+            raise TrainingError("执行器未确认服务器文件已永久删除", 502)
         if not repo.purge(task_id):
             raise TrainingError("任务状态已变化，请刷新后重试")
+        if repo.get(task_id) is not None:
+            raise TrainingError("训练任务数据库记录仍存在，永久删除未完成", 500)
         return {"id": task_id, "purged": True}
 
 

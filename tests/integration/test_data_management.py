@@ -17,6 +17,7 @@ from app.main import app
 from app.modules.datasets import router as data_router
 from app.modules.datasets import service as dataset_service
 from app.modules.quality import router as quality_router
+from app.modules.quality.catalog import default_config
 from app.modules.quality.service import raw_fingerprint
 
 
@@ -28,6 +29,12 @@ def platform(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     (tmp_path / "raw").mkdir()
     (tmp_path / "reports" / "qc").mkdir(parents=True)
     return TestClient(app), tmp_path
+
+
+def quality_plan(repo: QualityRepository, name: str = "测试方案") -> dict:
+    config = default_config({"robot_type": "zhiyan", "fps": 20, "features": {}},
+                            dataset_family="vla")
+    return repo.create_plan(name, "zhiyan", "vla", config)
 
 
 def dataset(root: Path, name: str, *, valid: bool = True) -> Path:
@@ -139,12 +146,15 @@ def test_dataset_trash_restore_and_purge_keep_id_retired(platform):
     source = dataset(root, "source")
     client.post("/data/api/register", json={"folders": ["source"]})
     repo = QualityRepository(root)
-    plan = repo.create_plan("测试方案", "zhiyan", {})
+    plan = quality_plan(repo)
     task = repo.create_task("DS000001", plan, {}, raw_fingerprint(source))
     repo.set_task(task["id"], status="COMPLETED", outcome="PASS")
     report = root / "reports" / "qc" / "DS000001" / f"{task['id']}.json"
     report.parent.mkdir(parents=True)
     report.write_text('{"status":"COMPLETED"}', encoding="utf-8")
+    version_record = root / "system/dataset-versions/DS000001.json"
+    version_record.parent.mkdir(parents=True)
+    version_record.write_text("{}", encoding="utf-8")
 
     removed = client.delete("/data/api/datasets/DS000001")
     assert removed.status_code == 200
@@ -169,6 +179,7 @@ def test_dataset_trash_restore_and_purge_keep_id_retired(platform):
     assert not (root / "trash/datasets/DS000001").exists()
     assert DatasetRepository(root).get("DS000001", include_deleted=True) is None
     assert repo.get_task(task["id"]) is None
+    assert not version_record.exists()
     newer = dataset(root, "newer")
     assert newer.exists()
     assert client.post("/data/api/register", json={"folders": ["newer"]}).json()[
@@ -179,7 +190,7 @@ def test_dataset_purge_blocks_lineage_and_running_qc(platform):
     client, root = platform
     source = dataset(root, "source")
     client.post("/data/api/register", json={"folders": ["source"]})
-    plan = QualityRepository(root).create_plan("测试方案", "zhiyan", {})
+    plan = quality_plan(QualityRepository(root))
     task = QualityRepository(root).create_task("DS000001", plan, {}, raw_fingerprint(source))
     assert client.delete("/data/api/datasets/DS000001").status_code == 409
     QualityRepository(root).set_task(task["id"], status="COMPLETED", outcome="PASS")
@@ -387,7 +398,7 @@ def test_delete_qc_report_preserves_task_and_review(platform):
     source = dataset(root, "source")
     client.post("/data/api/register", json={"folders": ["source"]})
     repo = QualityRepository(root)
-    plan = repo.create_plan("测试方案", "zhiyan", {})
+    plan = quality_plan(repo)
     task = repo.create_task("DS000001", plan, {}, raw_fingerprint(source))
     report = root / "reports" / "qc" / "DS000001" / f"{task['id']}.json"
     report.parent.mkdir(parents=True)
@@ -477,7 +488,7 @@ def test_data_pages_show_latest_human_review_state(platform):
     source = dataset(root, "source")
     client.post("/data/api/register", json={"folders": ["source"]})
     repo = QualityRepository(root)
-    plan = repo.create_plan("测试方案", "zhiyan", {})
+    plan = quality_plan(repo)
 
     assert "未质检" in client.get("/data/raw/").text
     assert "/data/raw/?qc=review" in client.get("/data/").text

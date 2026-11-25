@@ -557,14 +557,23 @@ class Handler(BaseHTTPRequestHandler):
                             folder = RUNS / item["id"]
                             if folder.is_dir():
                                 shutil.rmtree(folder)
+                        remaining = [item["id"] for item in [*related, task]
+                                     if (RUNS / item["id"]).exists()]
+                        if remaining:
+                            raise OSError("WAM 任务永久删除后仍有目录残留：" + "、".join(remaining))
+                        for item in [*related, task]:
                             TASKS.pop(item["id"], None)
+                        remaining = [item["id"] for item in [*related, task]
+                                     if item["id"] in TASKS]
+                        if remaining:
+                            raise RuntimeError("WAM 任务状态仍存在：" + "、".join(remaining))
                     self.reply(200, {"id": task["id"], "purged": True,
                                      "evaluation_count": len(related)})
                 else:
                     self.reply(404, {"error": "未知接口"})
             else:
                 self.reply(404, {"error": "未知接口"})
-        except (ValueError, TypeError, OSError, subprocess.SubprocessError,
+        except (ValueError, TypeError, OSError, RuntimeError, subprocess.SubprocessError,
                 json.JSONDecodeError) as exc:
             self.reply(400, {"error": str(exc)})
 

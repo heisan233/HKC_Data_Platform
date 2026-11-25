@@ -12,6 +12,9 @@
     else if (button.classList.contains('dm-purge-dataset')) url = `/data/api/datasets/${datasetId}/purge`;
     else if (button.classList.contains('dm-restore-report')) url = `/data/reports/trash/${datasetId}/${filename}/restore`;
     else url = `/data/reports/trash/${datasetId}/${filename}/purge`;
+    if ((button.classList.contains('dm-purge-dataset') ||
+         button.classList.contains('dm-purge-report')) &&
+        !window.confirm(`确认永久清除 ${decodeURIComponent(datasetId)}？服务器文件和数据库记录将被删除，无法恢复。`)) return;
     button.disabled = true;
     feedback.hidden = false;
     feedback.classList.remove('dm-feedback-error');

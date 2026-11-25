@@ -92,6 +92,16 @@ def test_wam_dataset_trash_respects_training_references(tmp_path) -> None:
     dataset_trash.trash_dataset(tmp_path, dataset_id, "tester")
     record = DatasetRepository(tmp_path).get(dataset_id, include_deleted=True)
     assert "仍引用" in dataset_trash.purge_blocker(tmp_path, record)
+    second = tmp_path / "training-runs/lawam/WAMFFFFFFFFFFFF/state.json"
+    second.parent.mkdir(parents=True)
+    second.write_text(json.dumps({
+        "id": "WAMFFFFFFFFFFFF", "kind": "train", "status": "COMPLETED",
+        "deleted_at": "2026-11-25T00:00:00+00:00",
+        "parameters": {"dataset_id": dataset_id},
+    }), encoding="utf-8")
+    blockers = dataset_trash.purge_blockers(tmp_path, record)
+    assert any("WAM0123456789AB" in reason for reason in blockers)
+    assert any("回收站中的WAM 训练任务 WAMFFFFFFFFFFFF" in reason for reason in blockers)
 
 
 @pytest.fixture

@@ -130,7 +130,14 @@ def trash_page(request: Request, view: str = "datasets"):
     groups = dataset_trash.report_groups(storage_root())
     datasets = []
     for record in records:
-        datasets.append({**record, "purge_blocker": dataset_trash.purge_blocker(storage_root(), record)})
+        blockers = dataset_trash.purge_blockers(storage_root(), record)
+        datasets.append({
+            **record,
+            "purge_blocker": blockers[0] if blockers else None,
+            "purge_blockers": blockers,
+            "wam_purge_blocked": any("WAM 训练任务" in reason for reason in blockers),
+            "vla_purge_blocked": any("VLA 训练任务" in reason for reason in blockers),
+        })
     return templates.TemplateResponse(request=request, name="data_trash.html", context={
         "view": "reports" if view == "reports" else "datasets",
         "datasets": datasets, "groups": groups,

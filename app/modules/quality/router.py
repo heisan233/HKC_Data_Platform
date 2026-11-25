@@ -15,6 +15,7 @@ from app.modules.quality import service
 from app.modules.quality.catalog import (
     DOCTOR_CHECKS,
     DOCTOR_REPORT_NAMES,
+    FAMILY_LABELS,
     ROBOT_RULE_TYPES,
     VLM_RULE_TYPES,
 )
@@ -26,8 +27,16 @@ router = APIRouter()
 class PlanBody(BaseModel):
     name: str
     robot_type: str
+    dataset_family: str
     config: dict
     expected_version: int | None = None
+
+
+class TemplatePlanBody(BaseModel):
+    name: str
+    dataset_family: str
+    reference_dataset_id: str | None = None
+    robot_type: str | None = None
 
 
 class TaskBody(BaseModel):
@@ -96,6 +105,7 @@ def plans_page(request: Request):
     return templates.TemplateResponse(request=request, name="qc_plans.html", context={
         "plans": service.initialize(root()).list_plans(),
         "datasets": managed,
+        "family_labels": FAMILY_LABELS,
     })
 
 
@@ -107,6 +117,7 @@ def plan_editor(request: Request, plan_id: str):
     return templates.TemplateResponse(request=request, name="qc_plan_editor.html", context={
         "plan": plan, "doctor_checks": DOCTOR_CHECKS,
         "robot_types": ROBOT_RULE_TYPES, "vlm_types": VLM_RULE_TYPES,
+        "family_labels": FAMILY_LABELS,
     })
 
 
@@ -139,17 +150,17 @@ def catalog():
 
 
 @router.get("/api/plans")
-def list_plans(robot_type: str | None = None):
-    return service.initialize(root()).list_plans(robot_type)
+def list_plans(robot_type: str | None = None, dataset_family: str | None = None):
+    return service.initialize(root()).list_plans(robot_type, dataset_family)
 
 
 @router.post("/api/plans")
 def create_plan(body: PlanBody):
     name = service._text(body.name, "方案名称")
     robot_type = service._text(body.robot_type, "机器人类型")
-    config = service.validate_config(body.config, robot_type)
+    config = service.validate_config(body.config, robot_type, body.dataset_family)
     try:
-        return service.initialize(root()).create_plan(name, robot_type, config)
+        return service.initialize(root()).create_plan(name, robot_type, body.dataset_family, config)
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
 
@@ -160,6 +171,14 @@ def create_plan_from_dataset(dataset_id: str):
         return service.plan_from_dataset(root(), dataset_id, bool(settings.vlm_base_url))
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/api/plans/from-template")
+def create_plan_from_template(body: TemplatePlanBody):
+    return service.plan_from_template(
+        root(), body.name, body.dataset_family, bool(settings.vlm_base_url),
+        body.reference_dataset_id, body.robot_type,
+    )
 
 
 @router.get("/api/plans/{plan_id}")
@@ -178,9 +197,11 @@ def update_plan(plan_id: str, body: PlanBody):
         raise HTTPException(404, "质检方案不存在")
     if body.robot_type != plan["robot_type"]:
         raise HTTPException(400, "机器人类型不可在已有方案中修改；请新建方案")
+    if body.dataset_family != plan["dataset_family"]:
+        raise HTTPException(400, "数据集类别不可在已有方案中修改；请新建方案")
     if body.expected_version is None:
         raise HTTPException(400, "更新方案必须提交当前版本号")
-    config = service.validate_config(body.config, plan["robot_type"])
+    config = service.validate_config(body.config, plan["robot_type"], plan["dataset_family"])
     try:
         return repo.update_plan(plan_id, service._text(body.name, "方案名称"),
                                 config, body.expected_version)

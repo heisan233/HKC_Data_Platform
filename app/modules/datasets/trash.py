@@ -8,23 +8,32 @@ from app.db.datasets import DatasetRepository
 from app.modules.datasets import service
 
 
-def _wam_job_reason(root: Path, dataset_id: str, *, active_only: bool) -> str | None:
+def _wam_job_reasons(root: Path, dataset_id: str, *, active_only: bool) -> list[str]:
+    reasons: list[str] = []
     runs = root / "training-runs" / "lawam"
     if not runs.is_dir() or runs.is_symlink():
-        return None
+        return reasons
     for state in runs.glob("*/state.json"):
         if (state.parent.is_symlink() or state.is_symlink() or not state.is_file()
                 or state.stat().st_size > 1024 * 1024):
-            return "WAM 训练记录无法安全核对"
+            reasons.append("WAM 训练记录无法安全核对")
+            continue
         try:
             job = json.loads(state.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            return "WAM 训练记录无法读取"
+            reasons.append("WAM 训练记录无法读取")
+            continue
         if job.get("kind") != "train" or job.get("parameters", {}).get("dataset_id") != dataset_id:
             continue
         if not active_only or job.get("status") in {"QUEUED", "RUNNING"}:
-            return f"WAM 训练任务 {job.get('id', '未知')} 仍引用此数据集"
-    return None
+            location = "回收站中的" if job.get("deleted_at") else ""
+            reasons.append(f"{location}WAM 训练任务 {job.get('id', '未知')} 仍引用此数据集")
+    return list(dict.fromkeys(reasons))
+
+
+def _wam_job_reason(root: Path, dataset_id: str, *, active_only: bool) -> str | None:
+    reasons = _wam_job_reasons(root, dataset_id, active_only=active_only)
+    return reasons[0] if reasons else None
 
 
 def _safe_child(parent: Path, name: str, *, create_parent: bool = False) -> Path:
@@ -75,30 +84,33 @@ def _active_job_reason(repo: DatasetRepository, dataset_id: str) -> str | None:
     return None
 
 
-def purge_blocker(root: Path, record: dict) -> str | None:
-    """Retain DS lineage and immutable task references until dependents are cleared."""
+def purge_blockers(root: Path, record: dict) -> list[str]:
+    """List every known reference that must be permanently removed before a DS."""
     repo = DatasetRepository(root)
     dataset_id = record["id"]
+    reasons: list[str] = []
     reason = _active_job_reason(repo, dataset_id)
     if reason:
-        return reason
+        reasons.append(reason)
     if record.get("dataset_family") == "wam":
-        reason = _wam_job_reason(root, dataset_id, active_only=False)
-        if reason:
-            return reason
+        reasons.extend(_wam_job_reasons(root, dataset_id, active_only=False))
     for other in repo.list(deleted=None):
         if other["id"] != dataset_id and dataset_id in other["source_dataset_ids"]:
-            return f"派生数据集 {other['id']} 仍引用此数据集"
+            reasons.append(f"派生数据集 {other['id']} 仍引用此数据集")
     with repo.connection() as db:
-        training = db.execute("SELECT id FROM training_jobs WHERE dataset_id=? LIMIT 1",
-                              (dataset_id,)).fetchone()
-        if training:
-            return f"训练任务 {training['id']} 仍引用此数据集"
-        conversion = db.execute("SELECT id FROM conversion_jobs WHERE source_dataset_id=? LIMIT 1",
-                                (dataset_id,)).fetchone()
-        if conversion:
-            return f"转换任务 {conversion['id']} 仍引用此数据集"
-    return None
+        for training in db.execute("SELECT id FROM training_jobs WHERE dataset_id=? ORDER BY seq",
+                                   (dataset_id,)).fetchall():
+            reasons.append(f"VLA 训练任务 {training['id']} 仍引用此数据集")
+        for conversion in db.execute("""SELECT id FROM conversion_jobs
+                WHERE source_dataset_id=? ORDER BY created_at""", (dataset_id,)).fetchall():
+            reasons.append(f"转换任务 {conversion['id']} 仍引用此数据集")
+    return list(dict.fromkeys(reasons))
+
+
+def purge_blocker(root: Path, record: dict) -> str | None:
+    """Keep the legacy single-reason interface for callers outside the trash page."""
+    reasons = purge_blockers(root, record)
+    return reasons[0] if reasons else None
 
 
 def trash_dataset(root: Path, dataset_id: str, username: str) -> dict:
@@ -197,8 +209,18 @@ def purge_dataset(root: Path, dataset_id: str) -> dict:
         for archive in exports.glob(f"{dataset_id}-*.tar.gz"):
             if archive.is_file() and not archive.is_symlink():
                 archive.unlink()
+    dataset_version = root / "system" / "dataset-versions" / f"{dataset_id}.json"
+    if dataset_version.is_symlink():
+        raise ValueError("数据集版本记录路径不安全")
+    if dataset_version.is_file():
+        dataset_version.unlink()
     if not repo.finish_purge(dataset_id):
         raise ValueError("数据集状态已变化，清除未完成")
+    if repo.get(dataset_id, include_deleted=True) is not None:
+        raise ValueError("数据库中的数据集记录仍存在，清除未完成")
+    leftovers = [path for path in (source, reports, folder, dataset_version) if path.exists()]
+    if leftovers:
+        raise OSError("数据集永久清除后仍有服务器文件残留")
     return {"dataset_id": dataset_id, "purged": True}
 
 

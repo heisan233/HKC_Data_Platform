@@ -6,7 +6,8 @@
   const byId = (id) => document.getElementById(id);
   const num = (id) => Number(byId(id).value);
   const episodeText = () => byId('lawam-episodes').value.trim().replace(/[，、]/g, ',');
-  const state = { online: false, jobs: [], deletedJobs: [], showDeleted: false,
+  const state = { online: false, jobs: [], deletedJobs: [],
+    showDeleted: new URLSearchParams(window.location.search).get('view') === 'trash',
     detailId: '', evaluations: [], bases: [], datasets: [], refreshing: false,
     taskLog: '', evalLog: '', metrics: [] };
   const metricLabels = {
@@ -462,6 +463,10 @@
     button.setAttribute('aria-pressed', String(state.showDeleted));
     renderJobs();
   });
+  if (state.showDeleted) {
+    byId('lawam-trash-toggle').textContent = '返回任务列表';
+    byId('lawam-trash-toggle').setAttribute('aria-pressed', 'true');
+  }
   byId('lawam-create-form').addEventListener('submit', async (event) => {
     event.preventDefault();
     if (!review()) return;

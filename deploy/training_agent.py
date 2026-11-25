@@ -157,7 +157,12 @@ def purge_job(job_id: str) -> dict:
         for package in packages:
             if package.exists():
                 package.unlink()
+        remaining = [str(path) for path in (*folders, *packages) if path.exists()]
+        if remaining:
+            raise OSError("训练任务永久删除后仍有文件残留：" + "、".join(remaining))
         STATE.pop(job_id, None)
+        if job_id in STATE:
+            raise RuntimeError("训练任务状态仍存在，永久删除未完成")
     return {"id": job_id, "purged": True}
 
 

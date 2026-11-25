@@ -85,7 +85,8 @@
       } : { doctor: [], robot_rules: [], vlm: [] };
       let available = 0;
       choices.forEach(item => {
-        item.hidden = !selected || item.dataset.robot !== selected.robot_type || item.dataset.state !== 'ready';
+        item.hidden = !selected || item.dataset.robot !== selected.robot_type ||
+          item.dataset.family !== selected.dataset_family || item.dataset.state !== 'ready';
         if (item.hidden) item.querySelector('input').checked = false;
         else available++;
       });
@@ -95,7 +96,7 @@
         `当前没有可用的 ${selected.robot_type} 数据集；可上传 ZIP 或先到数据管理登记。` :
         '先选择方案，再选择匹配的数据集。';
       document.getElementById('qc-plan-context').textContent = selected ?
-        `${selected.robot_type} · ${available} 个可用数据集 · 同一方案可批量复用` :
+        `${selected.dataset_family.toUpperCase()} · ${selected.robot_type} · ${available} 个可用数据集` :
         '选择方案后显示机器人类型、可用数据集和检查规则。';
       renderRules(); updateCount();
     }
@@ -153,7 +154,8 @@
     const queryDataset = new URLSearchParams(location.search).get('dataset');
     if (queryDataset) {
       const choice = choices.find(item => item.querySelector('input').value === queryDataset);
-      const match = choice && plans.find(item => item.robot_type === choice.dataset.robot);
+      const match = choice && plans.find(item => item.robot_type === choice.dataset.robot &&
+        item.dataset_family === choice.dataset.family);
       if (match) planSelect.value = match.id;
       setPlan();
       if (choice && !choice.hidden) choice.querySelector('input').checked = true;
@@ -195,24 +197,40 @@
     const plans = readJson('qc-plans-json');
     const dialog = document.getElementById('qc-create-dialog');
     const dataset = document.getElementById('qc-plan-dataset');
+    const family = document.getElementById('qc-plan-family');
+    const robotType = document.getElementById('qc-plan-robot-type');
     document.getElementById('qc-open-create').addEventListener('click', () => openDialog(dialog));
     document.getElementById('qc-empty-create')?.addEventListener('click', () => openDialog(dialog));
     document.getElementById('qc-create-cancel').addEventListener('click', () => closeDialog(dialog));
-    dataset.addEventListener('change', () => {
-      const type = dataset.selectedOptions[0]?.dataset.robot;
-      const matching = plans.filter(item => item.robot_type === type);
-      document.getElementById('qc-existing-plans').textContent = !type ?
-        '先选择数据集；若已有同类型方案，可直接复用。' : matching.length ?
-        `已有 ${matching.length} 个 ${type} 方案可直接复用：${matching.map(item => item.name).join('、')}。仍可创建独立方案。` :
-        `目前没有 ${type} 方案，将以此数据集的元数据创建初始配置。`;
-    });
+    const refreshCreate = () => {
+      [...dataset.options].forEach(option => {
+        option.hidden = Boolean(option.value && option.dataset.family !== family.value);
+      });
+      if (dataset.selectedOptions[0]?.hidden) dataset.value = '';
+      const selectedRobot = dataset.selectedOptions[0]?.dataset.robot || '';
+      robotType.value = selectedRobot || robotType.value;
+      robotType.disabled = Boolean(selectedRobot);
+      const matching = plans.filter(item => item.dataset_family === family.value &&
+        (!selectedRobot || item.robot_type === selectedRobot));
+      document.getElementById('qc-existing-plans').textContent = matching.length ?
+        `已有 ${matching.length} 个同类方案：${matching.map(item => item.name).join('、')}。仍可创建不同采集规格的方案。` :
+        '当前模板会初始化三部分规则；参考数据集中的字段和维度仅作为建议值。';
+    };
+    family.addEventListener('change', () => { dataset.value = ''; robotType.value = ''; refreshCreate(); });
+    dataset.addEventListener('change', refreshCreate);
+    refreshCreate();
     document.getElementById('qc-create-form').addEventListener('submit', async event => {
       event.preventDefault();
-      if (!dataset.value) { show('请选择已登记数据集', true); return; }
+      if (!dataset.value && !robotType.value.trim()) { show('未选择参考数据集时须填写 robot_type', true); return; }
       const button = document.getElementById('qc-plan-create');
       button.disabled = true;
       try {
-        const plan = await request(`/qc/api/plans/from-dataset/${encodeURIComponent(dataset.value)}`, { method: 'POST' });
+        const plan = await request('/qc/api/plans/from-template', { method: 'POST', ...json({
+          name: document.getElementById('qc-new-plan-name').value.trim(),
+          dataset_family: family.value,
+          reference_dataset_id: dataset.value || null,
+          robot_type: dataset.value ? null : robotType.value.trim()
+        }) });
         location.href = `/qc/plans/${encodeURIComponent(plan.id)}`;
       } catch (error) { closeDialog(dialog); show(error.message, true); button.disabled = false; }
     });
@@ -233,13 +251,7 @@
     const config = structuredClone(plan.config);
     const value = (id, content) => { document.getElementById(id).value = content ?? ''; };
     value('qc-plan-name', plan.name);
-    value('qc-expected-fps', config.robot.expected_fps);
-    value('qc-state-key', config.robot.state_key);
-    value('qc-state-dim', config.robot.state_dim);
-    value('qc-action-key', config.robot.action_key);
-    value('qc-action-dim', config.robot.action_dim);
     value('qc-video-keys', config.robot.video_keys.join('\n'));
-    value('qc-joint-limits', Object.keys(config.robot.joint_limits || {}).length ? JSON.stringify(config.robot.joint_limits, null, 2) : '');
     value('qc-doctor-max', config.doctor.max_episodes);
     value('qc-vlm-model', config.vlm.model);
     value('qc-vlm-timeout', config.vlm.timeout_seconds);
@@ -256,12 +268,26 @@
     }));
     const options = (catalog, selected) => Object.entries(catalog).map(([key, item]) =>
       `<option value="${esc(key)}" ${key === selected ? 'selected' : ''}>${esc(item.label)}</option>`).join('');
+    const paramSummary = rule => {
+      const params = rule.params;
+      if (params.field_name) return `${params.field_name}${params.expected_dimension ? ` · ${params.expected_dimension}维` : ''}`;
+      if (params.video_key) return `${params.video_key}${params.expected_width && params.expected_height ? ` · ${params.expected_width}×${params.expected_height}` : ''}`;
+      if (params.expected_fps) return `${params.expected_fps} ± ${params.tolerance_fps ?? 0} FPS`;
+      return types.robot[rule.kind]?.label || rule.kind;
+    };
+    const paramInput = (rule, index, key, field) => {
+      const item = rule.params[key];
+      if (field.type === 'lines') return `<textarea data-index="${index}" data-param="${esc(key)}" rows="3">${esc((item || []).join('\n'))}</textarea>`;
+      if (field.type === 'select') return `<select data-index="${index}" data-param="${esc(key)}">${field.options.map(option => `<option value="${esc(option)}" ${option === item ? 'selected' : ''}>${esc(option)}</option>`).join('')}</select>`;
+      if (field.type === 'number') return `<input data-index="${index}" data-param="${esc(key)}" type="number" min="${esc(field.min)}" max="${esc(field.max)}" step="${esc(field.step)}" ${field.optional ? '' : 'required'} value="${item ?? ''}">`;
+      return `<input data-index="${index}" data-param="${esc(key)}" maxlength="200" required value="${esc(item ?? '')}">`;
+    };
     function renderRobot() {
       document.getElementById('qc-robot-rule-list').innerHTML = config.robot_rules.map((rule, index) => {
-        const params = Object.entries(rule.params).map(([key, item]) => `<label>${esc(key)}${key === 'field' ?
-          `<select data-index="${index}" data-param="${esc(key)}"><option value="action" ${item === 'action' ? 'selected' : ''}>action</option><option value="state" ${item === 'state' ? 'selected' : ''}>state</option></select>` :
-          `<input data-index="${index}" data-param="${esc(key)}" type="number" min="0" step="any" value="${esc(item)}">`}</label>`).join('');
-        return `<article class="qc-rule-edit"><div class="qc-rule-title"><label class="qc-rule-heading">规则名称<input data-index="${index}" data-robot-field="name" maxlength="100" value="${esc(rule.name)}"><small>系统标识：${esc(rule.id)}</small></label><button type="button" data-remove-robot="${index}">删除规则</button></div><label>规则类型<select data-index="${index}" data-robot-field="kind">${options(types.robot, rule.kind)}</select></label><label>严重度<select data-index="${index}" data-robot-field="severity"><option value="WARN" ${rule.severity === 'WARN' ? 'selected' : ''}>警告</option><option value="FAIL" ${rule.severity === 'FAIL' ? 'selected' : ''}>失败</option></select></label>${params}<label class="check"><input data-index="${index}" data-robot-field="enabled" type="checkbox" ${rule.enabled ? 'checked' : ''}>默认启用</label></article>`;
+        const definition = types.robot[rule.kind];
+        const params = Object.entries(definition.fields).map(([key, field]) =>
+          `<label>${esc(field.label)}${paramInput(rule, index, key, field)}${field.help ? `<small>${esc(field.help)}</small>` : ''}</label>`).join('');
+        return `<details class="qc-rule-compact"><summary><span><strong data-rule-summary-name="${index}">${esc(rule.name)}</strong><small>${esc(definition.label)} · <span data-rule-summary-value="${index}">${esc(paramSummary(rule))}</span></small></span><span data-rule-enabled-badge class="dm-badge ${rule.enabled ? 'dm-ok' : 'dm-muted'}">${rule.enabled ? '已启用' : '未启用'}</span><em>设置</em></summary><div class="qc-rule-settings"><p>${esc(definition.description)}</p><div class="qc-rule-setting-grid"><label>规则名称<input data-index="${index}" data-robot-field="name" maxlength="100" required value="${esc(rule.name)}"></label><label>异常严重度<select data-index="${index}" data-robot-field="severity"><option value="WARN" ${rule.severity === 'WARN' ? 'selected' : ''}>警告</option><option value="FAIL" ${rule.severity === 'FAIL' ? 'selected' : ''}>失败</option></select></label>${params}<label class="check"><input data-index="${index}" data-robot-field="enabled" type="checkbox" ${rule.enabled ? 'checked' : ''}>默认启用</label></div><div class="qc-rule-actions"><small>系统标识：${esc(rule.id)}</small><button type="button" data-remove-robot="${index}">删除规则</button></div></div></details>`;
       }).join('') || '<p class="dm-empty">尚未配置机器人专项规则。</p>';
     }
     function renderVlm() {
@@ -271,9 +297,10 @@
     }
     renderRobot(); renderVlm();
     document.getElementById('qc-add-robot-rule').addEventListener('click', () => {
-      const kind = 'feature_schema';
+      const kind = document.getElementById('qc-new-robot-kind').value;
       config.robot_rules.push({ id: `robot_${crypto.randomUUID().slice(0, 8)}`, kind,
-        name: types.robot[kind].label, enabled: true, severity: 'WARN',
+        name: types.robot[kind].label, enabled: true,
+        severity: types.robot[kind].default_severity,
         params: structuredClone(types.robot[kind].params) });
       renderRobot();
     });
@@ -299,13 +326,12 @@
       const robotField = target.dataset.robotField;
       if (robotField) {
         const row = config.robot_rules[Number(target.dataset.index)];
-        const previousDefaultName = types.robot[row.kind]?.label;
-        const hasCustomName = row.name !== previousDefaultName;
         row[robotField] = robotField === 'enabled' ? target.checked : target.value;
-        if (robotField === 'kind') {
-          if (!hasCustomName) row.name = types.robot[row.kind].label;
-          row.params = structuredClone(types.robot[row.kind].params);
-          renderRobot();
+        if (robotField === 'name') document.querySelector(`[data-rule-summary-name="${target.dataset.index}"]`).textContent = target.value;
+        if (robotField === 'enabled') {
+          const badge = target.closest('.qc-rule-compact').querySelector('[data-rule-enabled-badge]');
+          badge.textContent = target.checked ? '已启用' : '未启用';
+          badge.className = `dm-badge ${target.checked ? 'dm-ok' : 'dm-muted'}`;
         }
       }
       const vlmField = target.dataset.vlmField;
@@ -318,28 +344,31 @@
           renderVlm();
         }
       }
-      if (target.dataset.param) config.robot_rules[Number(target.dataset.index)].params[target.dataset.param] =
-        target.dataset.param === 'field' ? target.value : Number(target.value);
+      if (target.dataset.param) {
+        const row = config.robot_rules[Number(target.dataset.index)];
+        const field = types.robot[row.kind].fields[target.dataset.param];
+        row.params[target.dataset.param] = field.type === 'lines' ? target.value.split(/\r?\n/).map(item => item.trim()).filter(Boolean) :
+          field.type === 'number' ? (target.value === '' ? null : Number(target.value)) : target.value;
+        document.querySelector(`[data-rule-summary-value="${target.dataset.index}"]`).textContent = paramSummary(row);
+      }
     });
     editor.addEventListener('input', event => {
       const target = event.target;
       if (target.dataset.robotField === 'name') config.robot_rules[Number(target.dataset.index)].name = target.value;
       if (target.dataset.vlmField === 'name' || target.dataset.vlmField === 'prompt')
         config.vlm.rules[Number(target.dataset.index)][target.dataset.vlmField] = target.value;
-      if (target.dataset.param && target.dataset.param !== 'field')
-        config.robot_rules[Number(target.dataset.index)].params[target.dataset.param] = Number(target.value);
+      if (target.dataset.param) {
+        const row = config.robot_rules[Number(target.dataset.index)];
+        const field = types.robot[row.kind].fields[target.dataset.param];
+        row.params[target.dataset.param] = field.type === 'lines' ? target.value.split(/\r?\n/).map(item => item.trim()).filter(Boolean) :
+          field.type === 'number' ? (target.value === '' ? null : Number(target.value)) : target.value;
+      }
     });
     document.getElementById('qc-plan-form').addEventListener('submit', async event => {
       event.preventDefault();
       const text = id => document.getElementById(id).value.trim();
       try {
-        config.robot.expected_fps = text('qc-expected-fps') ? Number(text('qc-expected-fps')) : null;
-        config.robot.state_key = text('qc-state-key');
-        config.robot.state_dim = text('qc-state-dim') ? Number(text('qc-state-dim')) : null;
-        config.robot.action_key = text('qc-action-key');
-        config.robot.action_dim = text('qc-action-dim') ? Number(text('qc-action-dim')) : null;
         config.robot.video_keys = text('qc-video-keys').split(/\r?\n/).map(item => item.trim()).filter(Boolean);
-        config.robot.joint_limits = text('qc-joint-limits') ? JSON.parse(text('qc-joint-limits')) : {};
         config.doctor.max_episodes = text('qc-doctor-max') ? Number(text('qc-doctor-max')) : null;
         config.vlm.model = text('qc-vlm-model');
         config.vlm.timeout_seconds = Number(text('qc-vlm-timeout'));
@@ -347,7 +376,7 @@
         config.vlm.max_episodes = text('qc-vlm-max') ? Number(text('qc-vlm-max')) : null;
         const result = await request(`/qc/api/plans/${encodeURIComponent(plan.id)}`, {
           method: 'PUT', ...json({ name: text('qc-plan-name'), robot_type: plan.robot_type,
-            expected_version: plan.version, config })
+            dataset_family: plan.dataset_family, expected_version: plan.version, config })
         });
         show(`方案已保存为 v${result.version}`);
         setTimeout(() => location.reload(), 900);

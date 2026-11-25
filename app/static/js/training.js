@@ -1,7 +1,7 @@
 (() => {
   'use strict';
   const api = '/training/api';
-  const state = {tab: 'tasks', step: 0, catalog: null, checked: null, selectedDS: '', selectedModel: 'xvla', preset: 'standard', executor: 'primary', runtimeId: '', name: '', taskId: null, detailData: null, showDeleted: false, purgingTaskId: null, custom: false, customParams: {}, detailTab: 'metrics', lossLog: true, logsPinned: false, logBefore: 0, logSize: 0, detailLoading: false, tasksLoading: false, detailRequest: 0, evalEpisode: null, evalTraceCache: {}, evalTraceRequest: 0};
+  const state = {tab: 'tasks', step: 0, catalog: null, checked: null, selectedDS: '', selectedModel: 'xvla', preset: 'standard', executor: 'primary', runtimeId: '', name: '', taskId: null, detailData: null, showDeleted: new URLSearchParams(window.location.search).get('view') === 'trash', purgingTaskId: null, custom: false, customParams: {}, detailTab: 'metrics', lossLog: true, logsPinned: false, logBefore: 0, logSize: 0, detailLoading: false, tasksLoading: false, detailRequest: 0, evalEpisode: null, evalTraceCache: {}, evalTraceRequest: 0};
   const $ = (id) => document.getElementById(id);
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const label = {QUEUED:'排队',PREPARING:'准备环境',RUNNING:'训练',EVALUATING:'评估',PACKAGING:'打包',COMPLETED:'已完成',FAILED:'失败',CANCELED:'已取消',INTERRUPTED:'中断'};

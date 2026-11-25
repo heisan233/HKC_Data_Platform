@@ -10,6 +10,7 @@ from app.db.datasets import DatasetRepository
 from app.db.quality import QualityRepository
 from app.db.robots import RobotRepository
 from app.main import app
+from app.modules.quality.catalog import default_config
 
 client = TestClient(app)
 
@@ -52,8 +53,10 @@ def test_dashboard_reads_real_dataset_robot_and_quality_records(tmp_path: Path) 
         network_address="192.0.2.10",
     )
     quality = QualityRepository(tmp_path)
-    plan = quality.create_plan("SO100 基础质检", "so100", {})
-    task = quality.create_task(dataset_id, plan, {}, "fingerprint")
+    config = default_config({"robot_type": "so100", "fps": 20, "features": {}},
+                            dataset_family="vla")
+    plan = quality.create_plan("SO100 基础质检", "so100", "vla", config)
+    task = quality.create_task(dataset_id, plan, config, "fingerprint")
     quality.set_task(task["id"], status="COMPLETED", phase="complete")
     quality.review(task["id"], "PASS", "测试通过")
 

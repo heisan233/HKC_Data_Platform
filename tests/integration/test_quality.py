@@ -18,9 +18,10 @@ from app.core.config import Settings
 from app.db.datasets import DatasetRepository
 from app.main import app
 from app.modules.datasets import router as datasets_router
+from app.modules.datasets import service as datasets_service
 from app.modules.ingestion import router as ingestion_router
+from app.modules.quality import catalog, robot_rules, service, vlm
 from app.modules.quality import router as quality_router
-from app.modules.quality import service, vlm
 
 
 def _dataset(folder: Path) -> None:
@@ -42,8 +43,12 @@ def _dataset(folder: Path) -> None:
                    folder / "meta" / "episodes" / "chunk-000" / "file-000.parquet")
     pq.write_table(pa.table({
         "episode_index": [0, 0, 0], "timestamp": [0.0, 0.05, 0.1],
-        "observation.state": [[0.0, 0.0], [0.2, 0.0], [0.4, 0.0]],
-        "action": [[0.1, 0.0], [0.2, 0.0], [0.3, 0.0]],
+        "observation.state": pa.array(
+            [[0.0, 0.0], [0.2, 0.0], [0.4, 0.0]], type=pa.list_(pa.float32(), 2)
+        ),
+        "action": pa.array(
+            [[0.1, 0.0], [0.2, 0.0], [0.3, 0.0]], type=pa.list_(pa.float32(), 2)
+        ),
     }), folder / "data" / "chunk-000" / "file-000.parquet")
 
 
@@ -55,6 +60,107 @@ def platform(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(ingestion_router, "settings", settings)
     (tmp_path / "raw").mkdir()
     return TestClient(app), tmp_path
+
+
+def test_ego_template_and_rules_check_actual_rows(platform):
+    client, root = platform
+    folder = root / "raw" / "ego-sample"
+    _dataset(folder)
+    info = json.loads((folder / "meta/info.json").read_text(encoding="utf-8"))
+    info["robot_type"] = "human_egocentric"
+    (folder / "meta/info.json").write_text(json.dumps(info), encoding="utf-8")
+    record = DatasetRepository(root).register(
+        "raw", "ego-sample", "EGO 样例", "human_egocentric",
+        datasets_service.info_digest(folder), dataset_family="ego",
+    )
+    created = client.post("/qc/api/plans/from-template", json={
+        "name": "EGO 30FPS 标准质检", "dataset_family": "ego",
+        "reference_dataset_id": record["id"],
+    })
+    assert created.status_code == 200
+    plan = created.json()
+    assert plan["dataset_family"] == "ego"
+    fields = {row["params"].get("field_name") for row in plan["config"]["robot_rules"]}
+    assert {"observation.state", "action"}.issubset(fields)
+
+    pq.write_table(pa.table({
+        "episode_index": [0, 0, 0], "frame_index": [0, 1, 2],
+        "timestamp": [0.0, 0.1, 0.2],
+        "observation.state": pa.array(
+            [[0.0, 0.0], [0.2], [0.4, 0.0]], type=pa.list_(pa.float32())
+        ),
+        "action": pa.array(
+            [[0.1, 0.0], [0.2, 0.0], [0.3, 0.0]], type=pa.list_(pa.float32())
+        ),
+    }), folder / "data/chunk-000/file-000.parquet")
+    snapshot = plan["config"]
+    snapshot["robot_rules"] = [row for row in snapshot["robot_rules"]
+                               if row["id"] in {"feature_dimension_state", "frame_rate_capture"}]
+    result = robot_rules.run_robot_rules(folder, snapshot)
+    by_id = {row["id"]: row for row in result["results"]}
+    assert by_id["feature_dimension_state"]["status"] == "FAIL"
+    assert by_id["feature_dimension_state"]["measured"]["invalid_rows"] == 1
+    assert by_id["feature_dimension_state"]["coverage"]["episodes"] == 1
+    assert by_id["frame_rate_capture"]["status"] == "FAIL"
+    assert any("实际 FPS" in row["message"]
+               for row in by_id["frame_rate_capture"]["findings"])
+
+
+def test_video_template_resolves_hwc_and_chw_dimensions():
+    base = {"robot_type": "testbot", "fps": 20, "features": {
+        "observation.images.hwc": {"dtype": "video", "shape": [480, 640, 3]},
+        "observation.images.chw": {"dtype": "video", "shape": [3, 1080, 1920]},
+    }}
+    config = catalog.default_config(base, dataset_family="ego")
+    video_rules = {row["params"]["video_key"]: row["params"]
+                   for row in config["robot_rules"] if row["kind"] == "video_quality"}
+    assert video_rules["observation.images.hwc"]["expected_width"] == 640
+    assert video_rules["observation.images.hwc"]["expected_height"] == 480
+    assert video_rules["observation.images.chw"]["expected_width"] == 1920
+    assert video_rules["observation.images.chw"]["expected_height"] == 1080
+
+
+def test_numeric_and_video_freeze_rules_measure_actual_content(tmp_path: Path):
+    folder = tmp_path / "sample"
+    _dataset(folder)
+    frame_file = folder / "data/chunk-000/file-000.parquet"
+    pq.write_table(pa.table({
+        "episode_index": [0, 0, 0], "timestamp": [0.0, 0.5, 1.0],
+        "observation.state": pa.array(
+            [[1.0, 1.0], [1.0, 1.0], [1.0, 1.0]], type=pa.list_(pa.float32(), 2)
+        ),
+    }), frame_file)
+    info_path = folder / "meta/info.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    info["features"]["camera"] = {"dtype": "video", "shape": [48, 64, 3]}
+    info_path.write_text(json.dumps(info), encoding="utf-8")
+    video_path = folder / "videos/camera/chunk-000/file-000.mp4"
+    video_path.parent.mkdir(parents=True)
+    video = subprocess.run([
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+        "color=c=black:s=64x48:r=10:d=1.2", "-an", "-c:v", "libx264", str(video_path),
+    ], capture_output=True, text=True, check=False)
+    assert video.returncode == 0, video.stderr
+
+    config = catalog.default_config(info, dataset_family="ego")
+    rules = [row for row in config["robot_rules"]
+             if row["id"] in {"numeric_freeze_state", "video_quality_camera_1"}]
+    freeze = next(row for row in rules if row["kind"] == "numeric_freeze")
+    freeze["params"]["freeze_seconds"] = 0.9
+    video_rule = next(row for row in rules if row["kind"] == "video_quality")
+    video_rule["params"].update({"freeze_seconds": 0.4, "sample_interval_ms": 100,
+                                 "max_dark_ratio": 0.1})
+    config["robot_rules"] = rules
+    result = robot_rules.run_robot_rules(folder, config)
+    by_kind = {row["kind"]: row for row in result["results"]}
+    assert by_kind["numeric_freeze"]["status"] == "WARN"
+    assert by_kind["numeric_freeze"]["measured"]["freeze_count"] == 1
+    assert by_kind["video_quality"]["status"] == "WARN"
+    assert by_kind["video_quality"]["measured"]["dark_ratio"] == 1.0
+    assert by_kind["video_quality"]["coverage"]["sampled"] is True
+    assert {item["message"] for item in by_kind["video_quality"]["findings"]} >= {
+        "黑暗帧比例超过方案阈值", "画面连续冻结",
+    }
 
 
 def test_batch_upload_keeps_raw_and_rejects_unsafe_archive(platform):
@@ -138,16 +244,19 @@ def test_active_quality_plan_names_must_be_unique(platform):
     manual_duplicate = client.post("/qc/api/plans", json={
         "name": f"  {plan['name']}  ",
         "robot_type": plan["robot_type"],
+        "dataset_family": plan["dataset_family"],
         "config": plan["config"],
     })
     unique = client.post("/qc/api/plans", json={
         "name": "另一套质检方案",
         "robot_type": plan["robot_type"],
+        "dataset_family": plan["dataset_family"],
         "config": plan["config"],
     })
     renamed_duplicate = client.put(f"/qc/api/plans/{unique.json()['id']}", json={
         "name": plan["name"],
         "robot_type": plan["robot_type"],
+        "dataset_family": plan["dataset_family"],
         "expected_version": 1,
         "config": plan["config"],
     })
@@ -166,6 +275,7 @@ def test_hiding_task_preserves_report_reviews_and_raw(platform, monkeypatch):
     config["robot_rules"][0]["name"] = "自定义机器人字段检查"
     updated = client.put(f"/qc/api/plans/{plan['id']}", json={
         "name": plan["name"], "robot_type": "testbot",
+        "dataset_family": "vla",
         "expected_version": 1, "config": config,
     }).json()
     assert updated["config"]["robot_rules"][0]["name"] == "自定义机器人字段检查"
@@ -268,21 +378,23 @@ def test_plan_snapshot_report_and_review(platform, monkeypatch: pytest.MonkeyPat
     assert client.get(f"/qc/plans/{plan['id']}").status_code == 200
     config = plan["config"]
     config["robot_rules"] = [row for row in config["robot_rules"]
-                             if row["kind"] == "feature_schema"]
+                             if row["kind"] == "feature_dimension"]
     changed = client.put(f"/qc/api/plans/{plan['id']}", json={
         "name": "机器人标准检查", "robot_type": "testbot",
+        "dataset_family": "vla",
         "expected_version": 1, "config": config,
     })
     assert changed.status_code == 200
     assert changed.json()["version"] == 2
     assert client.put(f"/qc/api/plans/{plan['id']}", json={
         "name": "旧版本写入", "robot_type": "testbot",
+        "dataset_family": "vla",
         "expected_version": 1, "config": config,
     }).status_code == 409
     task = client.post("/qc/api/tasks", json={
         "dataset_id": "DS000001", "plan_id": plan["id"], "plan_version": 2,
         "selections": {"doctor": ["metadata"],
-                       "robot_rules": ["feature_schema"], "vlm": []},
+                       "robot_rules": ["feature_dimension_state"], "vlm": []},
     })
     assert task.status_code == 200
     task_id = task.json()["id"]

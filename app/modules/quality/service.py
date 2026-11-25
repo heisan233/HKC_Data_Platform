@@ -20,7 +20,13 @@ from fastapi import HTTPException
 from app.db.datasets import DatasetRepository
 from app.db.quality import QualityRepository
 from app.modules.datasets import service as datasets
-from app.modules.quality.catalog import DOCTOR_IDS, ROBOT_RULE_TYPES, VLM_RULE_TYPES, default_config
+from app.modules.quality.catalog import (
+    DOCTOR_IDS,
+    FAMILY_LABELS,
+    ROBOT_RULE_TYPES,
+    VLM_RULE_TYPES,
+    default_config,
+)
 
 _executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="hkc-quality")
 _start_lock = Lock()
@@ -131,40 +137,25 @@ def _unique_rule_ids(rows: object, label: str) -> list[dict]:
     return result
 
 
-def validate_config(config: object, robot_type: str) -> dict:
+def validate_config(config: object, robot_type: str, dataset_family: str) -> dict:
     """Reject unsupported engines/parameters before a plan can be published."""
     if not isinstance(config, dict):
         raise HTTPException(400, "质检方案配置无效")
+    if config.get("config_schema_version") != 2:
+        raise HTTPException(400, "质检方案配置版本无效")
+    template = config.get("template")
+    if (not isinstance(template, dict) or template.get("dataset_family") != dataset_family
+            or template.get("id") != dataset_family or template.get("version") != 1):
+        raise HTTPException(400, "质检方案模板与数据集类别不一致")
     robot = config.get("robot")
     if not isinstance(robot, dict) or robot.get("robot_type") != robot_type:
         raise HTTPException(400, "机器人类型与质检方案不一致")
-    for key in ("state_key", "action_key"):
-        _text(robot.get(key), key, 100)
-    for key in ("state_dim", "action_dim"):
-        value = robot.get(key)
-        if value is not None:
-            _number(value, key, 1, 10000)
-    expected_fps = robot.get("expected_fps")
-    if expected_fps is not None:
-        _number(expected_fps, "预期 FPS", 0.1, 500)
     video_keys = robot.get("video_keys")
     if not isinstance(video_keys, list) or len(video_keys) > 20 or any(
         not isinstance(key, str) or not 1 <= len(key) <= 100 or
         "/" in key or "\\" in key or "\x00" in key for key in video_keys
     ) or len(set(video_keys)) != len(video_keys):
         raise HTTPException(400, "相机字段列表无效")
-    limits = robot.get("joint_limits", {})
-    if not isinstance(limits, dict) or len(limits) > 100:
-        raise HTTPException(400, "关节限位无效")
-    for name, pair in limits.items():
-        _text(name, "关节名称", 100)
-        if not isinstance(pair, list) or len(pair) != 2:
-            raise HTTPException(400, "关节限位应为 [最小值, 最大值]")
-        lower = _number(pair[0], "关节下限", -1e9, 1e9)
-        upper = _number(pair[1], "关节上限", -1e9, 1e9)
-        if lower >= upper:
-            raise HTTPException(400, "关节下限必须小于上限")
-
     doctor = config.get("doctor")
     if not isinstance(doctor, dict):
         raise HTTPException(400, "Doctor 配置无效")
@@ -185,15 +176,40 @@ def validate_config(config: object, robot_type: str) -> dict:
         params = row.get("params")
         if not isinstance(params, dict):
             raise HTTPException(400, "机器人规则参数无效")
-        allowed = ROBOT_RULE_TYPES[kind]["params"]
-        if set(params) != set(allowed):
-            raise HTTPException(400, f"{row['name']} 参数应为 {', '.join(allowed) or '空'}")
-        for key, value in params.items():
-            if key == "field":
-                if value not in {"state", "action"}:
-                    raise HTTPException(400, "关节限位字段只能为 state 或 action")
-            else:
-                _number(value, key, 0, 1e9)
+        definition = ROBOT_RULE_TYPES[kind]
+        if set(params) != set(definition["params"]):
+            raise HTTPException(400, f"{row['name']} 参数不完整")
+        for key, field in definition["fields"].items():
+            value = params[key]
+            if field["type"] in {"text", "select"}:
+                value = _text(value, field["label"], 200)
+                if field["type"] == "select" and value not in field["options"]:
+                    raise HTTPException(400, f"{field['label']}不受支持")
+            elif field["type"] == "lines":
+                if (not isinstance(value, list) or len(value) > 20 or len(value) != len(set(value))
+                        or any(not isinstance(item, str) or not item.strip()
+                               or len(item) > 200 for item in value)):
+                    raise HTTPException(400, f"{field['label']}无效")
+            elif value is not None:
+                numeric = _number(value, field["label"], field["min"], field["max"])
+                if field.get("step") == "1" and not numeric.is_integer():
+                    raise HTTPException(400, f"{field['label']}必须是整数")
+            elif not field.get("optional"):
+                raise HTTPException(400, f"{field['label']}必须填写")
+        if kind == "numeric_validity" and params["min_value"] is not None \
+                and params["max_value"] is not None \
+                and params["min_value"] >= params["max_value"]:
+            raise HTTPException(400, "数值范围下限必须小于上限")
+        if kind == "video_quality":
+            if params["video_key"] not in video_keys:
+                raise HTTPException(400, "视频规则选择了未配置的相机字段")
+            if params["dark_mean"] >= params["bright_mean"]:
+                raise HTTPException(400, "黑暗阈值必须小于过曝阈值")
+            if params["sample_interval_ms"] > params["freeze_seconds"] * 1000:
+                raise HTTPException(400, "视频抽样间隔不能大于画面冻结时间")
+        if kind in {"frame_rate", "temporal_alignment"} \
+                and not set(params["video_keys"]).issubset(video_keys):
+            raise HTTPException(400, "时序规则包含未配置的相机字段")
 
     vlm = config.get("vlm")
     if not isinstance(vlm, dict):
@@ -216,18 +232,57 @@ def validate_config(config: object, robot_type: str) -> dict:
     return deepcopy(config)
 
 
+def plan_from_template(root: Path, name: str, dataset_family: str, vlm_available: bool,
+                       reference_dataset_id: str | None = None,
+                       robot_type: str | None = None) -> dict:
+    if dataset_family not in FAMILY_LABELS:
+        raise HTTPException(400, "质检方案模板必须为 VLA、WAM 或 EGO")
+    reference = None
+    if reference_dataset_id:
+        try:
+            reference, folder = datasets.resolve_registered_dataset(root, reference_dataset_id)
+        except ValueError as exc:
+            raise HTTPException(404, "参考数据集未登记") from exc
+        if reference["dataset_family"] != dataset_family:
+            raise HTTPException(409, "参考数据集类别与方案模板不一致")
+        info, error = datasets.dataset_info(folder)
+        if error:
+            raise HTTPException(409, error)
+        robot_type = datasets.robot_type_label(info)
+    else:
+        robot_type = _text(robot_type, "机器人类型")
+        info = {
+            "robot_type": robot_type, "fps": 30,
+            "features": {
+                "observation.state": {"dtype": "float32", "shape": [1]},
+                "action": {"dtype": "float32", "shape": [1]},
+            },
+        }
+    config = default_config(info, dataset_family=dataset_family,
+                            vlm_enabled=vlm_available,
+                            reference_dataset_id=reference_dataset_id)
+    config = validate_config(config, robot_type, dataset_family)
+    try:
+        return initialize(root).create_plan(_text(name, "方案名称"), robot_type,
+                                            dataset_family, config)
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
 def plan_from_dataset(root: Path, dataset_id: str, vlm_available: bool) -> dict:
     try:
-        _, folder = datasets.resolve_registered_dataset(root, dataset_id)
+        record, folder = datasets.resolve_registered_dataset(root, dataset_id)
     except ValueError as exc:
         raise HTTPException(404, "数据集未登记") from exc
 
     info, error = datasets.dataset_info(folder)
     if error:
         raise HTTPException(409, error)
-    config = default_config(info, vlm_enabled=vlm_available)
     robot_type = datasets.robot_type_label(info)
-    return initialize(root).create_plan(f"{robot_type} 标准质检", robot_type, config)
+    return plan_from_template(
+        root, f"{robot_type} {FAMILY_LABELS[record['dataset_family']]} 标准质检",
+        record["dataset_family"], vlm_available, dataset_id, robot_type,
+    )
 
 
 def resolved_snapshot(config: dict, selections: dict | None) -> dict:
@@ -314,6 +369,8 @@ def create_task(root: Path, dataset_id: str, plan_id: str, plan_version: int,
         raise HTTPException(409, error)
     if datasets.robot_type_label(info) != plan["robot_type"]:
         raise HTTPException(409, "数据集 robot_type 与质检方案不匹配")
+    if dataset["dataset_family"] != plan["dataset_family"]:
+        raise HTTPException(409, "数据集类别与质检方案模板不匹配")
     if datasets.info_digest(folder) != dataset["info_sha256"]:
         raise HTTPException(409, "数据集元数据已变化，请在数据管理中核对并重新扫描")
     snapshot = resolved_snapshot(plan["config"], selections)
@@ -325,7 +382,7 @@ def create_task(root: Path, dataset_id: str, plan_id: str, plan_version: int,
     if repo.vlm_paused() and repo.uses_vlm(snapshot):
         task = repo.set_task(task["id"], phase="waiting_vlm")
     save_report(root, task, {
-        "schema_version": 1, "task_id": task["id"], "dataset_id": dataset_id,
+        "schema_version": 2, "task_id": task["id"], "dataset_id": dataset_id,
         "plan_id": plan_id, "plan_version": plan["version"],
         "storage_area": dataset["storage_area"],
         "storage_relpath": dataset["storage_relpath"],
@@ -377,7 +434,7 @@ def rerun_task(root: Path, previous_id: str) -> dict:
     if repo.vlm_paused() and repo.uses_vlm(previous["snapshot"]):
         task = repo.set_task(task["id"], phase="waiting_vlm")
     save_report(root, task, {
-        "schema_version": 1, "task_id": task["id"], "dataset_id": task["dataset_id"],
+        "schema_version": 2, "task_id": task["id"], "dataset_id": task["dataset_id"],
         "plan_id": plan["id"], "plan_version": plan["version"],
         "storage_area": dataset["storage_area"],
         "storage_relpath": dataset["storage_relpath"],
