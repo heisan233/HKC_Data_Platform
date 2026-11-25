@@ -9,6 +9,7 @@ from app.modules.datasets import service as datasets
 from app.modules.quality.service import raw_fingerprint
 
 LABELS = {
+    "pending_ego": "待质检（EGO 规则待接入）",
     "uninspected": "未质检",
     "running": "质检中",
     "review": "待人工审核",
@@ -31,6 +32,9 @@ def attach_status(root: Path, items: list[dict]) -> list[dict]:
     for task in QualityRepository(root).list_tasks(visibility="all"):
         latest.setdefault(task["dataset_id"], task)
     for item in items:
+        if item.get("legacy_ego"):
+            item.update(qc_state="pending_ego", qc_label=LABELS["pending_ego"], qc_task_id=None)
+            continue
         task = latest.get(item["id"])
         state = "uninspected"
         if item["state"] != "ready":

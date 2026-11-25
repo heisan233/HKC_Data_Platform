@@ -58,6 +58,14 @@
     const video = select.closest('.dm-camera').querySelector('video');
     video.pause(); video.src = select.value; video.load();
   }));
+  document.querySelectorAll('.dm-ego-lerobot video').forEach(video => {
+    video.addEventListener('contextmenu', event => event.preventDefault());
+    video.addEventListener('loadeddata', () => {
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        video.currentTime = Math.min(0.1, video.duration / 2);
+      }
+    }, { once: true });
+  });
 
   const chartRoot = document.getElementById('dm-joint-chart');
   const chartCanvas = document.getElementById('dm-joint-canvas');

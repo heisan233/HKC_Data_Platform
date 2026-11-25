@@ -68,8 +68,8 @@
         {% for item in recent_datasets %}<tr>
           <td><strong>{{ item.id }}</strong><span>{{ item.name }}</span></td>
           <td><span class="dash-pill">{{ '可用' if item.availability == 'available' else '不可用' }}</span></td>
-          <td>{{ item.episodes if item.episodes is not none else '—' }} Episodes<small>{{ item.frames if item.frames is not none else '—' }} Frames</small></td>
-          <td>{% if item.collector_robot_id %}{{ item.collector_robot_id }}<small>{{ item.collector_robot_name }}</small>{% else %}<span class="dash-muted">未关联</span>{% endif %}</td>
+          <td>{% if item.legacy_ego %}{{ item.episodes if item.episodes is not none else '—' }} 片段{% else %}{{ item.episodes if item.episodes is not none else '—' }} Episodes<small>{{ item.frames if item.frames is not none else '—' }} Frames</small>{% endif %}</td>
+          <td>{% if item.legacy_ego %}<span class="dash-muted">—</span>{% elif item.collector_robot_id %}{{ item.collector_robot_id }}<small>{{ item.collector_robot_name }}</small>{% else %}<span class="dash-muted">未关联</span>{% endif %}</td>
           <td><span class="dash-state dash-state-{{ item.qc_state }}">{{ item.qc_label }}</span></td>
           <td>{{ item.registered_at|local_datetime }}</td>
           <td><a class="dash-row-link" href="/data/raw/{{ item.id }}">查看 →</a></td>

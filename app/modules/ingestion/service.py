@@ -116,12 +116,20 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 
 
+def _file_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(STREAM_CHUNK_SIZE):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _display_filename(raw_name: str | None) -> str:
     if not raw_name:
         raise UploadValidationError("没有收到 ZIP 文件。")
     filename = PurePosixPath(raw_name.replace("\\", "/")).name.strip()
     if not filename.lower().endswith(".zip"):
-        raise UploadValidationError("第一版只接受 .zip 格式的 LeRobot v3 数据集。")
+        raise UploadValidationError("请选择 .zip 格式的数据集。")
     return filename
 
 
@@ -147,7 +155,7 @@ def _validate_form_text(
 async def _stream_upload(
     upload: UploadFile,
     destination: Path,
-    max_upload_bytes: int,
+    max_upload_bytes: int | None,
 ) -> tuple[int, str]:
     """分块保存上传内容，避免把完整数据集读进内存。"""
 
@@ -156,10 +164,12 @@ async def _stream_upload(
     with destination.open("xb") as target:
         while chunk := await upload.read(STREAM_CHUNK_SIZE):
             received += len(chunk)
-            if received > max_upload_bytes:
+            if max_upload_bytes is not None and received > max_upload_bytes:
                 raise UploadValidationError(
                     f"压缩包超过上传上限 {format_bytes(max_upload_bytes)}。"
                 )
+            if max_upload_bytes is None and shutil.disk_usage(destination.parent).free < len(chunk) + 512 * MIB:
+                raise UploadValidationError("服务器剩余空间不足，无法继续接收 EGO 数据集。")
             target.write(chunk)
             digest.update(chunk)
 
@@ -209,6 +219,9 @@ def _find_dataset_root(paths: list[PurePosixPath]) -> tuple[str, ...]:
 def _inspect_archive(
     archive_path: Path,
     limits: UploadLimits,
+    *,
+    unlimited_size: bool = False,
+    require_video: bool = False,
 ) -> tuple[list[tuple[ZipInfo, PurePosixPath]], dict[str, Any], int]:
     """校验 ZIP 安全性和 LeRobot v3 最低目录结构。"""
 
@@ -236,7 +249,7 @@ def _inspect_archive(
                 )
 
             expanded_bytes += info.file_size
-            if expanded_bytes > limits.max_expanded_bytes:
+            if not unlimited_size and expanded_bytes > limits.max_expanded_bytes:
                 raise UploadValidationError(
                     "解压后的总大小超过平台限制 "
                     f"{format_bytes(limits.max_expanded_bytes)}。"
@@ -324,6 +337,17 @@ def _inspect_archive(
             raise UploadValidationError("meta/info.json 中 fps 必须是正数。")
         if not isinstance(info_data.get("features"), dict) or not info_data["features"]:
             raise UploadValidationError("meta/info.json 中缺少有效的 features。")
+        if require_video:
+            video_keys = {
+                key for key, feature in info_data["features"].items()
+                if isinstance(key, str) and isinstance(feature, dict)
+                and feature.get("dtype") == "video"
+            }
+            if not video_keys or not any(
+                name.startswith(f"videos/{key}/") and name.endswith(".mp4")
+                for key in video_keys for name in relative_names
+            ):
+                raise UploadValidationError("EGO LeRobot v3 数据集缺少声明的视频文件。")
 
         return relative_members, info_data, expanded_bytes
 
@@ -335,10 +359,15 @@ def _extract_validated_archive(
     robot_type_override: str,
     collector_robot_type: str = "",
     robot_type_confirmation: str = "",
+    *,
+    unlimited_size: bool = False,
+    require_video: bool = False,
 ) -> dict[str, Any]:
     """完成整包校验后，逐文件安全解压到指定目录。"""
 
-    members, info_data, expanded_bytes = _inspect_archive(archive_path, limits)
+    members, info_data, expanded_bytes = _inspect_archive(
+        archive_path, limits, unlimited_size=unlimited_size, require_video=require_video,
+    )
     source_value = info_data.get("robot_type")
     source_robot_type = (
         source_value.strip()
@@ -448,7 +477,7 @@ def _failure_payload(record: dict[str, Any]) -> dict[str, Any]:
 async def receive_dataset_upload(
     *,
     data_root: Path,
-    upload: UploadFile,
+    upload: UploadFile | None,
     dataset_name: str,
     description: str,
     dataset_family: str = "vla",
@@ -457,6 +486,8 @@ async def receive_dataset_upload(
     collector_robot_type: str = "",
     expected_sha256: str = "",
     robot_type_confirmation: str = "",
+    source_archive: Path | None = None,
+    source_filename: str = "",
 ) -> UploadOutcome:
     """接收一个 ZIP，并在成功后将内容发布到 ``data/<DS 编号>``。"""
 
@@ -475,7 +506,7 @@ async def receive_dataset_upload(
         "description": description.strip(),
         "requested_robot_type": robot_type.strip(),
         "collector_robot_id": collector_robot_id,
-        "original_filename": upload.filename or "",
+        "original_filename": source_filename if source_archive else (upload.filename or ""),
         "status": "receiving",
         "message": "正在接收文件",
         "received_bytes": 0,
@@ -488,13 +519,15 @@ async def receive_dataset_upload(
 
     try:
         if dataset_family not in DATASET_FAMILIES:
-            raise UploadValidationError("数据集类别只能是 VLA 或 WAM。")
+            raise UploadValidationError("数据集类别不合法。")
+        if dataset_family == "ego" and collector_robot_id:
+            raise UploadValidationError("机器人采集接口不支持 EGO 数据集。")
         clean_name, clean_description, clean_robot_type = _validate_form_text(
             dataset_name,
             description,
             robot_type,
         )
-        filename = _display_filename(upload.filename)
+        filename = _display_filename(source_filename if source_archive else upload.filename)
         record.update(
             dataset_name=clean_name,
             description=clean_description,
@@ -504,11 +537,18 @@ async def receive_dataset_upload(
 
         staging_dir.mkdir(parents=True, exist_ok=False)
         _write_record(data_root, record)
-        received_bytes, archive_sha256 = await _stream_upload(
-            upload,
-            archive_path,
-            limits.max_upload_bytes,
-        )
+        if source_archive is not None:
+            if dataset_family != "ego" or not source_archive.is_file() or source_archive.is_symlink():
+                raise UploadValidationError("EGO 分块上传文件不存在或不安全。")
+            source_archive.replace(archive_path)
+            received_bytes = archive_path.stat().st_size
+            archive_sha256 = await run_in_threadpool(_file_digest, archive_path)
+        else:
+            received_bytes, archive_sha256 = await _stream_upload(
+                upload,
+                archive_path,
+                None if dataset_family == "ego" else limits.max_upload_bytes,
+            )
         record.update(
             received_bytes=received_bytes,
             archive_sha256=archive_sha256,
@@ -529,20 +569,15 @@ async def receive_dataset_upload(
             )
 
         summary = await run_in_threadpool(
-            _extract_validated_archive,
-            archive_path,
-            unpacked_path,
-            limits,
-            clean_robot_type,
-            collector_robot_type,
-            robot_type_confirmation,
+            _extract_validated_archive, archive_path, unpacked_path,
+            limits, clean_robot_type, collector_robot_type, robot_type_confirmation,
+            unlimited_size=dataset_family == "ego",
+            require_video=dataset_family == "ego",
         )
         try:
             registered = await run_in_threadpool(
                 datasets.publish_staged_dataset,
-                data_root,
-                unpacked_path,
-                clean_name,
+                data_root, unpacked_path, clean_name,
                 dataset_family=dataset_family,
             )
         except ValueError as exc:
@@ -557,6 +592,11 @@ async def receive_dataset_upload(
                 status_code=409 if message == DATASET_NAME_CONFLICT else 400,
             ) from exc
         registered_dataset_id = registered["id"]
+        if clean_description:
+            await run_in_threadpool(
+                DatasetRepository(data_root).update_display,
+                registered_dataset_id, clean_name, clean_description, [],
+            )
         if collector_robot_id:
             try:
                 await run_in_threadpool(
@@ -576,7 +616,7 @@ async def receive_dataset_upload(
             dataset_id=registered["id"],
             storage_name=registered["id"],
             status="accepted",
-            message=f"LeRobot v3 数据集已入库并登记为 {registered['id']}",
+            message=f"数据集已入库并登记为 {registered['id']}",
             completed_at=_utc_now(),
             raw_relative_path=f"data/{registered['id']}",
             summary=summary,
@@ -611,7 +651,8 @@ async def receive_dataset_upload(
         _write_record(data_root, record)
         return UploadOutcome(status_code=500, payload=_failure_payload(record))
     finally:
-        await upload.close()
+        if upload is not None:
+            await upload.close()
         shutil.rmtree(staging_dir, ignore_errors=True)
 
 
@@ -635,3 +676,25 @@ def list_upload_records(data_root: Path, limit: int = 20) -> list[dict[str, Any]
 
     records.sort(key=lambda item: item.get("created_at", ""), reverse=True)
     return records[:limit]
+
+
+def clear_upload_records(data_root: Path) -> int:
+    """Remove upload history JSON only; registered datasets are unaffected."""
+    records_dir = data_root / "system" / "upload-records"
+    if not records_dir.exists():
+        return 0
+    if records_dir.is_symlink() or not records_dir.is_dir():
+        raise OSError("上传记录目录不安全")
+    paths = [path for path in records_dir.glob("up-*.json") if path.is_file() and not path.is_symlink()]
+    for path in paths:
+        try:
+            status = json.loads(path.read_text(encoding="utf-8")).get("status")
+        except (OSError, ValueError, AttributeError):
+            status = None
+        if status in {"receiving", "validating"}:
+            raise ValueError("仍有上传正在进行，请稍后清空记录")
+    removed = 0
+    for path in paths:
+        path.unlink()
+        removed += 1
+    return removed

@@ -20,7 +20,7 @@
 | `dashboard` | 平台真实统计与待办 |
 | `robots` | 机器人档案、Token 状态和 DS 关联 |
 | `collector` | 机器人 Bearer Token 上传 API |
-| `ingestion` | 网页 ZIP 上传和安全入库 |
+| `ingestion` | VLA/WAM/EGO LeRobot v3 ZIP 上传、安全入库及上传记录清理 |
 | `datasets` | DS 登记、详情、报告和回收站 |
 | `semantics` | LeRobot v3 Schema 扫描与派生字段 |
 | `quality` | Doctor、规则、VLM、人工审核和报告 |

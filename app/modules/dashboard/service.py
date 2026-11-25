@@ -41,6 +41,8 @@ def _bytes_label(value: int) -> str:
 def _qc_state(item: dict, task: dict | None) -> str:
     """Summarize the latest persisted QC state without rescanning large datasets."""
 
+    if item.get("legacy_ego"):
+        return "pending_ego"
     if item["state"] != "ready":
         return "raw_issue"
     if task is None:
@@ -102,7 +104,7 @@ def dashboard_snapshot(root: Path) -> dict:
     training_tasks = TrainingRepository(root).list(deleted=False)
 
     available_count = sum(item["availability"] == "available" for item in managed)
-    unavailable_count = len(managed) - available_count
+    unavailable_count = sum(item["availability"] == "unavailable" for item in managed)
     total_episodes = sum(
         item["episodes"] for item in managed if isinstance(item.get("episodes"), int)
     )
@@ -122,7 +124,8 @@ def dashboard_snapshot(root: Path) -> dict:
         for task in training_tasks
     )
 
-    unlinked = sum(not item.get("collector_robot_id") for item in managed)
+    unlinked = sum(item["dataset_family"] in {"vla", "wam"} and not item.get("collector_robot_id")
+                   for item in managed)
     invalid = sum(item["state"] != "ready" for item in managed)
     failed_training = sum(task["status"] == "FAILED" for task in training_tasks)
     todo = [

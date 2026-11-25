@@ -15,6 +15,7 @@ from app.db.dataset_robots import DatasetRobotRepository
 from app.db.datasets import STORAGE_AREAS, DatasetRepository
 
 MAX_METADATA_BYTES = 4 * 1024 * 1024
+MAX_EGO_MANIFEST_BYTES = 64 * 1024 * 1024
 MAX_LIST_FILES = 500
 MAX_CHART_POINTS = 2_000
 UNKNOWN_ROBOT_TYPE = "未声明"
@@ -67,11 +68,11 @@ def safe_file(root: Path, relative: str) -> Path | None:
         return None
 
 
-def read_json(path: Path | None) -> dict | None:
+def read_json(path: Path | None, max_bytes: int = MAX_METADATA_BYTES) -> dict | None:
     if path is None:
         return None
     try:
-        if path.stat().st_size > MAX_METADATA_BYTES:
+        if path.stat().st_size > max_bytes:
             return None
         data = json.loads(path.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else None
@@ -109,6 +110,13 @@ def info_digest(folder: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def manifest_digest(folder: Path) -> str:
+    path = safe_file(folder, "manifest.json")
+    if path is None or path.stat().st_size > MAX_EGO_MANIFEST_BYTES:
+        raise ValueError("EGO 数据集清单不可读取")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def resolve_registered_dataset(
     root: Path,
     dataset_id: str,
@@ -119,6 +127,8 @@ def resolve_registered_dataset(
     record = DatasetRepository(root).get(dataset_id)
     if record is None:
         raise ValueError("数据集未登记")
+    if record.get("manifest_sha256") is not None:
+        raise ValueError("历史 EgoDex 数据集不适用 LeRobot 处理流程")
     if record["storage_area"] not in allowed_areas:
         raise ValueError("数据集所在存储区域不允许执行此操作")
     if availability is not None and record["availability"] != availability:
@@ -235,11 +245,19 @@ def summary(root: Path, name: str, registered: dict | None = None, area: str = "
         area = registered["storage_area"]
         name = registered["storage_relpath"]
     folder = directory(root, area, name)
-    info, error = dataset_info(folder) if folder else (None, "数据集目录缺失")
+    legacy_ego = bool(registered and registered.get("manifest_sha256") is not None)
+    if legacy_ego and folder:
+        info = read_json(safe_file(folder, "manifest.json"), MAX_EGO_MANIFEST_BYTES)
+        payload = folder / "payload"
+        error = None if (info and info.get("format") in {"egodex-v1", "generic-zip-v1"}
+                         and payload.is_dir() and not payload.is_symlink()) else "EGO 数据集目录或清单无效"
+    else:
+        info, error = dataset_info(folder) if folder else (None, "数据集目录缺失")
     report_count = len(reports_for(root, registered["id"])) if registered else 0
     try:
         changed = bool(registered and folder and not error
-                       and registered["info_sha256"] != info_digest(folder))
+                       and (registered["manifest_sha256"] != manifest_digest(folder)
+                            if legacy_ego else registered["info_sha256"] != info_digest(folder)))
     except (OSError, ValueError):
         changed = True
     state = "missing" if not folder else "invalid" if error else "changed" if changed else "ready"
@@ -252,10 +270,13 @@ def summary(root: Path, name: str, registered: dict | None = None, area: str = "
         "robot_type": registered["robot_type"] if registered else (
             robot_type_label(info) if info else "—"
         ),
-        "episodes": (info or {}).get("total_episodes"),
+        "episodes": (info or {}).get("clip_count") if legacy_ego else (info or {}).get("total_episodes"),
         "frames": (info or {}).get("total_frames"),
         "fps": (info or {}).get("fps"),
         "version": (info or {}).get("codebase_version", "—"),
+        "format_label": "历史 EgoDex" if legacy_ego else "LeRobot v3",
+        "file_count": (info or {}).get("file_count") if legacy_ego else None,
+        "legacy_ego": legacy_ego,
         "state": state,
         "error": error,
         "report_count": report_count,
@@ -460,6 +481,22 @@ def detail(root: Path, record: dict) -> dict:
     folder = directory(root, area, folder_name)
     if folder is None:
         return {"folder": None, "info": {}, "stats": {}, "files": [], "cameras": [], "size": "—"}
+    if record.get("manifest_sha256") is not None:
+        payload = folder / "payload"
+        manifest = read_json(safe_file(folder, "manifest.json"), MAX_EGO_MANIFEST_BYTES) or {}
+        clips = manifest.get("clips", []) if isinstance(manifest.get("clips"), list) else []
+        files = []
+        for clip in clips[:50]:
+            for key in ("video", "pose"):
+                relative = clip.get(key, "")
+                file = safe_file(payload, relative) if payload.is_dir() else None
+                if file:
+                    files.append({"path": relative, "size": size_label(file.stat().st_size)})
+        return {"folder": folder_name, "info": manifest,
+                "stats": {}, "files": files, "cameras": [],
+                "tasks": sorted({clip.get("task", "") for clip in clips}),
+                "size": size_label(manifest.get("expanded_bytes", 0)),
+                "joint_fields": [], "episode_indices": [], "episode_error": None}
     info = read_json(safe_file(folder, "meta/info.json")) or {}
     stats = read_json(safe_file(folder, "meta/stats.json")) or {}
     cameras = []
@@ -476,8 +513,16 @@ def detail(root: Path, record: dict) -> dict:
             for file in sorted(camera_dir.rglob("*.mp4"))[:100]:
                 relative = file.relative_to(folder / "videos").as_posix()
                 if safe_file(folder / "videos", relative):
-                    videos.append({"name": file.name, "url": f"/data/datasets/{quote(record['id'])}/video/{quote(relative, safe='/')}"})
+                    endpoint = "ego/{}/preview" if record["dataset_family"] == "ego" else "datasets/{}/video"
+                    videos.append({"name": file.name, "url": f"/data/{endpoint.format(quote(record['id']))}/{quote(relative, safe='/')}"})
         cameras.append({"key": key, "videos": videos})
+    if record["dataset_family"] == "ego":
+        return {
+            "folder": folder_name, "info": info, "stats": stats,
+            "features": features, "files": [], "cameras": cameras,
+            "size": size_label(folder_size(folder)),
+            "joint_fields": [], "episode_indices": [], "episode_error": None,
+        }
     try:
         episode_indices = _episode_indices(folder)
         episode_error = None

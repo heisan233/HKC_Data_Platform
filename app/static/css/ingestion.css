@@ -241,7 +241,9 @@
 
 .history-heading { margin-bottom: 15px; }
 .history-heading .eyebrow { margin-bottom: 3px; }
-.refresh-link { color: var(--ingestion-blue); font-size: 12px; text-decoration: none; }
+.history-actions { align-items: center; display: flex; gap: 16px; }
+.clear-records { background: #fff; border: 1px solid var(--ingestion-red); border-radius: 6px; color: var(--ingestion-red); cursor: pointer; font: inherit; font-size: 14px; padding: 7px 14px; }
+.clear-records:disabled { cursor: wait; opacity: 0.6; }
 .history-table-wrap { overflow-x: auto; }
 .history-table { border-collapse: collapse; min-width: 780px; width: 100%; }
 .history-table th { border-bottom: 1px solid var(--ingestion-border); color: #78879a; font-size: 11px; font-weight: 700; padding: 10px; text-align: left; }

@@ -1,13 +1,13 @@
 # HKC 数采平台当前状态
 
-更新日期：2026-11-13
+更新日期：2026-11-23
 
 本文是当前代码事实的唯一状态说明，不记录旧版本开发流水账。开发规则见
 `AGENTS.md`，实际操作见 `how_use.md`。
 
 ## 1. 当前基线
 
-- 共同开发分支：`integration/hs-lxp-v3.2.0-cq`；
+- 当前检出的开发分支：`integration/hs-lxp-v3.2.1-cq`；
 - Web 入口：`app.main:app`；
 - 平台形态：FastAPI 应用容器 + MySQL 8.4 容器；
 - 文件格式：当前真实业务以 LeRobot v3 为主；
@@ -32,7 +32,7 @@ git log -1 --oneline --decorate
 | `/robots/` | robots | RB 档案、停用/恢复、Token 状态和 DS 关联 |
 | `/semantics/` | semantics | LeRobot v3 Schema 扫描与派生字段扩展 |
 | `/data/` | datasets | DS 总览、详情、关节曲线、报告和回收站 |
-| `/ingestion/` | ingestion | 单个/批量 LeRobot v3 ZIP 网页上传 |
+| `/ingestion/` | ingestion | VLA/WAM/EGO LeRobot v3 ZIP 上传；EGO 支持分块续传，可清空上传记录 |
 | `/api/v1/collector/*` | collector | 机器人 Token 预检、上传、防重复和改绑确认 |
 | `/qc/` | quality | Doctor、规则、VLM、人工审核和报告 |
 | `/annotation/` | annotation | Episode/task/Subtask 标注和完整派生发布 |
@@ -64,6 +64,15 @@ LeRobot v3 ZIP
 - 新 DS 使用 `DS000001` 形式的稳定编号；
 - 新发布目录为 `storage/data/<DS 编号>/`；
 - 上传时选择 VLA/WAM 类别；两类数据集共用编号、存储和质检状态，训练入口分别筛选；
+- 新 EGO 上传只接受完整 LeRobot v3 ZIP，每个 `part-*` 单独登记为一个 DS；
+  `meta/`、`data/`、`videos/` 保存在 `data/<DS 编号>/`，`provenance/` 原样保留；
+  入库标记为“不可用、待质检”，可选择匹配 `human_egocentric` 的 LeRobot 质检方案；
+- EGO LeRobot 详情页按 Episode 浏览任务、时长和对应视频，所选片段按需读取
+  `observation.state` / `action` 数值曲线并比较两列；曲线表示原始向量，不标为关节角度；
+- EGO 没有固定单包大小上限，仍受服务器剩余磁盘空间和压缩包安全检查约束；
+  浏览器采用分块续传，VLA/WAM 继续使用现有单包上限；
+- 旧苹果格式 EgoDex DS 保留历史详情读取，但不再接受新上传，也不进入 LeRobot 处理流程；
+- 清空最近上传记录只删除 `system/upload-records/` 的上传记录，不删除已登记 DS；
 - 旧 `raw/` 和 `derived/` 目录映射继续可用，但不自动迁移；
 - 数据集显示名称唯一，忽略首尾空格和英文大小写；
 - 回收站中的 DS 仍占用名称，永久清除后才可复用；

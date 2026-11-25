@@ -15,7 +15,7 @@ from app.db.mysql import IntegrityError, Row, connection, ensure_schema
 
 STORAGE_AREAS = frozenset({"raw", "derived", "data"})
 AVAILABILITY = frozenset({"available", "unavailable"})
-DATASET_FAMILIES = frozenset({"vla", "wam"})
+DATASET_FAMILIES = frozenset({"vla", "wam", "ego"})
 STATUS_LABELS = frozenset({"待质检", "待处理"})
 DATASET_NAME_CONFLICT = "数据集名称已存在，请使用其他名称"
 
@@ -120,18 +120,23 @@ class DatasetRepository:
         storage_relpath: str,
         name: str,
         robot_type: str,
-        digest: str,
+        digest: str | None,
         source_dataset_ids: list[str] | None = None,
         *,
         reserved_id: str | None = None,
         dataset_family: str | None = None,
+        manifest_digest: str | None = None,
     ) -> dict:
         self.initialize()
         area = _area(storage_area)
         relpath = _child_name(storage_relpath)
         sources = list(dict.fromkeys(source_dataset_ids or []))
         if dataset_family is not None and dataset_family not in DATASET_FAMILIES:
-            raise ValueError("数据集类别只能是 VLA 或 WAM")
+            raise ValueError("数据集类别只能是 VLA、WAM 或 EGO")
+        if dataset_family == "ego" and (digest is None) == (manifest_digest is None):
+            raise ValueError("EGO 数据集需要 LeRobot 元数据或历史清单")
+        if manifest_digest is not None and sources:
+            raise ValueError("历史 EGO 数据集不能作为派生数据集")
         clean_name = name.strip()
         try:
             with self.connection() as db:
@@ -148,6 +153,8 @@ class DatasetRepository:
                     if len(families) != 1:
                         raise ValueError("不能合并 VLA 与 WAM 数据集")
                     inherited = families.pop()
+                    if inherited == "ego":
+                        raise ValueError("EGO 数据集暂不支持派生发布")
                     if dataset_family is not None and dataset_family != inherited:
                         raise ValueError("派生数据集类别必须与源数据集一致")
                     dataset_family = inherited
@@ -170,11 +177,13 @@ class DatasetRepository:
                 timestamp = utc_now()
                 db.execute("""INSERT INTO datasets
                     (id, seq, storage_area, storage_relpath, name, robot_type, dataset_family,
-                     description, tags_json, source_dataset_ids_json, info_sha256,
+                     description, tags_json, source_dataset_ids_json, info_sha256, manifest_sha256,
                      registered_at, updated_at, availability)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unavailable')""",
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (dataset_id, seq, area, relpath, clean_name, robot_type, dataset_family, "", "[]",
-                     json.dumps(sources, ensure_ascii=False), digest, timestamp, timestamp))
+                     json.dumps(sources, ensure_ascii=False), digest, manifest_digest,
+                     timestamp, timestamp,
+                     "unavailable"))
                 db.execute("INSERT INTO dataset_status_labels (dataset_id,label,created_at) VALUES (?,?,?)",
                            (dataset_id, "待质检", timestamp))
         except IntegrityError as exc:
@@ -214,7 +223,8 @@ class DatasetRepository:
             raise ValueError("状态标签不合法")
         self.initialize()
         with self.connection() as db:
-            if db.execute("SELECT 1 FROM datasets WHERE id=?", (dataset_id,)).fetchone() is None:
+            row = db.execute("SELECT dataset_family FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+            if row is None:
                 return None
             db.execute("DELETE FROM dataset_status_labels WHERE dataset_id=?", (dataset_id,))
             for label in labels:
@@ -283,6 +293,9 @@ class DatasetRepository:
     def accept_rescan(self, dataset_id: str, digest: str, robot_type: str) -> dict | None:
         self.initialize()
         with self.connection() as db:
+            row = db.execute("SELECT manifest_sha256 FROM datasets WHERE id=?", (dataset_id,)).fetchone()
+            if row and row["manifest_sha256"] is not None:
+                raise ValueError("历史 EGO 数据集不适用 LeRobot 元数据重扫")
             result = db.execute("""UPDATE datasets SET info_sha256=?, robot_type=?, availability='unavailable',
                 updated_at=?
                 WHERE id=?""", (digest, robot_type, utc_now(), dataset_id))

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block page_title %}EGO 数据集 · {{ item.id }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="/static/css/data.css?v=20261124-ego-metadata">
+{% set field_labels = {
+  'observation.state': '状态向量', 'action': '动作向量',
+  'observation.cam_extrinsic': '相机外参', 'timestamp': '时间戳',
+  'frame_index': '帧序号', 'episode_index': '片段序号',
+  'index': '样本序号', 'task_index': '任务序号',
+  'observation.images.cam_high': '第一视角视频'
+} %}
+<div class="dm-wrap dm-ego-lerobot" id="dm-detail-page" data-id="{{ item.id }}">
+  <nav class="dm-crumb"><a href="/data/manage/">数据管理</a><span>/</span>{{ item.id }}</nav>
+  <section class="dm-hero"><div><span class="dm-eyebrow">EGO · {{ item.id }}</span><h2>{{ item.name }}</h2><p>{{ item.robot_type }} · LeRobot v3</p></div><span class="dm-hero-pill">{{ '可用' if item.availability == 'available' else '不可用 · 待质检' }}</span></section>
+  {% if item.state != 'ready' %}<div class="dm-feedback dm-feedback-error">{{ item.error or '元数据已变化，请核对后重新扫描' }}</div>{% endif %}
+  <div id="dm-feedback" class="dm-feedback" role="status" hidden></div>
+  <div class="dm-grid dm-grid-four dm-metrics dm-ego-metrics">
+    <div class="dm-metric"><small>Episodes · 片段数</small><strong>{{ detail.info.get('total_episodes', '—') }}</strong></div>
+    <div class="dm-metric"><small>Frames · 总帧数</small><strong>{{ detail.info.get('total_frames', '—') }}</strong></div>
+    <div class="dm-metric"><small>FPS · 帧率</small><strong>{{ detail.info.get('fps', '—') }}</strong></div>
+    <div class="dm-metric"><small>Duration · 约总时长</small><strong>{% if ego_overview and ego_overview.duration_seconds is not none %}{{ '%.1f'|format(ego_overview.duration_seconds) }} s{% else %}—{% endif %}</strong></div>
+    <div class="dm-metric"><small>Tasks · 任务数</small><strong>{{ ego_overview.task_count if ego_overview and ego_overview.task_count is not none else '—' }}</strong></div>
+    <div class="dm-metric"><small>Cameras · 视频视角</small><strong>{{ ego_overview.camera_count if ego_overview else '—' }}</strong></div>
+    <div class="dm-metric"><small>Storage · 文件占用</small><strong>{{ detail.size }}</strong></div>
+  </div>
+  <section class="dm-panel dm-ego-browser" id="dm-ego-browser" data-dataset-id="{{ item.id }}">
+    <div class="dm-panel-head"><div><h3>任务与片段</h3><p>按 Episode 浏览原始任务描述、帧数和时长；选择后预览对应视频。</p></div><span class="dm-count" id="ego-page-count"></span></div>
+    <div class="dm-ego-episode-layout">
+      <div class="dm-ego-episode-list">
+        <div class="dm-ego-list-head"><span>Episode / Task</span><span>Frames · Duration</span></div>
+        <div id="ego-episode-items" role="list"></div>
+        <div class="dm-ego-list-footer"><button type="button" id="ego-prev-page">上一页</button><span id="ego-page-label"></span><button type="button" id="ego-next-page">下一页</button></div>
+      </div>
+      <div class="dm-ego-video-box"><div class="dm-ego-video-head"><div><small>视频预览</small><strong id="ego-selected-title">选择一个 Episode</strong></div><span id="ego-video-range"></span></div><video id="ego-episode-video" controls controlslist="nodownload" preload="metadata" playsinline></video><p id="ego-video-status" role="status">视频按需生成浏览器兼容预览；每个片段最多预览前 2 分钟。</p></div>
+    </div>
+  </section>
+  <section class="dm-panel dm-ego-vector-panel" id="dm-ego-vector-panel">
+    <div class="dm-panel-head"><div><h3>状态与动作曲线</h3><p>显示所选 Episode 的原始 16 维向量；不是机器人关节角度。</p></div><span class="dm-count" id="ego-vector-count"></span></div>
+    <div class="dm-ego-vector-toolbar"><label>数据字段<select id="ego-vector-field"><option value="observation.state">observation.state · 状态向量</option><option value="action">action · 动作向量</option></select></label><span id="ego-equality" class="dm-ego-equality">选择片段后核对两列</span></div>
+    <div id="ego-vector-legend" class="dm-ego-vector-legend" aria-label="选择显示维度"></div>
+    <div class="dm-joint-chart-wrap"><canvas id="ego-vector-canvas" role="img" aria-label="所选 Episode 的状态或动作向量曲线"></canvas></div>
+    <p class="dm-ego-vector-status" id="ego-vector-status" role="status">选择片段后加载曲线。点击曲线可定位视频时间。</p>
+  </section>
+  <details class="dm-panel dm-source-details dm-ego-fields" open><summary>字段说明 <span>原字段名、中文含义、类型与维度</span></summary><div class="dm-feature-grid dm-pad">{% for key, value in detail.features.items() %}<div class="dm-feature dm-ego-field"><div class="dm-ego-field-name"><code>{{ key }}</code><span>（{{ field_labels.get(key, '数据字段') }}）</span></div><p>类型：{{ value.get('dtype', '—') if value is mapping else '—' }}，维度：{% if value is mapping and value.get('shape') is iterable and value.get('shape') is not string %}{{ value.get('shape')|join(' × ') }}维{% else %}—{% endif %}</p></div>{% endfor %}</div></details>
+  <section class="dm-panel dm-ego-raw-metadata"><div class="dm-panel-head"><div><h3>原始元数据</h3><p>直接展示数据集内的元数据内容，仅供查看。</p></div></div><details class="dm-source-details" open><summary>meta/info.json</summary><pre class="dm-pre">{{ detail.info|tojson(indent=2) }}</pre></details><details class="dm-source-details"><summary>meta/stats.json</summary><pre class="dm-pre">{{ detail.stats|tojson(indent=2) }}</pre></details></section>
+  {% if reports %}<section class="dm-panel"><div class="dm-panel-head"><h3>关联报告</h3></div>{% for report in reports %}<a class="dm-list-row" href="/data/reports/{{ item.id }}/{{ report.name|urlencode }}">{{ report.name }}</a>{% endfor %}</section>{% endif %}
+</div>
+<script src="/static/js/data_manage.js?v=20261124-ego-v3"></script>
+<script src="/static/js/data_ego_lerobot.js?v=20261124-ego-metadata" defer></script>
+{% endblock %}

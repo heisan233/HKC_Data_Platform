@@ -10,8 +10,9 @@ from app.core.config import settings
 from app.db.datasets import DatasetRepository
 from app.db.quality import QualityRepository
 from app.modules.conversion import service as conversion_service
-from app.modules.datasets import service
+from app.modules.datasets import ego_detail, service
 from app.modules.datasets import trash as dataset_trash
+from app.modules.datasets.ego_preview import PreviewError, create_preview
 from app.modules.quality.status import attach_status
 from app.web import templates
 
@@ -69,7 +70,7 @@ def manage_page(request: Request, q: str = "", family: str = "all"):
     _, managed = service.catalog(storage_root())
     attach_status(storage_root(), managed)
     rows = managed
-    if family in {"vla", "wam"}:
+    if family in {"vla", "wam", "ego"}:
         rows = [row for row in rows if row["dataset_family"] == family]
     else:
         family = "all"
@@ -168,6 +169,8 @@ def update_status_labels(dataset_id: str, body: StatusLabelsChange):
 @router.post("/api/datasets/{dataset_id}/rescan")
 def accept_rescan(dataset_id: str):
     record = record_or_404(dataset_id)
+    if record.get("manifest_sha256") is not None:
+        raise HTTPException(409, "历史 EgoDex 数据集不适用 LeRobot 元数据重扫")
     folder = service.directory(
         storage_root(), record["storage_area"], record["storage_relpath"]
     )
@@ -186,7 +189,10 @@ def recheck(dataset_id: str):
     folder = service.directory(storage_root(), record["storage_area"], record["storage_relpath"])
     if folder is None:
         raise HTTPException(409, "数据集目录缺失或不安全")
-    if service.info_digest(folder) != record["info_sha256"]:
+    if record.get("manifest_sha256") is not None:
+        if service.manifest_digest(folder) != record["manifest_sha256"]:
+            raise HTTPException(409, "EGO 清单已变化，请先核对文件")
+    elif service.info_digest(folder) != record["info_sha256"]:
         raise HTTPException(409, "元数据已变化，请先重新扫描")
     return DatasetRepository(storage_root()).mark_for_qc(dataset_id)
 
@@ -205,6 +211,7 @@ def dataset_joint_series(dataset_id: str, episode_index: int, field_name: str):
 @router.get("/raw/")
 def raw_list(request: Request, q: str = "", qc: str = "all"):
     _, managed = service.catalog(storage_root())
+    managed = [item for item in managed if not item.get("legacy_ego")]
     attach_status(storage_root(), managed)
     if qc in {"uninspected", "review", "passed", "recapture", "running", "error", "stale", "raw_issue", "recheck"}:
         managed = [item for item in managed if item["qc_state"] == qc]
@@ -227,10 +234,58 @@ def asset_page(request: Request, dataset_id: str):
     item = service.summary(storage_root(), record["storage_relpath"], record)
     attach_status(storage_root(), [item])
     detail = service.detail(storage_root(), record)
-    return templates.TemplateResponse(request=request, name="data_raw_detail.html", context={
+    ego_overview = None
+    if record["dataset_family"] == "ego" and record.get("manifest_sha256") is None:
+        try:
+            ego_overview = ego_detail.overview(
+                storage_root(), record, detail["info"], len(detail["cameras"])
+            )
+        except ValueError:
+            ego_overview = None
+    return templates.TemplateResponse(request=request, name=(
+        "data_ego_legacy_detail.html" if record.get("manifest_sha256") is not None
+        else "data_ego_detail.html" if record["dataset_family"] == "ego"
+        else "data_raw_detail.html"), context={
         "item": item, "detail": detail, "area": record["storage_area"], "record": record,
         "reports": service.reports_for(storage_root(), dataset_id),
+        "ego_overview": ego_overview,
     })
+
+
+@router.get("/api/ego/{dataset_id}/episodes")
+def ego_episodes(dataset_id: str, page: int = 1):
+    record = record_or_404(dataset_id)
+    try:
+        return ego_detail.episodes(storage_root(), record, page)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/api/ego/{dataset_id}/vector-series")
+def ego_vector_series(dataset_id: str, episode_index: int, field_name: str):
+    record = record_or_404(dataset_id)
+    try:
+        return ego_detail.vector_series(storage_root(), record, episode_index, field_name)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+@router.get("/ego/{dataset_id}/episodes/{episode_index}/preview")
+def ego_episode_preview(dataset_id: str, episode_index: int):
+    record = record_or_404(dataset_id)
+    try:
+        source, start, duration = ego_detail.episode_video(
+            storage_root(), record, episode_index
+        )
+        preview = create_preview(
+            storage_root(), dataset_id, source,
+            start_seconds=start, duration_seconds=duration,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except PreviewError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return FileResponse(preview, media_type="video/mp4")
 
 
 @router.get("/raw/{dataset_id}")
@@ -240,6 +295,8 @@ def raw_detail(request: Request, dataset_id: str):
 
 def video_file(dataset_id: str, video_path: str):
     record = record_or_404(dataset_id)
+    if record["dataset_family"] == "ego":
+        raise HTTPException(404, "视频不存在")
     folder = service.directory(
         storage_root(), record["storage_area"], record["storage_relpath"]
     )
@@ -252,6 +309,84 @@ def video_file(dataset_id: str, video_path: str):
 @router.get("/raw/{dataset_id}/video/{video_path:path}")
 def raw_video(dataset_id: str, video_path: str):
     return video_file(dataset_id, video_path)
+
+
+@router.get("/ego/{dataset_id}/preview/{video_path:path}")
+def ego_video_preview(dataset_id: str, video_path: str):
+    record = record_or_404(dataset_id)
+    if record["dataset_family"] != "ego":
+        raise HTTPException(404, "EGO 数据集不存在")
+    root = storage_root()
+    folder = service.directory(root, record["storage_area"], record["storage_relpath"])
+    if folder is None:
+        raise HTTPException(404, "视频不存在")
+    if record.get("manifest_sha256") is not None:
+        manifest = service.read_json(service.safe_file(folder, "manifest.json"),
+                                     service.MAX_EGO_MANIFEST_BYTES)
+        if not manifest or video_path not in {clip.get("video") for clip in manifest.get("clips", [])}:
+            raise HTTPException(404, "片段视频不存在")
+        source = service.safe_file(folder / "payload", video_path)
+    else:
+        info, error = service.dataset_info(folder)
+        features = (info or {}).get("features", {})
+        key = video_path.split("/", 1)[0]
+        if error or not isinstance(features, dict) or not isinstance(features.get(key), dict) or features[key].get("dtype") != "video":
+            raise HTTPException(404, "视频不存在")
+        source = service.safe_file(folder / "videos", video_path)
+    if source is None or source.suffix.lower() != ".mp4":
+        raise HTTPException(404, "片段视频不存在")
+    try:
+        preview = create_preview(root, dataset_id, source)
+    except PreviewError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    return FileResponse(preview, media_type="video/mp4")
+
+
+@router.get("/ego/{dataset_id}/clips")
+def ego_clips(dataset_id: str, page: int = 1, task: str = ""):
+    record = record_or_404(dataset_id)
+    if record.get("manifest_sha256") is None:
+        raise HTTPException(404, "EGO 数据集不存在")
+    if page < 1:
+        raise HTTPException(400, "页码不合法")
+    folder = service.directory(storage_root(), record["storage_area"], record["storage_relpath"])
+    manifest = service.read_json(service.safe_file(folder, "manifest.json"),
+                                 service.MAX_EGO_MANIFEST_BYTES) if folder else None
+    if not manifest:
+        raise HTTPException(409, "EGO 清单缺失")
+    clips = manifest.get("clips", [])
+    if task:
+        clips = [clip for clip in clips if clip.get("task") == task]
+    start = (page - 1) * 25
+    return {"total": len(clips), "page": page, "clips": clips[start:start + 25]}
+
+
+@router.get("/ego/{dataset_id}/pose/{pose_path:path}")
+def ego_pose(dataset_id: str, pose_path: str):
+    record = record_or_404(dataset_id)
+    if record.get("manifest_sha256") is None:
+        raise HTTPException(404, "EGO 数据集不存在")
+    folder = service.directory(storage_root(), record["storage_area"], record["storage_relpath"])
+    manifest = service.read_json(service.safe_file(folder, "manifest.json"),
+                                 service.MAX_EGO_MANIFEST_BYTES) if folder else None
+    if not manifest or pose_path not in {clip.get("pose") for clip in manifest.get("clips", [])}:
+        raise HTTPException(404, "片段元数据不存在")
+    file = service.safe_file(folder / "payload", pose_path) if folder else None
+    if file is None:
+        raise HTTPException(404, "HDF5 文件不存在")
+    try:
+        import h5py
+
+        with h5py.File(file, "r") as source:
+            attributes = {str(key): str(value)[:500] for key, value in source.attrs.items()}
+            datasets = []
+            def visit(name, node):
+                if isinstance(node, h5py.Dataset) and len(datasets) < 100:
+                    datasets.append({"name": name, "shape": list(node.shape), "dtype": str(node.dtype)})
+            source.visititems(visit)
+        return {"attributes": attributes, "datasets": datasets}
+    except (OSError, ValueError) as exc:
+        raise HTTPException(422, f"HDF5 无法读取：{exc}") from exc
 
 
 @router.get("/datasets/{dataset_id}/video/{video_path:path}")
