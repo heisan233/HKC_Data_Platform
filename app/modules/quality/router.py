@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
@@ -11,7 +12,8 @@ from pydantic import BaseModel
 from app.core.config import settings
 from app.db.datasets import DatasetRepository
 from app.modules.datasets import service as datasets
-from app.modules.quality import service
+from app.modules.datasets.ego_preview import PreviewError, create_preview
+from app.modules.quality import service, vlm
 from app.modules.quality.catalog import (
     DOCTOR_CHECKS,
     DOCTOR_REPORT_NAMES,
@@ -69,6 +71,27 @@ def task_or_404(task_id: str) -> dict:
     return task
 
 
+def _prepare_report_display(report: dict | None, task: dict) -> dict | None:
+    if report is None:
+        return None
+    episodes = [episode
+                for rule in report.get("sections", {}).get("vlm", {}).get("results", [])
+                for episode in rule.get("episodes", [])]
+    task_labels: dict[int, str] = {}
+    if any(not episode.get("task") for episode in episodes):
+        try:
+            _, folder = datasets.resolve_registered_dataset(root(), task["dataset_id"])
+            task_labels = vlm.episode_tasks(folder)
+        except (OSError, ValueError):
+            task_labels = {}
+    for episode in episodes:
+        episode["display_summary"] = vlm.display_summary(episode)
+        episode["task"] = episode.get("task") or task_labels.get(
+            int(episode.get("episode", 0)), "未填写"
+        )
+    return report
+
+
 @router.get("/")
 def qc_page(request: Request):
     repo = service.initialize(root())
@@ -124,13 +147,50 @@ def plan_editor(request: Request, plan_id: str):
 @router.get("/reports/{task_id}")
 def report_page(request: Request, task_id: str):
     task = task_or_404(task_id)
-    report = service.read_report(root(), task)
+    report = _prepare_report_display(service.read_report(root(), task), task)
     dataset = DatasetRepository(root()).get(task["dataset_id"])
     return templates.TemplateResponse(request=request, name="qc_report.html", context={
         "task": task, "report": report, "dataset": dataset,
         "reviews": service.initialize(root()).reviews(task_id),
         "doctor_names": DOCTOR_REPORT_NAMES,
     })
+
+
+@router.get("/reports/{task_id}/episodes/{episode_index}/video")
+def report_episode_video(task_id: str, episode_index: int, rule_id: str):
+    task = task_or_404(task_id)
+    report = service.read_report(root(), task)
+    if report is None:
+        raise HTTPException(404, "质检报告不存在")
+    rules = report.get("sections", {}).get("vlm", {}).get("results", [])
+    rule = next((row for row in rules if row.get("id") == rule_id), None)
+    episode = next((row for row in (rule or {}).get("episodes", [])
+                    if row.get("episode") == episode_index), None)
+    video = episode.get("video") if isinstance(episode, dict) else None
+    if not isinstance(video, dict) or not isinstance(video.get("source_file"), str):
+        raise HTTPException(404, "该 Episode 没有可查看的问题视频")
+    try:
+        _, folder = datasets.resolve_registered_dataset(root(), task["dataset_id"])
+    except ValueError as exc:
+        raise HTTPException(404, str(exc)) from exc
+    if service.raw_fingerprint(folder) != report.get("raw_fingerprint"):
+        raise HTTPException(409, "数据集文件已变化，不能作为本次质检的原始证据")
+    relative = video["source_file"]
+    source = datasets.safe_file(folder, relative) if relative.startswith("videos/") else None
+    start, end = video.get("from_timestamp"), video.get("to_timestamp")
+    if (source is None or source.suffix.lower() != ".mp4"
+            or not isinstance(start, (int, float)) or not math.isfinite(start)
+            or not isinstance(end, (int, float)) or not math.isfinite(end)
+            or start < 0 or end <= start or end - start > 3600):
+        raise HTTPException(404, "问题视频不存在或时间范围无效")
+    try:
+        preview = create_preview(
+            root(), task["dataset_id"], source,
+            start_seconds=float(start), duration_seconds=float(end - start),
+        )
+    except PreviewError as exc:
+        raise HTTPException(503, str(exc)) from exc
+    return FileResponse(preview, media_type="video/mp4")
 
 
 @router.get("/reports/{task_id}/download")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 import subprocess
 import tempfile
@@ -20,6 +21,48 @@ from app.modules.datasets.lerobot_v3 import (
 from app.modules.datasets.service import safe_file
 
 MAX_VIDEO_BYTES = 100 * 1024 * 1024
+MAX_SUMMARY_CHARS = 80
+_logger = logging.getLogger(__name__)
+
+
+def _clean_summary(value: str) -> str:
+    text = re.sub(r"\s+", " ", value).strip()
+    if not text:
+        return ""
+    sentences = [item.strip() for item in re.split(r"(?<=[。！？.!?])\s+", text)
+                 if item.strip()]
+    unique = []
+    for sentence in sentences:
+        if sentence.casefold() not in {item.casefold() for item in unique}:
+            unique.append(sentence)
+    text = " ".join(unique)
+    if len(text) > MAX_SUMMARY_CHARS:
+        text = text[:MAX_SUMMARY_CHARS].rstrip("，,；;。.!！?") + "…"
+    return text
+
+
+def _is_chinese_summary(value: str) -> bool:
+    chinese = len(re.findall(r"[\u3400-\u9fff]", value))
+    latin = len(re.findall(r"[A-Za-z]", value))
+    return chinese >= 4 and chinese >= latin
+
+
+def _fallback_summary(status: str) -> str:
+    return {
+        "PASS": "视频内容符合该项检查要求。",
+        "FAIL": "视频内容未通过该项检查，请查看问题视频片段并人工复核。",
+        "UNCERTAIN": "视频证据不足，无法确认是否符合要求，请人工复核。",
+        "ERROR": "该 Episode 检查执行失败，请查看任务信息并人工复核。",
+    }.get(status.upper(), "VLM 结果需要人工复核。")
+
+
+def display_summary(episode: dict) -> str:
+    """Return one concise Chinese sentence for report pages, including old reports."""
+    value = episode.get("summary") or episode.get("reason") or ""
+    summary = _clean_summary(value) if isinstance(value, str) else ""
+    return summary if _is_chinese_summary(summary) else _fallback_summary(
+        str(episode.get("status") or "UNCERTAIN")
+    )
 
 
 def _probe_endpoint(base_url: str, token: str) -> None:
@@ -84,11 +127,16 @@ def _json_answer(content: str) -> dict:
         data = json.loads(match.group())
     if not isinstance(data, dict) or data.get("result") not in {"pass", "fail", "uncertain"}:
         raise ValueError("模型 JSON 缺少有效的 result")
-    reason = data.get("reason")
-    evidence = data.get("evidence")
-    if not isinstance(reason, str) or not isinstance(evidence, str):
-        raise TypeError("模型 JSON 缺少 reason 或 evidence")
-    return {"result": data["result"], "reason": reason[:500], "evidence": evidence[:500]}
+    summary = data.get("summary")
+    if not isinstance(summary, str):
+        summary = data.get("reason")
+    if not isinstance(summary, str):
+        raise TypeError("模型 JSON 缺少 summary")
+    summary = _clean_summary(summary)
+    if not summary:
+        raise ValueError("模型 JSON 的 summary 为空")
+    return {"result": data["result"], "summary": summary,
+            "reason": summary, "evidence": ""}
 
 
 def _ask_model(base_url: str, token: str, model: str, rule: dict, task: str,
@@ -96,21 +144,59 @@ def _ask_model(base_url: str, token: str, model: str, rule: dict, task: str,
     video = base64.b64encode(clip.read_bytes()).decode("ascii")
     prompt = (f"机器人采集任务：{task}\n判断要求：{rule['prompt']}\n"
               "只依据视频中可见的内容判断；看不清或无法确认时返回 uncertain。"
+              "结论必须使用简体中文，只写一个不重复的完整句子，最多80个汉字。"
               "仅输出 JSON：{\"result\":\"pass|fail|uncertain\","
-              "\"reason\":\"简短中文理由\",\"evidence\":\"可见证据\"}。")
-    payload = {"model": model, "temperature": 0, "max_tokens": max_tokens,
-               "messages": [{"role": "user", "content": [
-                   {"type": "video_url", "video_url": {"url": "data:video/mp4;base64," + video}},
-                   {"type": "text", "text": prompt},
-               ]}]}
-    with httpx.Client(timeout=timeout, trust_env=False) as client:
+              "\"summary\":\"简短中文结论\"}。")
+
+    def request(content: list[dict]) -> dict:
+        payload = {"model": model, "temperature": 0, "max_tokens": max_tokens,
+                   "messages": [{"role": "user", "content": content}]}
         response = client.post(base_url.rstrip("/") + "/chat/completions", json=payload,
                                headers={"Authorization": f"Bearer {token or 'EMPTY'}"})
         response.raise_for_status()
-        content = response.json()["choices"][0]["message"]["content"]
-    if not isinstance(content, str):
-        raise TypeError("模型返回内容不是文本")
-    return _json_answer(content)
+        response_content = response.json()["choices"][0]["message"]["content"]
+        if not isinstance(response_content, str):
+            raise TypeError("模型返回内容不是文本")
+        return _json_answer(response_content)
+
+    with httpx.Client(timeout=timeout, trust_env=False) as client:
+        answer = request([
+            {"type": "video_url", "video_url": {"url": "data:video/mp4;base64," + video}},
+            {"type": "text", "text": prompt},
+        ])
+        if _is_chinese_summary(answer["summary"]):
+            return answer
+        rewrite = (
+            "将下面的视频质检结论改写为简体中文，只保留一个不重复的完整句子，"
+            "最多80个汉字。result 必须保持不变。仅输出 JSON："
+            "{\"result\":\"pass|fail|uncertain\",\"summary\":\"简短中文结论\"}。\n"
+            f"原结果：{json.dumps(answer, ensure_ascii=False)}"
+        )
+        try:
+            rewritten = request([{"type": "text", "text": rewrite}])
+            if (rewritten["result"] == answer["result"]
+                    and _is_chinese_summary(rewritten["summary"])):
+                return rewritten
+        except Exception:
+            _logger.debug("VLM 中文摘要重写失败，使用固定中文说明", exc_info=True)
+    summary = _fallback_summary(answer["result"].upper())
+    return {"result": answer["result"], "summary": summary,
+            "reason": summary, "evidence": ""}
+
+
+def episode_tasks(folder: Path) -> dict[int, str]:
+    """Read task labels for report display without trusting report-provided text."""
+    episodes = _episode_rows(folder)
+    _, task_names = load_tasks(folder)
+    frame_task_indexes = {}
+    if any(not episode.get("task") and not episode.get("tasks") for episode in episodes):
+        frame_task_indexes = episode_task_indexes(folder)
+    return {
+        int(episode.get("episode_index", 0)): (
+            episode_task_text(episode, task_names, frame_task_indexes) or "未填写"
+        )
+        for episode in episodes
+    }
 
 
 def run_vlm_rules(root: Path, task_id: str, folder: Path, snapshot: dict,
@@ -168,6 +254,7 @@ def run_vlm_rules(root: Path, task_id: str, folder: Path, snapshot: dict,
             judged = []
             for episode in selected:
                 episode_id = int(episode.get("episode_index", 0))
+                task_text = episode_task_text(episode, task_names, frame_task_indexes) or "未填写"
                 cache_key = (episode_id, camera)
                 try:
                     if not camera:
@@ -184,15 +271,17 @@ def run_vlm_rules(root: Path, task_id: str, folder: Path, snapshot: dict,
                     if isinstance(clip, Exception):
                         raise clip
                     clip_file, evidence = clip
-                    task_text = episode_task_text(episode, task_names, frame_task_indexes)
                     answer = _ask_model(base_url, token, config["model"], rule,
-                                        task_text or "未填写", clip_file, timeout,
+                                        task_text, clip_file, timeout,
                                         int(config["max_tokens"]))
                     judged.append({"episode": episode_id, "status": answer["result"].upper(),
+                                   "task": task_text, "summary": answer["summary"],
                                    "reason": answer["reason"], "evidence": answer["evidence"],
                                    "video": evidence})
                 except Exception as exc:  # noqa: BLE001 - continue with other episodes
                     judged.append({"episode": episode_id, "status": "ERROR",
+                                   "task": task_text,
+                                   "summary": _fallback_summary("ERROR"),
                                    "reason": str(exc)[:500], "evidence": "",
                                    "video": {"camera": camera}})
             statuses = {row["status"] for row in judged}

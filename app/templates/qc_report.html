@@ -2,7 +2,7 @@
 {% block page_title %}数据质检 · 统一报告{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="/static/css/data.css">
-<link rel="stylesheet" href="/static/css/quality.css?v=20261125a">
+<link rel="stylesheet" href="/static/css/quality.css?v=20261126a">
 {% set status_cn = {'PASS':'通过','WARN':'警告','FAIL':'失败','REVIEW':'待复核','UNCERTAIN':'待复核','ERROR':'执行错误','SKIPPED':'未启用','PENDING':'等待检查','PARTIAL':'部分检查'} %}
 {% macro badge(value) -%}<span class="dm-badge qc-status-badge {{ 'dm-ok' if value == 'PASS' else 'qc-fail' if value in ['FAIL','ERROR'] else 'dm-muted' if value == 'SKIPPED' else 'dm-warn' }}">{{ status_cn.get(value or 'PENDING', value or '等待检查') }} <small>{{ value or 'PENDING' }}</small></span>{%- endmacro %}
 {% set sections = report.sections if report else {} %}
@@ -44,7 +44,7 @@
               {% set visible.count = visible.count + 1 %}
               <details class="qc-result-item"><summary><span><strong>{{ rule.name }}</strong><small>{% if rule.reason %}{{ rule.reason }} · {% endif %}{{ issues|length }} 个问题 / 已检查 {{ rule.get('episodes', [])|length }} 个 Episode</small></span>{{ badge(rule.status) }}</summary>
                 <div class="qc-result-body qc-vlm-grid">
-                  {% for episode in issues %}<article class="qc-vlm-episode"><strong>EP {{ episode.episode }} · {{ status_cn.get(episode.status, episode.status) }} / {{ episode.status }}</strong><p>{{ episode.reason }}</p><small>{{ episode.evidence }}</small>{% if episode.video and episode.video.source_file and dataset %}<a href="/data/raw/{{ dataset.id }}/video/{{ episode.video.source_file[7:]|urlencode }}#t={{ episode.video.from_timestamp }},{{ episode.video.to_timestamp }}" target="_blank" rel="noopener">查看 {{ episode.video.camera }} 原视频片段 ↗</a>{% endif %}</article>{% else %}<p>{{ rule.reason or '规则执行未产生 Episode 判断结果。' }}</p>{% endfor %}
+                  {% for episode in issues %}<article class="qc-vlm-episode"><strong>Episode {{ episode.episode }} · {{ status_cn.get(episode.status, episode.status) }} / {{ episode.status }}</strong><p>{{ episode.display_summary }}</p><small><b>任务：</b>{{ episode.task or '未填写' }}</small>{% if episode.video and episode.video.source_file and dataset %}<a href="/qc/reports/{{ task.id }}/episodes/{{ episode.episode }}/video?rule_id={{ rule.id|urlencode }}" target="_blank" rel="noopener">查看问题视频片段 ↗</a>{% endif %}</article>{% else %}<p>{{ rule.reason or '规则执行未产生 Episode 判断结果。' }}</p>{% endfor %}
                 </div>
               </details>
             {% endif %}

@@ -507,6 +507,7 @@ def _doctor(folder: Path, snapshot: dict, timeout: int) -> dict:
                 "reason": (result.stderr or result.stdout or "Doctor 未输出有效 JSON")[-2000:]}
     if not isinstance(payload, dict) or not isinstance(payload.get("checks"), list):
         return {"status": "ERROR", "results": [], "reason": "Doctor JSON 结构无效"}
+    _normalize_doctor_episode_lengths(folder, payload)
     rows = payload["checks"]
     status = payload.get("overall_severity", "ERROR")
     if status not in {"PASS", "WARN", "FAIL"} or result.returncode not in (0, 1):
@@ -517,6 +518,103 @@ def _doctor(folder: Path, snapshot: dict, timeout: int) -> dict:
             "results": rows, "summary": payload.get("summary", {}),
             "sampled": sampled, "checked_limit": maximum,
             "reason": result.stderr[-1000:] if result.returncode not in (0, 1) else ""}
+
+
+def _episode_length_evidence(folder: Path) -> tuple[dict[int, int], dict[int, set[int]]]:
+    """Read actual and declared Episode lengths across compatible LeRobot v3 layouts."""
+    import pyarrow.parquet as pq
+
+    actual: dict[int, int] = {}
+    for path in sorted((folder / "data").rglob("*.parquet")):
+        schema = pq.read_schema(path)
+        if "episode_index" not in schema.names:
+            continue
+        for batch in pq.ParquetFile(path).iter_batches(columns=["episode_index"]):
+            for episode in batch.column(0).to_pylist():
+                if episode is not None:
+                    index = int(episode)
+                    actual[index] = actual.get(index, 0) + 1
+
+    declared: dict[int, set[int]] = {}
+    for path in sorted((folder / "meta" / "episodes").rglob("*.parquet")):
+        for row in pq.read_table(path).to_pylist():
+            episode = row.get("episode_index")
+            if episode is None:
+                continue
+            candidates: set[int] = set()
+            value = row.get("length")
+            if value is None:
+                value = row.get("num_frames")
+            if value is not None:
+                candidates.add(int(value))
+            else:
+                start = row.get("dataset_from_index")
+                end = row.get("dataset_to_index")
+                if start is not None and end is not None:
+                    difference = int(end) - int(start)
+                    # LeRobot exporters in use represent this range as either [from, to)
+                    # or [from, to]. Accept both conventions and compare with real rows.
+                    candidates.update({difference, difference + 1})
+            declared[int(episode)] = {length for length in candidates if length >= 0}
+    return actual, declared
+
+
+def _normalize_doctor_episode_lengths(folder: Path, payload: dict) -> None:
+    """Correct lerobot-doctor 0.2.0's Parquet ``num_frames`` false positive."""
+    target = next((row for row in payload["checks"]
+                   if row.get("name") == "Episode Health"), None)
+    if target is None or not any(
+        "data/metadata length mismatch" in str(message.get("message", ""))
+        for message in target.get("messages", [])
+    ):
+        return
+    try:
+        actual, declared = _episode_length_evidence(folder)
+    except (OSError, ValueError):
+        return
+    if not actual or not declared:
+        return
+
+    mismatches = []
+    for episode, data_length in sorted(actual.items()):
+        metadata_lengths = declared.get(episode, set())
+        if data_length not in metadata_lengths:
+            shown = sorted(metadata_lengths)
+            mismatches.append((episode, data_length, shown[0] if len(shown) == 1 else shown))
+    for episode, metadata_lengths in sorted(declared.items()):
+        if episode not in actual:
+            shown = sorted(metadata_lengths)
+            mismatches.append((episode, 0, shown[0] if len(shown) == 1 else shown))
+
+    messages = [message for message in target.get("messages", [])
+                if "data/metadata length mismatch" not in str(message.get("message", ""))]
+    if mismatches:
+        messages.append({
+            "severity": "FAIL",
+            "message": (
+                f"{len(mismatches)} episode(s) have data/metadata length mismatch: "
+                f"{[(index, f'data={data} meta={meta}') for index, data, meta in mismatches[:5]]}"
+            ),
+        })
+    else:
+        messages.append({
+            "severity": "PASS",
+            "message": "All episode lengths match metadata (length/num_frames/index range compatible)",
+        })
+    target["messages"] = messages
+
+    rank = {"PASS": 0, "WARN": 1, "FAIL": 2}
+    for check in payload["checks"]:
+        severities = [message.get("severity", "PASS") for message in check.get("messages", [])]
+        check["severity"] = max(severities, key=lambda value: rank.get(value, 2), default="PASS")
+    payload["overall_severity"] = max(
+        (check.get("severity", "PASS") for check in payload["checks"]),
+        key=lambda value: rank.get(value, 2), default="PASS",
+    )
+    payload["summary"] = {
+        severity: sum(check.get("severity") == severity for check in payload["checks"])
+        for severity in ("PASS", "WARN", "FAIL")
+    }
 
 
 def _outcome(report: dict) -> str:

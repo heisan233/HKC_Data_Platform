@@ -534,11 +534,44 @@ def test_doctor_json_cli_and_vlm_episode_results(tmp_path: Path, monkeypatch: py
     monkeypatch.setattr(vlm, "_video_segment", clip)
     monkeypatch.setattr(vlm, "_probe_endpoint", lambda *_: None)
     monkeypatch.setattr(vlm, "_ask_model", lambda *_: {
-        "result": "uncertain", "reason": "画面遮挡", "evidence": "无法看见目标物"
+        "result": "uncertain", "summary": "画面遮挡，无法看见目标物。",
+        "reason": "画面遮挡，无法看见目标物。", "evidence": ""
     })
     result = vlm.run_vlm_rules(tmp_path, "test", folder, config, "http://example/v1", "")
     assert result["status"] == "REVIEW"
-    assert result["results"][-1]["episodes"][0]["status"] == "UNCERTAIN"
+    episode = result["results"][-1]["episodes"][0]
+    assert episode["status"] == "UNCERTAIN"
+    assert episode["task"] == "grasp"
+    assert episode["summary"] == "画面遮挡，无法看见目标物。"
+
+
+def test_doctor_accepts_num_frames_episode_metadata(tmp_path: Path, monkeypatch):
+    folder = tmp_path / "dataset"
+    _dataset(folder)
+    from app.modules.quality.catalog import default_config
+    config = default_config(json.loads((folder / "meta" / "info.json").read_text()))
+    config["doctor"]["checks"] = [{"id": "episodes", "enabled": True}]
+    payload = {
+        "version": "0.2.0", "total_episodes": 1,
+        "overall_severity": "FAIL", "checks": [{
+            "name": "Episode Health", "severity": "FAIL", "messages": [{
+                "severity": "FAIL",
+                "message": "1 episode(s) have data/metadata length mismatch: [(0, 'data=3 meta=0')]",
+            }],
+        }],
+        "summary": {"PASS": 0, "WARN": 0, "FAIL": 1},
+    }
+
+    monkeypatch.setattr(service.subprocess, "run", lambda command, **kwargs:
+                        subprocess.CompletedProcess(command, 1, json.dumps(payload), ""))
+    doctor = service._doctor(folder, config, 10)
+
+    assert doctor["status"] == "PASS"
+    assert doctor["summary"] == {"PASS": 1, "WARN": 0, "FAIL": 0}
+    assert doctor["results"][0]["messages"] == [{
+        "severity": "PASS",
+        "message": "All episode lengths match metadata (length/num_frames/index range compatible)",
+    }]
 
 
 def test_vlm_reads_official_v3_tasks_index_and_episode_tasks(tmp_path: Path, monkeypatch):
@@ -567,7 +600,8 @@ def test_vlm_reads_official_v3_tasks_index_and_episode_tasks(tmp_path: Path, mon
 
     def ask(_base_url, _token, _model, _rule, task, _clip, _timeout, _max_tokens):
         prompts.append(task)
-        return {"result": "pass", "reason": "动作完成", "evidence": "目标进入盒子"}
+        return {"result": "pass", "summary": "动作已完成。",
+                "reason": "动作已完成。", "evidence": ""}
 
     monkeypatch.setattr(vlm, "_video_segment", clip)
     monkeypatch.setattr(vlm, "_probe_endpoint", lambda *_: None)
@@ -575,6 +609,124 @@ def test_vlm_reads_official_v3_tasks_index_and_episode_tasks(tmp_path: Path, mon
     result = vlm.run_vlm_rules(tmp_path, "test", folder, config, "http://example/v1", "")
     assert result["status"] == "PASS"
     assert prompts == ["拿起方块；放入盒子"]
+
+
+def test_vlm_rewrites_english_summary_to_concise_chinese(tmp_path: Path, monkeypatch):
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"video")
+    contents = [
+        '{"result":"fail","summary":"The required action is not visible."}',
+        '{"result":"fail","summary":"视频中未看到要求的动作。"}',
+    ]
+    requests = []
+
+    class Response:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {"choices": [{"message": {"content": contents.pop(0)}}]}
+
+    class Client:
+        def __init__(self, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def post(_url, json, headers):
+            requests.append((json, headers))
+            return Response()
+
+    monkeypatch.setattr(vlm.httpx, "Client", Client)
+    answer = vlm._ask_model(
+        "http://example/v1", "", "model", {"prompt": "判断任务是否完成"},
+        "整理物品", clip, 30, 128,
+    )
+    assert len(requests) == 2
+    assert answer["summary"] == "视频中未看到要求的动作。"
+    assert answer["evidence"] == ""
+
+
+def test_vlm_report_video_uses_episode_evidence_for_ego(platform, monkeypatch):
+    client, root = platform
+    folder = root / "raw" / "ego-video"
+    _dataset(folder)
+    info_path = folder / "meta/info.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    info["robot_type"] = "human_egocentric"
+    info["video_path"] = "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4"
+    info["features"]["observation.images.cam_high"] = {
+        "dtype": "video", "shape": [480, 640, 3]
+    }
+    info_path.write_text(json.dumps(info), encoding="utf-8")
+    source = folder / "videos/observation.images.cam_high/chunk-000/file-000.mp4"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"problem-video")
+    record = DatasetRepository(root).register(
+        "raw", "ego-video", "EGO 视频样例", "human_egocentric",
+        datasets_service.info_digest(folder), dataset_family="ego",
+    )
+    plan = client.post("/qc/api/plans/from-template", json={
+        "name": "EGO 视频质检", "dataset_family": "ego",
+        "reference_dataset_id": record["id"],
+    }).json()
+    fingerprint = service.raw_fingerprint(folder)
+    repo = service.initialize(root)
+    task = repo.create_task(record["id"], plan, plan["config"], fingerprint)
+    task = repo.set_task(task["id"], status="COMPLETED", phase="done", outcome="FAIL")
+    report = {
+        "schema_version": 2, "task_id": task["id"], "dataset_id": record["id"],
+        "raw_fingerprint": fingerprint, "status": "COMPLETED", "outcome": "FAIL",
+        "snapshot": plan["config"], "sections": {
+            "doctor": {"status": "SKIPPED", "results": []},
+            "robot_rules": {"status": "SKIPPED", "results": []},
+            "vlm": {"status": "FAIL", "model": "test", "results": [{
+                "id": "task_completion", "name": "任务完成判断", "status": "FAIL",
+                "episodes": [{
+                    "episode": 0, "status": "FAIL",
+                    "reason": "The action described in the task is not performed.",
+                    "evidence": "The video shows a different action.",
+                    "video": {
+                        "camera": "observation.images.cam_high",
+                        "source_file": "videos/observation.images.cam_high/chunk-000/file-000.mp4",
+                        "from_timestamp": 0.0, "to_timestamp": 1.0,
+                    },
+                }],
+            }]},
+        },
+    }
+    service.save_report(root, task, report)
+    monkeypatch.setattr(quality_router, "create_preview", lambda *_args, **_kwargs: source)
+
+    page = client.get(f"/qc/reports/{task['id']}")
+    assert page.status_code == 200
+    assert "任务：</b>grasp" in page.text
+    assert "视频内容未通过该项检查，请查看问题视频片段并人工复核。" in page.text
+    assert "The action described" not in page.text
+    assert "查看问题视频片段" in page.text
+
+    video = client.get(
+        f"/qc/reports/{task['id']}/episodes/0/video",
+        params={"rule_id": "task_completion"},
+    )
+    assert video.status_code == 200
+    assert video.content == b"problem-video"
+
+    report["sections"]["vlm"]["results"][0]["episodes"][0]["video"][
+        "source_file"
+    ] = "../outside.mp4"
+    service.save_report(root, task, report)
+    assert client.get(
+        f"/qc/reports/{task['id']}/episodes/0/video",
+        params={"rule_id": "task_completion"},
+    ).status_code == 404
 
 
 def test_quality_accepts_registered_derived_dataset(platform, monkeypatch):
