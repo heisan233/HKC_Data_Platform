@@ -11,11 +11,13 @@ class PreviewError(Exception):
 
 
 def create_preview(root: Path, dataset_id: str, source: Path, *,
-                   start_seconds: float = 0, duration_seconds: float = 120) -> Path:
+                   start_seconds: float = 0, duration_seconds: float = 120,
+                   preserve_resolution: bool = False) -> Path:
     stat = source.stat()
     key = hashlib.sha256(
         f"{source.relative_to(root)}:{stat.st_size}:{stat.st_mtime_ns}:"
-        f"{start_seconds:.3f}:{duration_seconds:.3f}".encode()
+        f"{start_seconds:.3f}:{duration_seconds:.3f}"
+        f"{':source-resolution' if preserve_resolution else ''}".encode()
     ).hexdigest()
     cache = root / "system" / "ego-previews" / dataset_id
     if any(path.is_symlink() for path in (root / "system", root / "system" / "ego-previews", cache)):
@@ -26,11 +28,14 @@ def create_preview(root: Path, dataset_id: str, source: Path, *,
         return output
     temporary = cache / f".{key}.{uuid4().hex}.mp4"
     try:
+        scale_args = [] if preserve_resolution else [
+            "-vf", "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2"
+        ]
         subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
              "-ss", f"{start_seconds:.3f}", "-i", str(source),
              "-t", f"{duration_seconds:.3f}", "-map", "0:v:0", "-an",
-             "-vf", "scale=w=1280:h=720:force_original_aspect_ratio=decrease:force_divisible_by=2",
+             *scale_args,
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
              "-pix_fmt", "yuv420p", "-threads", "2", "-movflags", "+faststart",
              str(temporary)],

@@ -1,4 +1,5 @@
 import json
+import subprocess
 from fractions import Fraction
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,6 +27,7 @@ def make_processing_dataset(
     *,
     legacy_episode_metadata: bool = False,
     include_video: bool = False,
+    dataset_family: str = "vla",
 ) -> Path:
     dataset = data_root / "raw" / dataset_id
     (dataset / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
@@ -136,7 +138,9 @@ def make_processing_dataset(
         pa.Table.from_pylist(frame_rows),
         dataset / "data" / "chunk-000" / "file-000.parquet",
     )
-    register_dataset(data_root, "raw", dataset_id, dataset_id)
+    register_dataset(
+        data_root, "raw", dataset_id, dataset_id, dataset_family=dataset_family
+    )
     return dataset
 
 
@@ -235,6 +239,63 @@ def test_processing_workspace_exposes_range_video_preview(
     ]
     assert preview.status_code == 206
     assert len(preview.content) == 8
+
+
+def test_ego_processing_preview_is_episode_only_and_preserves_crop_coordinates(
+    monkeypatch, tmp_path: Path
+) -> None:
+    dataset = make_processing_dataset(
+        tmp_path, "ego-video", [[1, 2], [3, 4]],
+        include_video=True, dataset_family="ego",
+    )
+    episode_path = dataset / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+    table = pq.read_table(episode_path)
+    rows = table.to_pylist()
+    camera = "observation.images.front"
+    rows[1][f"videos/{camera}/file_index"] = 0
+    rows[1][f"videos/{camera}/from_timestamp"] = 0.2
+    rows[1][f"videos/{camera}/to_timestamp"] = 0.4
+    pq.write_table(pa.Table.from_pylist(rows, schema=table.schema), episode_path)
+    info_path = dataset / "meta" / "info.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    info["features"][camera]["shape"] = [730, 1300, 3]
+    info["features"][camera]["info"].update(
+        {"video.width": 1300, "video.height": 730, "video.codec": "mpeg4"}
+    )
+    info_path.write_text(json.dumps(info), encoding="utf-8")
+    source = dataset / "videos" / camera / "chunk-000" / "file-000.mp4"
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+         "-i", "testsrc=size=1300x730:rate=10:duration=0.4", "-c:v", "mpeg4",
+         str(source)],
+        check=True, capture_output=True,
+    )
+    original = source.read_bytes()
+    monkeypatch.setattr(
+        processing_router, "settings", SimpleNamespace(data_root=tmp_path)
+    )
+
+    workspace = client.get("/preprocess/api/datasets/DS000001")
+    assert workspace.status_code == 200
+    assert workspace.json()["dataset"]["video_features"][0]["width"] == 1300
+    videos = [episode["videos"][0] for episode in workspace.json()["episodes"]]
+    assert [(video["start"], video["end"]) for video in videos] == [
+        (0.0, 0.2), (0.0, 0.2)
+    ]
+    response = client.get(videos[1]["url"])
+    assert response.status_code == 200
+    preview = next((tmp_path / "system" / "ego-previews" / "DS000001").glob("*.mp4"))
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name,width,height,duration",
+         "-of", "json", str(preview)],
+        check=True, capture_output=True, text=True,
+    )
+    stream = json.loads(probe.stdout)["streams"][0]
+    assert stream["codec_name"] == "h264"
+    assert (stream["width"], stream["height"]) == (1300, 730)
+    assert 0.1 <= float(stream["duration"]) <= 0.3
+    assert source.read_bytes() == original
 
 
 def test_processing_page_contains_visual_crop_controls() -> None:

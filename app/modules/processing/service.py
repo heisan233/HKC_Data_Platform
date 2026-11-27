@@ -30,6 +30,7 @@ from pyarrow import ipc
 
 from app.db.datasets import DatasetRepository
 from app.modules.datasets import service as datasets_service
+from app.modules.datasets.ego_preview import PreviewError, create_preview
 from app.modules.processing.schemas import ProcessingJobRequest, VideoCropSpec
 
 DATASET_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -52,6 +53,7 @@ class DatasetRef:
     dataset_id: str
     path: Path
     kind: str
+    family: str = "vla"
 
 
 @dataclass(slots=True)
@@ -111,7 +113,12 @@ def resolve_dataset(data_root: Path, dataset_id: str) -> DatasetRef:
         record, candidate = datasets_service.resolve_registered_dataset(data_root, dataset_id)
     except ValueError as exc:
         raise DatasetNotFoundError(f"未找到数据集 {dataset_id}。") from exc
-    return DatasetRef(dataset_id=dataset_id, path=candidate, kind=record["storage_area"])
+    return DatasetRef(
+        dataset_id=dataset_id,
+        path=candidate,
+        kind=record["storage_area"],
+        family=record["dataset_family"],
+    )
 
 
 def _parquet_files(root: Path) -> list[Path]:
@@ -464,6 +471,9 @@ def get_dataset_workspace(data_root: Path, dataset_id: str) -> dict[str, Any]:
                 _, start, end = _video_source_path(state, row, video_key)
             except ProcessingError:
                 continue
+            if state.ref.family == "ego":
+                end -= start
+                start = 0.0
             videos.append(
                 {
                     "camera": video_key,
@@ -693,8 +703,22 @@ def resolve_episode_video(
     row = state.episode_by_index.get(episode_index)
     if row is None:
         raise ProcessingError("请求的 Episode 不存在。")
-    source, _, _ = _video_source_path(state, row, camera)
-    return source
+    source, start, end = _video_source_path(state, row, camera)
+    if state.ref.family != "ego":
+        return source
+    if start < 0 or end <= start:
+        raise ProcessingError("Episode 视频时间范围无效。")
+    try:
+        return create_preview(
+            data_root,
+            dataset_id,
+            source,
+            start_seconds=start,
+            duration_seconds=end - start,
+            preserve_resolution=True,
+        )
+    except PreviewError as exc:
+        raise ProcessingError(str(exc)) from exc
 
 
 def _slice_video(

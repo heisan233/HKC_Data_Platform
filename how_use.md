@@ -121,7 +121,7 @@ http://LAN_IP_ADDRESS:8000/login
 服务器基础组合发布 `0.0.0.0:18000`：
 
 ```bash
-docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml up -d --no-build --force-recreate --wait
+docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml -f deploy/compose.server-source.yaml up -d --no-build --force-recreate --wait
 ```
 
 `--no-build` 要求 `HKC_IMAGE` 指定的镜像已经存在。需要宿主训练执行器时增加：
@@ -133,10 +133,12 @@ docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f comp
 并在服务器环境文件中设置 `HKC_TRAINING_AGENT_SOCKET_DIR`。完整服务器目录与备份
 要求见 `deploy/README.md`。
 
-服务器状态：
+服务器只读挂载 `app/`、`migrations/`。修改 Python 代码后使用相同的 Compose
+组合执行 `restart platform`；静态资源刷新页面即可。依赖和 Dockerfile 变化仍需
+重建镜像。服务器状态：
 
 ```bash
-docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml ps
+docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml -f deploy/compose.server-source.yaml ps
 ```
 
 如果运行时叠加了训练执行器文件，之后所有 `up`、`exec`、`logs` 和 `down`
@@ -253,7 +255,7 @@ git pull --ff-only
 - `Dockerfile`；
 - `pyproject.toml`；
 - 镜像中未挂载的文件；
-- 正式服务器不挂载源码时的任何代码变化。
+- 未叠加 `deploy/compose.server-source.yaml` 的服务器代码变化。
 
 ```bash
 docker compose --env-file .env -f compose.yaml -f compose.dev.yaml build platform

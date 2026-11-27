@@ -1,6 +1,6 @@
 # HKC 数采平台当前状态
 
-更新日期：2026-11-25
+更新日期：2026-11-26
 
 本文是当前代码事实的唯一状态说明，不记录旧版本开发流水账。开发规则见
 `AGENTS.md`，实际操作见 `how_use.md`。
@@ -53,11 +53,12 @@ LeRobot v3 ZIP
   → staging 安全解压与结构检查
   → data/<DS 编号>
   → MySQL 登记为不可用、待质检
+  → 可进入标注并产生新的不可用 DS
   → 匹配数据集类别与 robot_type 的质检方案
   → Doctor / 机器人专项规则 / 可选 VLM
   → 人工审核
   → 可用
-  → 标注、处理或数据定义产生新的不可用 DS
+  → 处理或数据定义产生新的不可用 DS
 ```
 
 规则：
@@ -215,11 +216,15 @@ EGO 模板包含 `observation.state` 和 `action` 的维度、数值有效性及
 
 ## 11. 最近验证
 
+- 2026-11-26：数据处理页对 EGO 按所选 Episode 转码并缓存 H.264 原尺寸预览，播放范围改为从 0 秒开始；实际裁剪任务仍使用原视频及原始坐标。隔离 MySQL 下处理、标注和上传集成测试 36 项通过。
+- 2026-11-26：标注接口对 EGO 按所选 Episode 转码并缓存 H.264，工作台返回从 0 开始的相对播放时间；VLA/WAM 继续使用原视频。隔离 MySQL 下标注集成测试 7 项通过；重庆服务器 `DS000021` 的 Episode 1 生成约 8 秒 H.264 预览，播放范围从 0 秒开始。
+- 重庆服务器平台容器现通过 `deploy/compose.server-source.yaml` 只读挂载宿主 `app/` 和 `migrations/`，当前镜像为 `hkc-data-platform:v3.2.1-cq-ego-enhanced`。后续 Python 代码修改需重启平台容器，依赖和 Dockerfile 变化仍需构建镜像。
 - 隔离 MySQL 下完整测试：`197 passed`；
 - 全仓 Ruff：通过；
 - `app/static/js/quality.js` Node 语法检查：通过；
 - 开发镜像 `hkc-data-platform:v3.1` 构建：通过；
-- 重庆服务器镜像 `hkc-data-platform:v3.2.1-cq-purge-safe` 构建并部署：通过；
+- 重庆服务器镜像 `hkc-data-platform:v3.2.1-cq-annotation-unavailable` 构建并部署：通过；
+- 服务器标注入口筛选到 3 个“不可用”数据集，平台和 MySQL 容器健康检查：通过；
 - 重庆服务器 MySQL 迁移版本为 9，平台和 MySQL 容器健康检查：通过；
 - 重庆服务器旧质检方案、版本、任务和审核记录已在备份后清空；
 - 重庆服务器 `DS000017` 及其两个 WAM 回收站任务已永久删除，目录和关联记录残留检查：通过；

@@ -132,9 +132,9 @@ docker compose --env-file .env -f compose.yaml -f compose.dev.yaml down
 上传 LeRobot v3 ZIP
     ↓ 安全解压、最低结构校验、分配 DS 编号
 不可用 / 待质检
+    ├── 标注 → 新的不可用 DS
     ↓ Doctor、规则、可选 VLM、人工审核
 可用
-    ├── 标注 → 新 DS → 重新质检
     ├── 数据处理 → 新 DS → 重新质检
     ├── 数据定义 → 新 DS → 重新质检
     ├── HDF5 转换与导出

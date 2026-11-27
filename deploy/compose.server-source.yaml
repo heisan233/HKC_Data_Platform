@@ -1,0 +1,11 @@
+services:
+  platform:
+    volumes:
+      - type: bind
+        source: ./app
+        target: /opt/hkc-platform/app
+        read_only: true
+      - type: bind
+        source: ./migrations
+        target: /opt/hkc-platform/migrations
+        read_only: true

@@ -9,6 +9,7 @@
 | `compose.yaml` | MySQL + 平台基础服务，默认 `127.0.0.1:8000` |
 | `compose.dev.yaml` | 只读挂载 `app/`、`migrations/`，启用热重载 |
 | `compose.server.yaml` | 服务器发布 `0.0.0.0:18000`，限制 Docker 日志 |
+| `deploy/compose.server-source.yaml` | 服务器只读挂载 `app/`、`migrations/`，不启用热重载 |
 | `deploy/compose.lan.yaml` | 绑定指定可信局域网 IPv4，端口 8000 |
 | `deploy/compose.local-mysql.yaml` | 本机并行验收，`127.0.0.1:18001` |
 | `deploy/compose.training-agent.yaml` | 可选宿主训练执行器 Unix socket |
@@ -76,7 +77,7 @@ docker compose --env-file .env -f compose.yaml -f compose.dev.yaml -f deploy/com
 确保服务器已经具有 `HKC_IMAGE` 对应镜像，然后：
 
 ```bash
-docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml up -d --no-build --force-recreate --wait
+docker compose --env-file /path/to/server.env -p hkc-vla -f compose.yaml -f compose.server.yaml -f deploy/compose.server-source.yaml up -d --no-build --force-recreate --wait
 ```
 
 访问 `http://SERVER_IP:18000/login`。
@@ -118,12 +119,14 @@ MySQL 镜像也必须存在。离线镜像不包含宿主 `.env`、storage 或 M
 ## 7. 源码挂载与镜像内源码
 
 - 叠加 `compose.dev.yaml`：容器使用宿主 `app/` 和 `migrations/`；
-- 不叠加：容器使用构建镜像时复制进去的代码；
+- 叠加 `deploy/compose.server-source.yaml`：服务器只读挂载宿主源码；
+- 不叠加源码覆盖：容器使用构建镜像时复制进去的代码；
 - `restart` 不会重新读取挂载或环境变量；
 - 配置变化使用 `up -d --force-recreate`；
+- 服务器挂载模式修改 Python 代码后执行 `docker compose ... restart platform`；静态资源刷新页面即可；
 - 不挂载源码的部署更新代码时必须重建或导入新镜像。
 
-服务器临时开发可以叠加开发覆盖，稳定部署应移除源码挂载并使用已验证镜像。
+服务器挂载模式仍需为依赖、Dockerfile 和镜像内未挂载的文件变化重建镜像。
 
 ## 8. 验证
 

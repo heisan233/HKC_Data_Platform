@@ -1,4 +1,5 @@
 import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -22,6 +23,8 @@ def make_v3_dataset(
     dataset_id: str = "ds-test",
     *,
     task_as_unnamed_index: bool = False,
+    dataset_family: str = "vla",
+    shared_video: bool = False,
 ) -> Path:
     dataset = data_root / "raw" / dataset_id
     (dataset / "meta" / "episodes" / "chunk-000").mkdir(parents=True)
@@ -60,9 +63,9 @@ def make_v3_dataset(
                 # LeRobot v3 官方 Episode 元数据使用 length，而不是 num_frames。
                 "length": pa.array([2, 2], type=pa.int64()),
                 f"videos/{CAMERA}/chunk_index": pa.array([0, 0], type=pa.int64()),
-                f"videos/{CAMERA}/file_index": pa.array([0, 1], type=pa.int64()),
-                f"videos/{CAMERA}/from_timestamp": [0.0, 0.0],
-                f"videos/{CAMERA}/to_timestamp": [0.1, 0.1],
+                f"videos/{CAMERA}/file_index": pa.array([0, 0 if shared_video else 1], type=pa.int64()),
+                f"videos/{CAMERA}/from_timestamp": [0.0, 1.0 if shared_video else 0.0],
+                f"videos/{CAMERA}/to_timestamp": [1.0 if shared_video else 0.1, 2.0 if shared_video else 0.1],
             }
         ),
         dataset / "meta" / "episodes" / "chunk-000" / "file-000.parquet",
@@ -77,11 +80,49 @@ def make_v3_dataset(
         ),
         dataset / "data" / "chunk-000" / "file-000.parquet",
     )
-    (video_root / "file-000.mp4").write_bytes(b"0123456789-episode-zero")
-    (video_root / "file-001.mp4").write_bytes(b"0123456789-episode-one")
-    record = register_dataset(data_root, "raw", dataset_id, dataset_id)
-    approve_dataset(data_root, record["id"])
+    if shared_video:
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi",
+             "-i", "testsrc=size=64x64:rate=10:duration=2", "-c:v", "mpeg4",
+             str(video_root / "file-000.mp4")],
+            check=True, capture_output=True,
+        )
+    else:
+        (video_root / "file-000.mp4").write_bytes(b"0123456789-episode-zero")
+        (video_root / "file-001.mp4").write_bytes(b"0123456789-episode-one")
+    record = register_dataset(
+        data_root, "raw", dataset_id, dataset_id, dataset_family=dataset_family
+    )
+    assert record["availability"] == "unavailable"
     return dataset
+
+
+def test_ego_video_transcodes_selected_episode_and_uses_relative_time(
+    monkeypatch, tmp_path: Path
+) -> None:
+    raw = make_v3_dataset(tmp_path, dataset_family="ego", shared_video=True)
+    source = raw / "videos" / CAMERA / "chunk-000" / "file-000.mp4"
+    original = source.read_bytes()
+    use_temporary_storage(monkeypatch, tmp_path)
+
+    workspace = client.get("/annotation/api/datasets/DS000001")
+    assert workspace.status_code == 200
+    clips = [episode["videos"][0] for episode in workspace.json()["episodes"]]
+    assert [(clip["start"], clip["end"]) for clip in clips] == [(0.0, 1.0), (0.0, 1.0)]
+
+    video = client.get(clips[1]["url"])
+    assert video.status_code == 200
+    assert video.content != original
+    preview = next((tmp_path / "system" / "ego-previews" / "DS000001").glob("*.mp4"))
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name,duration", "-of", "json", str(preview)],
+        check=True, capture_output=True, text=True,
+    )
+    stream = json.loads(probe.stdout)["streams"][0]
+    assert stream["codec_name"] == "h264"
+    assert 0.8 <= float(stream["duration"]) <= 1.2
+    assert source.read_bytes() == original
 
 
 def use_temporary_storage(monkeypatch, data_root: Path) -> None:
@@ -101,6 +142,7 @@ def test_workspace_reads_real_episode_tasks_and_video(monkeypatch, tmp_path: Pat
     )
 
     assert listing.status_code == 200
+    assert listing.json()["datasets"][0]["kind_label"] == "不可用数据集"
     assert listing.json()["datasets"][0]["total_episodes"] == 2
     assert workspace.status_code == 200
     assert workspace.json()["episodes"][0]["task"] == "old task"
@@ -266,9 +308,8 @@ def test_publish_episode_outcome_and_subtasks_as_sidecar_annotations(
     assert [row["start_frame"] for row in subtask_rows] == [0, 1]
     assert [row["end_frame_exclusive"] for row in subtask_rows] == [1, 2]
 
-    # A newly published version is unavailable until its own QC approval.
-    assert client.get(f"/annotation/api/datasets/{result['dataset_id']}").status_code == 404
-    approve_dataset(tmp_path, result["dataset_id"])
+    # A newly published version remains eligible while it is unavailable.
+    assert DatasetRepository(tmp_path).get(result["dataset_id"])["availability"] == "unavailable"
     workspace = client.get(f"/annotation/api/datasets/{result['dataset_id']}")
     assert workspace.status_code == 200
     annotation = workspace.json()["episodes"][0]["annotation"]
@@ -278,6 +319,33 @@ def test_publish_episode_outcome_and_subtasks_as_sidecar_annotations(
         "接近目标物",
         "抓取目标物",
     ]
+
+
+def test_available_dataset_is_excluded_from_annotation(monkeypatch, tmp_path: Path) -> None:
+    make_v3_dataset(tmp_path)
+    approve_dataset(tmp_path, "DS000001")
+    use_temporary_storage(monkeypatch, tmp_path)
+
+    listing = client.get("/annotation/api/datasets")
+    workspace = client.get("/annotation/api/datasets/DS000001")
+    video = client.get(
+        "/annotation/api/datasets/DS000001/episodes/0/video",
+        params={"camera": CAMERA},
+    )
+    publish = client.post(
+        "/annotation/api/publish",
+        json={
+            "dataset_id": "DS000001",
+            "version_name": "不可标注版本",
+            "changes": [{"episode_index": 0, "task": "new task"}],
+        },
+    )
+
+    assert listing.status_code == 200
+    assert listing.json()["datasets"] == []
+    assert workspace.status_code == 404
+    assert video.status_code == 404
+    assert publish.status_code == 404
 
 
 def test_annotation_rejects_missing_reason_and_overlapping_subtasks(

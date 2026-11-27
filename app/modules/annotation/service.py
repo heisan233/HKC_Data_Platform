@@ -25,6 +25,7 @@ import pyarrow.parquet as pq
 from app.db.datasets import DatasetRepository
 from app.modules.annotation.schemas import EpisodeAnnotationChange, EpisodeTaskChange
 from app.modules.datasets import service as datasets_service
+from app.modules.datasets.ego_preview import PreviewError, create_preview
 from app.modules.datasets.lerobot_v3 import load_tasks as load_lerobot_tasks
 
 DATASET_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -45,6 +46,7 @@ class DatasetRef:
     dataset_id: str
     path: Path
     kind: str
+    family: str = "vla"
 
 
 def _utc_now() -> str:
@@ -77,15 +79,20 @@ def _validate_dataset_id(dataset_id: str) -> None:
 
 
 def resolve_dataset(data_root: Path, dataset_id: str) -> DatasetRef:
-    """通过统一 DS 编号解析可用数据集的真实目录。"""
+    """通过统一 DS 编号解析不可用数据集的真实目录。"""
 
     _validate_dataset_id(dataset_id)
     try:
         record, candidate = datasets_service.resolve_registered_dataset(
-            data_root, dataset_id, availability="available")
+            data_root, dataset_id, availability="unavailable")
     except ValueError as exc:
         raise DatasetNotFoundError(f"未找到数据集 {dataset_id}。") from exc
-    return DatasetRef(dataset_id=dataset_id, path=candidate, kind=record["storage_area"])
+    return DatasetRef(
+        dataset_id=dataset_id,
+        path=candidate,
+        kind=record["storage_area"],
+        family=record["dataset_family"],
+    )
 
 
 def _record_names(data_root: Path) -> dict[str, str]:
@@ -272,6 +279,18 @@ def _episode_length(row: dict[str, Any]) -> int:
         raise AnnotationError("Episode 元数据中的 length 无效。") from exc
 
 
+def _video_window(row: dict[str, Any], camera: str, num_frames: int, fps: float) -> tuple[float, float]:
+    try:
+        start = float(row.get(f"videos/{camera}/from_timestamp") or 0)
+        end_value = row.get(f"videos/{camera}/to_timestamp")
+        end = float(end_value) if end_value is not None else start + num_frames / fps
+    except (TypeError, ValueError, ZeroDivisionError) as exc:
+        raise AnnotationError("Episode 视频时间范围无效。") from exc
+    if not math.isfinite(start) or not math.isfinite(end) or start < 0 or end <= start:
+        raise AnnotationError("Episode 视频时间范围无效。")
+    return start, end
+
+
 def load_episodes(dataset: DatasetRef) -> list[dict[str, Any]]:
     info = _load_info(dataset)
     _, task_names = _load_tasks(dataset)
@@ -320,9 +339,10 @@ def load_episodes(dataset: DatasetRef) -> list[dict[str, Any]]:
                 file_index=int(file_index),
             )
             _safe_video_path(dataset, relative)
-            start = float(row.get(f"videos/{video_key}/from_timestamp") or 0)
-            end_value = row.get(f"videos/{video_key}/to_timestamp")
-            end = float(end_value) if end_value is not None else start + num_frames / fps
+            start, end = _video_window(row, video_key, num_frames, fps)
+            if dataset.family == "ego":
+                end -= start
+                start = 0.0
             videos.append(
                 {
                     "camera": video_key,
@@ -356,7 +376,7 @@ def load_episodes(dataset: DatasetRef) -> list[dict[str, Any]]:
 
 def list_datasets(data_root: Path) -> list[dict[str, Any]]:
     datasets: list[dict[str, Any]] = []
-    for record in DatasetRepository(data_root).list(availability="available"):
+    for record in DatasetRepository(data_root).list(availability="unavailable"):
         try:
             dataset = resolve_dataset(data_root, record["id"])
             info = _load_info(dataset)
@@ -367,7 +387,7 @@ def list_datasets(data_root: Path) -> list[dict[str, Any]]:
                 "dataset_id": record["id"],
                 "dataset_name": record["name"],
                 "kind": "dataset",
-                "kind_label": "可用数据集",
+                "kind_label": "不可用数据集",
                 "total_episodes": int(info.get("total_episodes") or 0),
                 "total_frames": int(info.get("total_frames") or 0),
                 "fps": info.get("fps"),
@@ -428,7 +448,19 @@ def resolve_episode_video(
                 chunk_index=int(chunk),
                 file_index=int(file_index),
             )
-            return _safe_video_path(dataset, relative)
+            source = _safe_video_path(dataset, relative)
+            if dataset.family != "ego":
+                return source
+            start, end = _video_window(
+                row, camera, _episode_length(row), float(info.get("fps") or 0)
+            )
+            try:
+                return create_preview(
+                    data_root, dataset_id, source,
+                    start_seconds=start, duration_seconds=end - start,
+                )
+            except PreviewError as exc:
+                raise AnnotationError(str(exc)) from exc
     raise AnnotationError("请求的 Episode 不存在。")
 
 
