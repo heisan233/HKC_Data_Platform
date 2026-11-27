@@ -84,6 +84,20 @@ def test_create_list_and_render_robot(
     assert "传感器" not in page.text
 
 
+def test_token_copy_fallback_stays_inside_active_dialog() -> None:
+    script = (Path(__file__).parents[2] / "app/static/js/robots.js").read_text(
+        encoding="utf-8"
+    )
+    template = (Path(__file__).parents[2] / "app/templates/robots.html").read_text(
+        encoding="utf-8"
+    )
+
+    assert "tokenDialog.appendChild(temporary)" in script
+    assert "document.body.appendChild(temporary)" not in script
+    assert "temporary?.remove()" in script
+    assert "/static/js/robots.js?v=20261127a" in template
+
+
 def test_duplicate_name_and_serial_are_rejected(robot_platform: TestClient) -> None:
     assert robot_platform.post("/robots/api/robots", json=robot_payload()).status_code == 201
 

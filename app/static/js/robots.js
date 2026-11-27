@@ -87,25 +87,34 @@
 
     const copyCreatedToken = async () => {
         const value = tokenValue.textContent;
+        let temporary = null;
         try {
+            if (!value) throw new Error("empty token");
             if (navigator.clipboard && window.isSecureContext) {
                 await navigator.clipboard.writeText(value);
             } else {
-                const temporary = document.createElement("textarea");
+                temporary = document.createElement("textarea");
                 temporary.value = value;
                 temporary.setAttribute("readonly", "");
+                temporary.setAttribute("aria-hidden", "true");
                 temporary.style.position = "fixed";
                 temporary.style.opacity = "0";
-                document.body.appendChild(temporary);
+                // A modal <dialog> makes the rest of the document inert. Keep
+                // the fallback input inside the active dialog so HTTP/intranet
+                // deployments can still select and copy it.
+                tokenDialog.appendChild(temporary);
+                temporary.focus();
                 temporary.select();
+                temporary.setSelectionRange(0, temporary.value.length);
                 if (!document.execCommand("copy")) throw new Error("copy unavailable");
-                temporary.remove();
             }
             tokenCopyFeedback.textContent = "Token 已复制到剪贴板。";
             tokenCopyFeedback.classList.remove("robot-feedback-error");
         } catch (_error) {
             tokenCopyFeedback.textContent = "自动复制失败，请手动选中上方 Token 复制。";
             tokenCopyFeedback.classList.add("robot-feedback-error");
+        } finally {
+            temporary?.remove();
         }
         tokenCopyFeedback.hidden = false;
     };
