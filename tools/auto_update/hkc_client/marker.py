@@ -26,18 +26,30 @@ def read_marker(source: Path) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
-def matches(marker: dict | None, server: str, robot_id: str) -> bool:
+def matches(
+    marker: dict | None,
+    server: str,
+    robot_id: str,
+    dataset_family: str = "vla",
+) -> bool:
     if not marker:
         return False
     return (
         marker.get("schema_version") == SCHEMA_VERSION
         and str(marker.get("server") or "").rstrip("/") == server.rstrip("/")
         and marker.get("robot_id") == robot_id
+        and str(marker.get("dataset_family") or "vla") == dataset_family
         and bool(marker.get("dataset_id"))
     )
 
 
-def write_marker(source: Path, dataset_id: str, robot_id: str, server: str) -> Path:
+def write_marker(
+    source: Path,
+    dataset_id: str,
+    robot_id: str,
+    server: str,
+    dataset_family: str = "vla",
+) -> Path:
     path = marker_path(source)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -45,6 +57,7 @@ def write_marker(source: Path, dataset_id: str, robot_id: str, server: str) -> P
         "dataset_id": dataset_id,
         "robot_id": robot_id,
         "server": server.rstrip("/"),
+        "dataset_family": dataset_family,
         # datetime.UTC only exists in Python 3.11; collectors target Ubuntu 22.04/Python 3.10.
         "uploaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),  # noqa: UP017
     }

@@ -69,6 +69,12 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--server", default=os.getenv("HKC_SERVER", ""))
     value.add_argument("--token-file", default=os.getenv("HKC_TOKEN_FILE", ""))
     value.add_argument(
+        "--dataset-family",
+        choices=("vla", "wam", "ego"),
+        default=os.getenv("HKC_DATASET_FAMILY", "vla").strip().lower(),
+        help="数据集类别，默认 vla；也可使用 HKC_DATASET_FAMILY",
+    )
+    value.add_argument(
         "--retries",
         type=int,
         default=int(os.getenv("HKC_RETRY_ATTEMPTS", "3")),
@@ -83,9 +89,10 @@ def run_one(
     robot: dict,
     temporary_dir: Path,
     counts: Counts,
+    dataset_family: str = "vla",
 ) -> None:
     existing_marker = read_marker(source)
-    if matches(existing_marker, client.server, robot["id"]):
+    if matches(existing_marker, client.server, robot["id"], dataset_family):
         counts.skipped += 1
         print(f"[跳过] {source.name}：已上传为 {existing_marker['dataset_id']}")
         return
@@ -103,18 +110,22 @@ def run_one(
             generated_archive = True
         print(f"[检查] {source.name}")
         digest = sha256(archive)
-        preflight = client.preflight(archive, digest, robot_type)
+        preflight = client.preflight(archive, digest, robot_type, dataset_family)
         if preflight.get("action") == "existing":
             dataset_id = str(preflight["dataset_id"])
-            write_marker(source, dataset_id, robot["id"], client.server)
+            write_marker(
+                source, dataset_id, robot["id"], client.server, dataset_family
+            )
             counts.duplicate += 1
             print(f"[已存在] {source.name}：{dataset_id}，已写入上传标记")
             return
 
         print(f"[上传] {source.name}（{archive.stat().st_size} 字节）")
-        result = client.upload(archive, digest, robot_type, source.stem)
+        result = client.upload(
+            archive, digest, robot_type, source.stem, dataset_family
+        )
         dataset_id = str(result["dataset_id"])
-        write_marker(source, dataset_id, robot["id"], client.server)
+        write_marker(source, dataset_id, robot["id"], client.server, dataset_family)
         if result.get("action") == "existing":
             counts.duplicate += 1
             print(f"[已存在] {source.name}：{dataset_id}，已写入上传标记")
@@ -137,6 +148,7 @@ def main() -> int:
         client = CollectorClient(args.server, token, args.retries)
         robot = client.profile()
         print(f"当前机器人：{robot['id']} / {robot['name']} / {robot['robot_type']}")
+        print(f"数据集类别：{args.dataset_family}")
         sources = (
             normalize_sources(args.sources)
             if args.sources
@@ -154,7 +166,14 @@ def main() -> int:
     for index, source in enumerate(sources, start=1):
         print(f"\n=== [{index}/{len(sources)}] {source.name} ===")
         try:
-            run_one(source, client, robot, SCRIPT_DIR / "temporary", counts)
+            run_one(
+                source,
+                client,
+                robot,
+                SCRIPT_DIR / "temporary",
+                counts,
+                args.dataset_family,
+            )
         except FatalCollectorError as exc:
             counts.failed += 1
             print(f"[终止] {source.name}：{exc}", file=sys.stderr)

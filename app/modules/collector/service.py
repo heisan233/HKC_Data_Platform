@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from app.db.dataset_robots import DatasetRobotRepository
-from app.db.datasets import DatasetRepository
+from app.db.datasets import DATASET_FAMILIES, DatasetRepository
 from app.db.robots import RobotRepository
 from app.modules.ingestion.service import get_upload_limits
 
@@ -54,6 +54,18 @@ def normalize_sha256(value: str) -> str:
             "archive_sha256 必须是 64 位十六进制 SHA-256。",
             code="invalid_sha256",
             status_code=422,
+        )
+    return normalized
+
+
+def normalize_dataset_family(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized not in DATASET_FAMILIES:
+        raise CollectorRuleError(
+            "数据集类别只能是 vla、wam 或 ego。",
+            code="invalid_dataset_family",
+            status_code=422,
+            details={"allowed_dataset_families": sorted(DATASET_FAMILIES)},
         )
     return normalized
 
@@ -103,7 +115,14 @@ class ClaimStore:
         with self.locked():
             return self.read_unlocked(digest)
 
-    def begin(self, digest: str, robot: dict, filename: str, archive_size: int) -> dict:
+    def begin(
+        self,
+        digest: str,
+        robot: dict,
+        filename: str,
+        archive_size: int,
+        dataset_family: str,
+    ) -> dict:
         with self.locked():
             existing = self.read_unlocked(digest)
             if existing and existing.get("status") == "processing":
@@ -126,6 +145,7 @@ class ClaimStore:
                 "dataset_id": None,
                 "filename": filename,
                 "archive_size": archive_size,
+                "dataset_family": dataset_family,
                 "created_at": timestamp,
                 "updated_at": timestamp,
                 "message": "正在上传",
@@ -133,7 +153,13 @@ class ClaimStore:
             self.write_unlocked(digest, record)
             return record
 
-    def accept(self, digest: str, robot: dict, dataset_id: str) -> dict:
+    def accept(
+        self,
+        digest: str,
+        robot: dict,
+        dataset_id: str,
+        dataset_family: str,
+    ) -> dict:
         with self.locked():
             record = self.read_unlocked(digest) or {"archive_sha256": digest}
             record.update(
@@ -141,6 +167,7 @@ class ClaimStore:
                 robot_id=robot["id"],
                 robot_type=robot["robot_type"],
                 dataset_id=dataset_id,
+                dataset_family=dataset_family,
                 updated_at=utc_now(),
                 message="数据集已入库",
             )
@@ -157,7 +184,7 @@ class ClaimStore:
             record.update(status="failed", updated_at=utc_now(), message=message)
             self.write_unlocked(digest, record)
 
-    def rebind(self, digest: str, robot: dict) -> dict:
+    def rebind(self, digest: str, robot: dict, dataset_family: str) -> dict:
         with self.locked():
             record = self.read_unlocked(digest)
             if record is None:
@@ -169,6 +196,7 @@ class ClaimStore:
             record.update(
                 robot_id=robot["id"],
                 robot_type=robot["robot_type"],
+                dataset_family=dataset_family,
                 updated_at=utc_now(),
                 rebound_at=utc_now(),
                 message="数据集采集机器人已改绑",
@@ -224,12 +252,16 @@ def preflight(
     *,
     archive_sha256: str,
     archive_size: int,
+    dataset_family: str,
     archive_robot_type: str | None,
     robot_type_confirmation: str | None,
 ) -> dict:
     digest = normalize_sha256(archive_sha256)
+    family = normalize_dataset_family(dataset_family)
     limits = get_upload_limits()
-    if archive_size <= 0 or archive_size > limits.max_upload_bytes:
+    if archive_size <= 0 or (
+        family != "ego" and archive_size > limits.max_upload_bytes
+    ):
         raise CollectorRuleError(
             "压缩包大小超过平台上传限制。",
             code="invalid_archive_size",
@@ -244,8 +276,20 @@ def preflight(
             "action": "upload",
             "archive_sha256": digest,
             "robot_id": robot["id"],
+            "dataset_family": family,
         }
     _claim, dataset, current_robot = duplicate
+    existing_family = dataset["dataset_family"]
+    if existing_family != family:
+        raise CollectorRuleError(
+            "相同 ZIP 已按其他数据集类别入库，不能以新类别重复登记。",
+            code="duplicate_dataset_family_mismatch",
+            details={
+                "dataset_id": dataset["id"],
+                "existing_dataset_family": existing_family,
+                "requested_dataset_family": family,
+            },
+        )
     if current_robot["id"] == robot["id"]:
         return {
             "ok": True,
@@ -254,6 +298,7 @@ def preflight(
             "message": f"该数据已由 {robot['id']} 上传为 {dataset['id']}。",
             "dataset_id": dataset["id"],
             "robot_id": robot["id"],
+            "dataset_family": family,
         }
     if not _same_type(current_robot["robot_type"], robot["robot_type"]):
         raise CollectorRuleError(
@@ -287,15 +332,29 @@ def begin_upload(
     archive_sha256: str,
     filename: str,
     archive_size: int,
+    dataset_family: str,
 ) -> dict:
     return ClaimStore(root).begin(
-        normalize_sha256(archive_sha256), robot, filename, archive_size
+        normalize_sha256(archive_sha256),
+        robot,
+        filename,
+        archive_size,
+        normalize_dataset_family(dataset_family),
     )
 
 
-def finish_upload(root: Path, robot: dict, archive_sha256: str, dataset_id: str) -> dict:
+def finish_upload(
+    root: Path,
+    robot: dict,
+    archive_sha256: str,
+    dataset_id: str,
+    dataset_family: str,
+) -> dict:
     return ClaimStore(root).accept(
-        normalize_sha256(archive_sha256), robot, dataset_id
+        normalize_sha256(archive_sha256),
+        robot,
+        dataset_id,
+        normalize_dataset_family(dataset_family),
     )
 
 
@@ -309,6 +368,7 @@ def rebind_duplicate(
     *,
     archive_sha256: str,
     dataset_id: str,
+    dataset_family: str,
     confirm: bool,
 ) -> dict:
     if not confirm:
@@ -318,6 +378,7 @@ def rebind_duplicate(
             status_code=400,
         )
     digest = normalize_sha256(archive_sha256)
+    family = normalize_dataset_family(dataset_family)
     duplicate = _accepted_duplicate(root, digest)
     if duplicate is None:
         raise CollectorRuleError(
@@ -326,6 +387,16 @@ def rebind_duplicate(
             status_code=404,
         )
     _claim, dataset, current_robot = duplicate
+    if dataset["dataset_family"] != family:
+        raise CollectorRuleError(
+            "数据集类别与重复文件记录不一致。",
+            code="duplicate_dataset_family_mismatch",
+            details={
+                "dataset_id": dataset["id"],
+                "existing_dataset_family": dataset["dataset_family"],
+                "requested_dataset_family": family,
+            },
+        )
     if dataset["id"] != dataset_id:
         raise CollectorRuleError(
             "数据集编号与重复文件记录不一致。",
@@ -351,11 +422,12 @@ def rebind_duplicate(
     DatasetRobotRepository(root).bind(
         robot["id"], [dataset_id], f"collector-rebind:{robot['id']}"
     )
-    ClaimStore(root).rebind(digest, robot)
+    ClaimStore(root).rebind(digest, robot, family)
     return {
         "ok": True,
         "action": "rebound",
         "message": f"{dataset_id} 已改绑到 {robot['id']}。",
         "dataset_id": dataset_id,
         "robot_id": robot["id"],
+        "dataset_family": family,
     }

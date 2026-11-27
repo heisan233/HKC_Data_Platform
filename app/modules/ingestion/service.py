@@ -520,8 +520,6 @@ async def receive_dataset_upload(
     try:
         if dataset_family not in DATASET_FAMILIES:
             raise UploadValidationError("数据集类别不合法。")
-        if dataset_family == "ego" and collector_robot_id:
-            raise UploadValidationError("机器人采集接口不支持 EGO 数据集。")
         clean_name, clean_description, clean_robot_type = _validate_form_text(
             dataset_name,
             description,

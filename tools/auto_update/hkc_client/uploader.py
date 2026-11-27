@@ -101,11 +101,13 @@ class CollectorClient:
         archive: Path,
         digest: str,
         robot_type: str,
+        dataset_family: str = "vla",
     ) -> dict:
         body = {
             "archive_sha256": digest,
             "archive_size": archive.stat().st_size,
             "filename": archive.name,
+            "dataset_family": dataset_family,
             "archive_robot_type": robot_type,
             "robot_type_confirmation": None,
         }
@@ -129,6 +131,7 @@ class CollectorClient:
         digest: str,
         robot_type: str,
         dataset_name: str,
+        dataset_family: str = "vla",
     ) -> dict:
         if shutil.which("curl") is None:
             raise FatalCollectorError("未找到 curl，请先安装 curl")
@@ -142,6 +145,7 @@ class CollectorClient:
                 "--form", f"archive=@{archive};type=application/zip",
                 "--form", f"archive_sha256={digest}",
                 "--form", f"archive_size={archive.stat().st_size}",
+                "--form", f"dataset_family={dataset_family}",
                 "--form", f"archive_robot_type={robot_type}",
                 "--form", "robot_type_confirmation=",
                 "--form", f"dataset_name={dataset_name}",

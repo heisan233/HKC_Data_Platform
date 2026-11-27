@@ -14,5 +14,8 @@
 自动上传的显示名称取文件夹名或 ZIP 去扩展名。上传成功会写本地标记；测试平台重置
 后可用 `auto_update/clear_upload_markers.sh` 清除标记。
 
+两套上传工具都支持 `--dataset-family vla|wam|ego`，默认 `vla`。同一条命令中的
+全部来源使用同一类别；服务端会校验并将类别写入 MySQL 数据集登记信息。
+
 所有真实 Token 和 `config.env` 都必须留在采集机本地并限制权限，不能提交 Git。
 当前采集协议是可信内网 HTTP，不适用于公网。

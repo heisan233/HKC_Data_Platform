@@ -18,7 +18,7 @@ from app.main import app
 from app.modules.collector import router as collector_router
 
 
-def make_zip(robot_type: str | None = "so100") -> bytes:
+def make_zip(robot_type: str | None = "so100", *, include_video: bool = False) -> bytes:
     payload = BytesIO()
     info = {
         "codebase_version": "v3.0",
@@ -27,6 +27,11 @@ def make_zip(robot_type: str | None = "so100") -> bytes:
         "total_frames": 2,
         "features": {"observation.state": {"dtype": "float32", "shape": [2]}},
     }
+    if include_video:
+        info["features"]["observation.images.cam_high"] = {
+            "dtype": "video",
+            "shape": [3, 1080, 1920],
+        }
     if robot_type is not None:
         info["robot_type"] = robot_type
     with ZipFile(payload, "w", ZIP_DEFLATED) as archive:
@@ -35,6 +40,11 @@ def make_zip(robot_type: str | None = "so100") -> bytes:
         archive.writestr("sample/meta/tasks.parquet", b"PAR1-tasks")
         archive.writestr("sample/meta/episodes/chunk-000/file-000.parquet", b"PAR1-episodes")
         archive.writestr("sample/data/chunk-000/file-000.parquet", b"PAR1-data")
+        if include_video:
+            archive.writestr(
+                "sample/videos/observation.images.cam_high/chunk-000/file-000.mp4",
+                b"\x00\x00\x00\x18ftypisom",
+            )
     return payload.getvalue()
 
 
@@ -64,6 +74,7 @@ def upload(
     declared_type: str = "so100",
     confirmation: str = "",
     declared_digest: str | None = None,
+    dataset_family: str = "vla",
 ):
     return client.post(
         "/api/v1/collector/uploads",
@@ -71,6 +82,7 @@ def upload(
         data={
             "archive_sha256": declared_digest or digest(data),
             "archive_size": str(len(data)),
+            "dataset_family": dataset_family,
             "archive_robot_type": declared_type,
             "robot_type_confirmation": confirmation,
         },
@@ -171,6 +183,85 @@ def test_same_robot_duplicate_returns_existing_dataset(collector) -> None:
     assert repeated.json()["dataset_id"] == dataset_id
     assert repeated.json()["robot_id"] == robot["id"]
     assert len(DatasetRepository(root).list()) == 1
+
+
+@pytest.mark.parametrize("dataset_family", ["vla", "wam"])
+def test_collector_registers_selected_dataset_family(collector, dataset_family) -> None:
+    client, root = collector
+    robot, token = create_robot(root, "采集机器人一号", "so100", "COL-001")
+
+    created = upload(client, token, make_zip(), dataset_family=dataset_family)
+
+    assert created.status_code == 201
+    dataset_id = created.json()["dataset_id"]
+    assert DatasetRepository(root).get(dataset_id)["dataset_family"] == dataset_family
+    assert DatasetRobotRepository(root).get(dataset_id)["robot_id"] == robot["id"]
+
+
+def test_collector_registers_ego_dataset_and_links_robot(collector) -> None:
+    client, root = collector
+    robot, token = create_robot(
+        root, "头戴采集设备", "human_egocentric", "EGO-001"
+    )
+    data = make_zip(robot_type="human_egocentric", include_video=True)
+
+    created = upload(
+        client,
+        token,
+        data,
+        declared_type="human_egocentric",
+        dataset_family="ego",
+    )
+
+    assert created.status_code == 201
+    dataset_id = created.json()["dataset_id"]
+    assert DatasetRepository(root).get(dataset_id)["dataset_family"] == "ego"
+    assert DatasetRobotRepository(root).get(dataset_id)["robot_id"] == robot["id"]
+
+
+def test_invalid_dataset_family_is_rejected(collector) -> None:
+    client, root = collector
+    _robot, token = create_robot(root, "采集机器人一号", "so100", "COL-001")
+    data = make_zip()
+
+    checked = client.post(
+        "/api/v1/collector/uploads/preflight",
+        headers=auth(token),
+        json={
+            "archive_sha256": digest(data),
+            "archive_size": len(data),
+            "filename": "sample.zip",
+            "dataset_family": "other",
+            "archive_robot_type": "so100",
+        },
+    )
+
+    assert checked.status_code == 422
+    assert checked.json()["code"] == "invalid_dataset_family"
+
+
+def test_same_zip_cannot_be_registered_as_another_dataset_family(collector) -> None:
+    client, root = collector
+    _robot, token = create_robot(root, "采集机器人一号", "so100", "COL-001")
+    data = make_zip()
+    assert upload(client, token, data, dataset_family="vla").status_code == 201
+
+    conflict = client.post(
+        "/api/v1/collector/uploads/preflight",
+        headers=auth(token),
+        json={
+            "archive_sha256": digest(data),
+            "archive_size": len(data),
+            "filename": "sample.zip",
+            "dataset_family": "wam",
+            "archive_robot_type": "so100",
+        },
+    )
+
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "duplicate_dataset_family_mismatch"
+    assert conflict.json()["existing_dataset_family"] == "vla"
+    assert conflict.json()["requested_dataset_family"] == "wam"
 
 
 def test_same_type_other_robot_requires_confirmation_and_rebinds(collector) -> None:

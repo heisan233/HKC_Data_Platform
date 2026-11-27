@@ -118,6 +118,7 @@ def _upload_with_curl(
     confirmation: str,
     dataset_name: str,
     description: str,
+    dataset_family: str,
 ) -> tuple[int, dict]:
     if shutil.which("curl") is None:
         raise SystemExit("未找到 curl，请先安装 curl。")
@@ -138,6 +139,8 @@ def _upload_with_curl(
         f"archive_sha256={digest}",
         "--form",
         f"archive_size={archive.stat().st_size}",
+        "--form",
+        f"dataset_family={dataset_family}",
         "--form",
         f"archive_robot_type={robot_type}",
         "--form",
@@ -181,6 +184,12 @@ def main() -> int:
     )
     parser.add_argument("--name", default="", help="数据集显示名称；省略时使用 ZIP 文件名")
     parser.add_argument("--description", default="", help="上传备注")
+    parser.add_argument(
+        "--dataset-family",
+        choices=("vla", "wam", "ego"),
+        default=os.getenv("HKC_DATASET_FAMILY", "vla").strip().lower(),
+        help="数据集类别，默认 vla；也可使用 HKC_DATASET_FAMILY",
+    )
     args = parser.parse_args()
 
     archive = args.archive.expanduser().resolve()
@@ -196,6 +205,7 @@ def main() -> int:
         raise SystemExit(f"Token 验证失败：{_message(profile)}")
     robot = profile["robot"]
     print(f"当前机器人：{robot['id']} / {robot['name']} / {robot['robot_type']}")
+    print(f"数据集类别：{args.dataset_family}")
 
     info = _dataset_info(archive)
     archive_robot_type = str(info.get("robot_type") or "").strip()
@@ -220,6 +230,7 @@ def main() -> int:
         "archive_sha256": digest,
         "archive_size": archive.stat().st_size,
         "filename": archive.name,
+        "dataset_family": args.dataset_family,
         "archive_robot_type": archive_robot_type or None,
         "robot_type_confirmation": confirmation or None,
     }
@@ -243,6 +254,7 @@ def main() -> int:
             {
                 "archive_sha256": digest,
                 "dataset_id": preflight["dataset_id"],
+                "dataset_family": args.dataset_family,
                 "confirm": True,
             },
         )
@@ -263,6 +275,7 @@ def main() -> int:
         confirmation,
         args.name,
         args.description,
+        args.dataset_family,
     )
     if upload_status not in {200, 201} or not result.get("ok"):
         raise SystemExit(f"上传失败：{_message(result)}")

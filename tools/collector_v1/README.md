@@ -16,6 +16,7 @@ chmod 600 collector.env
 ```dotenv
 HKC_SERVER=http://PLATFORM_HOST:PORT
 HKC_TOKEN_FILE=$HOME/.config/hkc-collector/RB000001.token
+HKC_DATASET_FAMILY=vla
 ```
 
 Token 文件权限应为 0600，不得提交 Git。
@@ -32,6 +33,17 @@ Token 文件权限应为 0600，不得提交 Git。
 ./hkc_upload.sh /path/to/dataset.zip --name "数据集名称" --description "备注"
 ```
 
+选择数据集类别：
+
+```bash
+./hkc_upload.sh /path/to/dataset.zip --dataset-family vla
+./hkc_upload.sh /path/to/dataset.zip --dataset-family wam
+./hkc_upload.sh /path/to/dataset.zip --dataset-family ego
+```
+
+类别省略时默认为 `vla`，也可以通过 `HKC_DATASET_FAMILY` 配置。EGO 压缩包必须包含
+平台可识别的视频字段及视频文件。
+
 `--name` 省略时使用 ZIP 文件名。平台要求显示名称唯一，比较时忽略首尾空格和英文
 大小写。
 
@@ -47,7 +59,7 @@ Token 文件权限应为 0600，不得提交 Git。
 2. 读取 ZIP 中 `meta/info.json`；
 3. 检查机器人类型；
 4. 计算 SHA-256；
-5. 调用预检接口；
+5. 调用预检接口，校验 `vla / wam / ego` 类别；
 6. 使用 curl 流式上传；
 7. 输出 DS 编号和默认状态。
 

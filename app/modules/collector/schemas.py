@@ -7,6 +7,7 @@ class UploadPreflight(BaseModel):
     archive_sha256: str = Field(min_length=64, max_length=64)
     archive_size: int = Field(gt=0)
     filename: str = Field(min_length=1, max_length=255)
+    dataset_family: str = Field(default="vla", min_length=3, max_length=8)
     archive_robot_type: str | None = Field(default=None, max_length=100)
     robot_type_confirmation: str | None = Field(default=None, max_length=100)
 
@@ -14,4 +15,5 @@ class UploadPreflight(BaseModel):
 class RebindDuplicate(BaseModel):
     archive_sha256: str = Field(min_length=64, max_length=64)
     dataset_id: str = Field(pattern=r"^DS[0-9]+$")
+    dataset_family: str = Field(default="vla", min_length=3, max_length=8)
     confirm: bool

@@ -72,6 +72,7 @@ def upload_preflight(
             robot,
             archive_sha256=payload.archive_sha256,
             archive_size=payload.archive_size,
+            dataset_family=payload.dataset_family,
             archive_robot_type=payload.archive_robot_type,
             robot_type_confirmation=payload.robot_type_confirmation,
         )
@@ -84,6 +85,7 @@ async def upload_dataset(
     archive: Annotated[UploadFile, File()],
     archive_sha256: Annotated[str, Form()],
     archive_size: Annotated[int, Form()],
+    dataset_family: Annotated[str, Form()] = "vla",
     archive_robot_type: Annotated[str, Form()] = "",
     robot_type_confirmation: Annotated[str, Form()] = "",
     dataset_name: Annotated[str, Form()] = "",
@@ -100,6 +102,7 @@ async def upload_dataset(
             robot,
             archive_sha256=archive_sha256,
             archive_size=archive_size,
+            dataset_family=dataset_family,
             archive_robot_type=archive_robot_type or None,
             robot_type_confirmation=robot_type_confirmation or None,
         )
@@ -112,6 +115,7 @@ async def upload_dataset(
             archive_sha256=archive_sha256,
             filename=archive.filename or "dataset.zip",
             archive_size=archive_size,
+            dataset_family=checked["dataset_family"],
         )
     except service.CollectorRuleError as exc:
         await archive.close()
@@ -126,6 +130,7 @@ async def upload_dataset(
         upload=archive,
         dataset_name=(dataset_name.strip() or default_name)[:100],
         description=description,
+        dataset_family=checked["dataset_family"],
         collector_robot_id=robot["id"],
         collector_robot_type=robot["robot_type"],
         expected_sha256=archive_sha256,
@@ -137,6 +142,7 @@ async def upload_dataset(
             robot,
             archive_sha256,
             outcome.payload["dataset_id"],
+            checked["dataset_family"],
         )
         outcome.payload["collector_robot_id"] = robot["id"]
     else:
@@ -163,6 +169,7 @@ def rebind_duplicate(
             robot,
             archive_sha256=payload.archive_sha256,
             dataset_id=payload.dataset_id,
+            dataset_family=payload.dataset_family,
             confirm=payload.confirm,
         )
     except service.CollectorRuleError as exc:

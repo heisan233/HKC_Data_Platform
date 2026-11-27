@@ -19,6 +19,7 @@ chmod 600 config.env
 HKC_SERVER=http://PLATFORM_HOST:PORT
 HKC_TOKEN_FILE=$HOME/.config/hkc-collector/RB000001.token
 HKC_AUTO_SCAN_DIR=/path/to/datasets
+HKC_DATASET_FAMILY=vla
 HKC_RETRY_ATTEMPTS=3
 ```
 
@@ -67,6 +68,18 @@ datasets/
 ./upload_once.sh /path/to/dataset-a /path/to/dataset-b.zip
 ```
 
+明确选择本次上传的数据集类别：
+
+```bash
+./upload_once.sh --dataset-family vla /path/to/vla-dataset
+./upload_once.sh --dataset-family wam /path/to/wam-dataset.zip
+./upload_once.sh --dataset-family ego /path/to/ego-dataset.zip
+```
+
+`--dataset-family` 对本次命令中的全部来源生效，只允许 `vla`、`wam`、`ego`；省略时
+默认为 `vla`，因此现有 RoboTwin 上传命令无需修改。也可以在 `config.env` 中设置
+`HKC_DATASET_FAMILY`。
+
 工具会依次：
 
 1. 验证 Token 和机器人状态；
@@ -94,8 +107,8 @@ ZIP 成功后写：
 dataset-b.zip.hkc-uploaded.json
 ```
 
-标记包含平台地址、RB 和 DS。下次对同平台、同 RB 运行时，会在打包和 SHA-256 前
-跳过。
+标记包含平台地址、RB、DS 和数据集类别。下次对同平台、同 RB、同类别运行时，会在
+打包和 SHA-256 前跳过。旧标记没有类别字段时按 `vla` 兼容读取。
 
 测试平台被重置后，服务器 DS 已消失，但采集机标记仍存在。清除标记：
 
@@ -114,6 +127,7 @@ dataset-b.zip.hkc-uploaded.json
 ## 5. 重复与类型
 
 - 同 RB、相同 ZIP：平台返回已有 DS；
+- 相同 ZIP 已按其他类别入库：拒绝，避免同一文件被错误登记为多种类别；
 - 不同 RB、相同 ZIP：工具报告冲突，不自动改绑；
 - 机器人类型不一致：拒绝；
 - ZIP 缺少类型：当前工具要求先补齐，避免无人值守确认；
@@ -126,4 +140,4 @@ dataset-b.zip.hkc-uploaded.json
 - 文件夹每次实际上传前都临时打包；
 - 工具依赖调用 curl 完成流式上传；
 - 只支持可信内网 HTTP；
-- 只支持完整 LeRobot v3 文件夹或 ZIP。
+- 只支持完整 LeRobot v3 文件夹或 ZIP；EGO 数据还必须包含可识别的视频。
